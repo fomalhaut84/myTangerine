@@ -1,0 +1,301 @@
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+import pandas as pd
+from datetime import datetime
+import re
+
+# def format_shipping_labels(df):
+#     # DataFrame이 비어있는지 확인
+#     if df.empty:
+#         return "새로운 주문이 없습니다."
+
+#     # 날짜별로 정렬
+#     df = df.sort_values('타임스탬프')
+
+#     # 기본 발신자 정보
+#     default_sender = {
+#         'address': '제주도 제주시 정실3길 113 C동 301호',
+#         'name': '안세진',
+#         'phone': '010-6395-0618'
+#     }
+
+#     total_5kg = 0
+#     total_10kg = 0
+
+#     def get_quantity(row):
+#         # 5kg 수량 확인
+#         if pd.notna(row['5kg 수량']):
+#             qty = str(row['5kg 수량'])
+#             if any(char.isdigit() for char in qty):
+#                 return int(''.join(filter(str.isdigit, qty)))
+#         return 1
+    
+#     # 주문자별로 그룹핑
+#     grouped = df.groupby('주문자 성함')
+
+#     formatted_labels = []
+#     current_date = None
+
+#     def format_phone_number(phone):
+#         # None이나 빈 값 처리
+#         if pd.isna(phone) or str(phone).strip() == '':
+#             return ''
+        
+#         # 문자열로 변환하고 모든 특수문자 및 공백 제거    
+#         numbers_only = ''.join(filter(str.isdigit, str(phone)))
+        
+#         # 자릿수 검사 및 변환
+#         if len(numbers_only) == 10 and numbers_only.startswith('10'):
+#             # 10자리이고 10으로 시작하면 앞에 0 추가
+#             numbers_only = '0' + numbers_only
+        
+#         # 최종 포맷팅
+#         if len(numbers_only) == 11 and numbers_only.startswith('010'):
+#             return f"{numbers_only[:3]}-{numbers_only[3:7]}-{numbers_only[7:]}"
+        
+#         # 기존 형식이 이미 올바른 경우
+#         if len(str(phone).replace('-', '')) == 11 and str(phone).count('-') == 2:
+#             return phone
+            
+#         return phone
+    
+#     for orderer_name, group in grouped:
+#         for _, row in group.iterrows():
+#             order_date = row['타임스탬프'].date()
+
+#             # 날짜가 바뀌면 구분선 추가
+#             if current_date != order_date:
+#                 if current_date is not None:
+#                     formatted_labels.append("-" * 50 + "\n")
+#                 formatted_labels.append(f"=== {order_date} ===\n")
+#                 current_date = order_date
+
+#             label = []
+
+#             # 보내는 사람 정보 처리
+#             has_sender = (
+#                 pd.notna(row['보내는분 성함']) and 
+#                 pd.notna(row['보내는분 주소 (도로명 주소로 부탁드려요)']) and 
+#                 pd.notna(row['보내는분 연락처 (핸드폰번호)']) and
+#                 str(row['보내는분 성함']).strip() != '' and
+#                 str(row['보내는분 주소 (도로명 주소로 부탁드려요)']).strip() != '' and
+#                 str(row['보내는분 연락처 (핸드폰번호)']).strip() != ''
+#             )
+
+#             if has_sender:
+#                 # 기존 발신자 정보가 있는 경우
+#                 label.append("보내는사람\n")
+#                 label.append(f"{row['보내는분 주소 (도로명 주소로 부탁드려요)']} {row['보내는분 성함']} {format_phone_number(str(row['보내는분 연락처 (핸드폰번호)']))}\n")
+#             else:
+#                 # 기본 발신자 정보 사용
+#                 label.append("보내는사람\n")
+#                 label.append(f"{default_sender['address']} {default_sender['name']} {default_sender['phone']}\n")
+
+#             # 받는 사람 정보
+#             label.append("받는사람\n")
+#             label.append(f"{row['받으실분 주소 (도로명 주소로 부탁드려요)']} {row['받으실분 성함']} {format_phone_number(str(row['받으실분 연락처 (핸드폰번호)']))}\n")
+
+#             # 상품 정보 추가
+#             label.append("주문상품\n")
+#             quantity = get_quantity(row)
+#             if '5kg' in str(row['상품 선택']):
+#                 total_5kg += quantity  # 5kg 수량 합계
+#                 label.append(f"5kg / {quantity}박스\n")
+#             elif '10kg' in str(row['상품 선택']):
+#                 total_10kg += quantity  # 10kg 수량 합계
+#                 label.append(f"10kg / {quantity}박스\n")
+
+#             formatted_labels.append("".join(label) + "\n")
+
+#     # 모든 라벨 출력 후 요약 정보 추가
+#     summary = "\n" + "=" * 50 + "\n"
+#     summary += "주문 요약\n"
+#     summary += "-" * 20 + "\n"
+#     summary += f"5kg 주문: {total_5kg}박스 ({total_5kg * 20000:,}원)\n"
+#     summary += f"10kg 주문: {total_10kg}박스 ({total_10kg * 35000:,}원)\n"
+#     summary += "-" * 20 + "\n"
+#     summary += f"총 주문금액: {(total_5kg * 20000) + (total_10kg * 35000):,}원\n"
+
+#     return "".join(formatted_labels) + summary
+
+def format_shipping_labels(df):
+    # DataFrame이 비어있는지 확인
+    if df.empty:
+        return "새로운 주문이 없습니다."
+
+    # 날짜별로 정렬
+    df = df.sort_values('타임스탬프')
+
+    # 기본 발신자 정보
+    default_sender = {
+        'address': '제주도 제주시 정실3길 113 C동 301호',
+        'name': '안세진',
+        'phone': '010-6395-0618'
+    }
+
+    total_5kg = 0
+    total_10kg = 0
+
+    def get_quantity(row):
+        # 5kg 수량 확인
+        if pd.notna(row['5kg 수량']):
+            qty = str(row['5kg 수량'])
+            if any(char.isdigit() for char in qty):
+                return int(''.join(filter(str.isdigit, qty)))
+        return 1
+
+    def format_phone_number(phone):
+        if pd.isna(phone) or str(phone).strip() == '':
+            return ''
+        
+        numbers_only = ''.join(filter(str.isdigit, str(phone)))
+        
+        if len(numbers_only) == 10 and numbers_only.startswith('10'):
+            numbers_only = '0' + numbers_only
+        
+        if len(numbers_only) == 11 and numbers_only.startswith('010'):
+            return f"{numbers_only[:3]}-{numbers_only[3:7]}-{numbers_only[7:]}"
+        
+        if len(str(phone).replace('-', '')) == 11 and str(phone).count('-') == 2:
+            return phone
+            
+        return phone
+
+    formatted_labels = []
+    current_date = None
+
+    # 날짜별로 먼저 그룹화
+    date_grouped = df.groupby(df['타임스탬프'].dt.date)
+
+    for date, date_group in date_grouped:
+        formatted_labels.append(f"=== {date} ===\n")
+        
+        # 각 날짜 내에서 보내는 사람별로 그룹화
+        sender_grouped = date_group.groupby(['보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)'])
+        
+        first_sender = True
+        for (sender_name, sender_address, sender_phone), sender_group in sender_grouped:
+            if not first_sender:
+                formatted_labels.append("\n")
+            
+            # 보내는 사람 정보 처리
+            has_sender = (
+                pd.notna(sender_name) and 
+                pd.notna(sender_address) and 
+                pd.notna(sender_phone) and
+                str(sender_name).strip() != '' and
+                str(sender_address).strip() != '' and
+                str(sender_phone).strip() != ''
+            )
+
+            formatted_labels.append("보내는사람\n")
+            if has_sender:
+                formatted_labels.append(f"{sender_address} {sender_name} {format_phone_number(str(sender_phone))}\n\n")
+            else:
+                formatted_labels.append(f"{default_sender['address']} {default_sender['name']} {default_sender['phone']}\n\n")
+
+            # 각 받는 사람별 정보 처리
+            for _, row in sender_group.iterrows():
+                formatted_labels.append("받는사람\n")
+                formatted_labels.append(f"{row['받으실분 주소 (도로명 주소로 부탁드려요)']} {row['받으실분 성함']} {format_phone_number(str(row['받으실분 연락처 (핸드폰번호)']))}\n")
+                
+                formatted_labels.append("주문상품\n")
+                quantity = get_quantity(row)
+                if '5kg' in str(row['상품 선택']):
+                    total_5kg += quantity
+                    formatted_labels.append(f"5kg / {quantity}박스\n\n")
+                elif '10kg' in str(row['상품 선택']):
+                    total_10kg += quantity
+                    formatted_labels.append(f"10kg / {quantity}박스\n\n")
+            
+            first_sender = False
+        
+        formatted_labels.append("="*39 + "\n\n")
+
+    # 총계 정보 추가
+    summary = "\n" + "=" * 50 + "\n"
+    summary += "주문 요약\n"
+    summary += "-" * 20 + "\n"
+    summary += f"5kg 주문: {total_5kg}박스 ({total_5kg * 20000:,}원)\n"
+    summary += f"10kg 주문: {total_10kg}박스 ({total_10kg * 35000:,}원)\n"
+    summary += "-" * 20 + "\n"
+    summary += f"총 주문금액: {(total_5kg * 20000) + (total_10kg * 35000):,}원"
+
+    return "".join(formatted_labels) + summary
+
+def get_new_orders():
+    try:
+        # Google Sheets API 설정
+        scope = ['https://spreadsheets.google.com/feeds', 'https://www.googleapis.com/auth/drive']
+        credentials = ServiceAccountCredentials.from_json_keyfile_name('credentials.json', scope)
+        gc = gspread.authorize(credentials)
+
+        # 스프레드시트 열기
+        sheet = gc.open("감귤 주문서(응답)").sheet1
+
+        # 모든 데이터 가져오기
+        data = sheet.get_all_records()
+        df = pd.DataFrame(data)
+
+        # 마지막 행의 비고 컬럼을 '확인'으로 업데이트
+        last_row_idx = len(df)  # 스프레드시트의 마지막 행 인덱스
+        sheet.update_cell(last_row_idx + 1, df.columns.get_loc('비고') + 1, '확인')  # +1은 헤더행과 1-based 인덱스 때문
+
+
+        # 한국어 날짜 형식 파싱을 위한 함수
+        def parse_korean_timestamp(timestamp_str):
+            try:
+                # '오전'/'오후' 처리
+                if '오전' in timestamp_str:
+                    am_pm = 'AM'
+                    timestamp_str = timestamp_str.replace('오전', 'AM')
+                else:
+                    am_pm = 'PM'
+                    timestamp_str = timestamp_str.replace('오후', 'PM')
+                
+                # 날짜 포맷 변환
+                parts = timestamp_str.replace('.', '').strip().split()
+                year = parts[0]
+                month = parts[1].zfill(2)  # 한 자리 월을 두 자리로 변환
+                day = parts[2].zfill(2)    # 한 자리 일을 두 자리로 변환
+                time = parts[4]
+                
+                formatted_str = f"{year}-{month}-{day} {am_pm} {time}"
+                return pd.to_datetime(formatted_str, format='%Y-%m-%d %p %H:%M:%S')
+            except Exception as e:
+                print(f"Error parsing timestamp: {timestamp_str}, Error: {e}")
+                return None
+
+        # 타임스탬프를 datetime으로 변환
+        df['타임스탬프'] = df['타임스탬프'].apply(parse_korean_timestamp)
+
+        # 비고 컬럼에서 '확인'인 마지막 행의 인덱스를 찾음
+        last_confirmed_idx = df[df['비고'] == '확인'].index[-1]
+
+        # 마지막 처리 시간 이후의 데이터만 필터링
+        # if last_processed_timestamp:
+        #     last_dt = parse_korean_timestamp(last_processed_timestamp)
+        #     df = df[df['타임스탬프'] > last_dt]
+
+        # 해당 인덱스 이후의 데이터만 필터링
+        new_orders = df.iloc[last_confirmed_idx + 1:]
+
+        return new_orders
+
+    except Exception as e:
+        print(f"Error: {e}")
+        return pd.DataFrame()  # 빈 DataFrame 반환
+
+
+# 실행
+try:
+    # last_processed = "2024. 1. 10 오전 10:19:47"
+    # new_orders = get_new_orders(last_processed)
+    new_orders = get_new_orders()
+    if not new_orders.empty:
+        formatted_labels = format_shipping_labels(new_orders)
+        print(formatted_labels)
+    else:
+        print("새로운 주문이 없거나 데이터를 가져오는데 실패했습니다.")
+except Exception as e:
+    print(f"Error during processing: {e}")

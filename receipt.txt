@@ -1,0 +1,1 @@
+Error during processing: name 'last_processed' is not defined
