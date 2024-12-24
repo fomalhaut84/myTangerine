@@ -36,13 +36,20 @@ class OrderProcessor:
         return phone
 
     @staticmethod
-    def get_quantity(row: pd.Series) -> int:
-        if pd.notna(row['5kg 수량']):
-            qty = str(row['5kg 수량'])
-            if any(char.isdigit() for char in qty):
-                return int(''.join(filter(str.isdigit, qty)))
-        elif pd.notna(row['10kg 수량']):
-            qty = str(row['10kg 수량'])
-            if any(char.isdigit() for char in qty):
-                return int(''.join(filter(str.isdigit, qty)))
-        return 1
+    def get_quantity(row: pd.Series, logger=None) -> int:
+        try:
+            if pd.notna(row['5kg 수량']) and str(row['5kg 수량']).strip():
+                qty = str(row['5kg 수량'])
+                if any(char.isdigit() for char in qty):
+                    return int(''.join(filter(str.isdigit, qty)))
+            
+            elif pd.notna(row['10kg 수량']) and str(row['10kg 수량']).strip():
+                qty = str(row['10kg 수량'])
+                if any(char.isdigit() for char in qty):
+                    return int(''.join(filter(str.isdigit, qty)))
+            
+            return 1  # 기본값
+        except Exception as e:
+            if logger:
+                logger.error(f"Error processing quantity: {e}")
+            return 1
