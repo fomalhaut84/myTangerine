@@ -41,4 +41,8 @@ class OrderProcessor:
             qty = str(row['5kg 수량'])
             if any(char.isdigit() for char in qty):
                 return int(''.join(filter(str.isdigit, qty)))
+        elif pd.notna(row['10kg 수량']):
+            qty = str(row['10kg 수량'])
+            if any(char.isdigit() for char in qty):
+                return int(''.join(filter(str.isdigit, qty)))
         return 1
