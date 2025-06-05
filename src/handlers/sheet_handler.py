@@ -29,14 +29,20 @@ class GoogleSheetHandler:
             df = pd.DataFrame(data)
 
             # 마지막 행 인덱스 저장 (나중에 업데이트하기 위해)
-            self.last_row_idx = len(df)            
+            self.last_row_idx = len(df)
+
+            # 최근 확인된 주문 이후 첫 행 인덱스 저장
+            self.first_unconfirmed_idx = (
+                df[df['비고'] == '확인'].index[-1] + 1
+                if not df[df['비고'] == '확인'].empty
+                else 0
+            )
             
             # 타임스탬프 처리
             df['타임스탬프'] = df['타임스탬프'].apply(self._parse_korean_timestamp)
             
             # 새 주문 필터링
-            last_confirmed_idx = df[df['비고'] == '확인'].index[-1] if not df[df['비고'] == '확인'].empty else -1
-            return df.iloc[last_confirmed_idx + 1:]
+            return df.iloc[self.first_unconfirmed_idx:]
             
         except Exception as e:
             raise SpreadsheetError(f"Failed to get new orders: {str(e)}")
@@ -44,15 +50,20 @@ class GoogleSheetHandler:
     def mark_orders_as_confirmed(self):
         """성공적으로 처리된 주문을 '확인'으로 표시"""
         try:
-            if self.sheet and self.last_row_idx is not None:
+            if (
+                self.sheet
+                and self.last_row_idx is not None
+                and hasattr(self, 'first_unconfirmed_idx')
+            ):
                 비고_col = None
                 for idx, col in enumerate(self.sheet.row_values(1)):
                     if col == '비고':
                         비고_col = idx + 1
                         break
-                
+
                 if 비고_col:
-                    self.sheet.update_cell(self.last_row_idx + 1, 비고_col, '확인')
+                    for row in range(self.first_unconfirmed_idx, self.last_row_idx):
+                        self.sheet.update_cell(row + 2, 비고_col, '확인')
                 else:
                     raise SpreadsheetError("Could not find '비고' column")
         except Exception as e:
