@@ -42,7 +42,7 @@ class GoogleSheetHandler:
             raise SpreadsheetError(f"Failed to get new orders: {str(e)}")
         
     def mark_orders_as_confirmed(self):
-        """성공적으로 처리된 주문을 '확인'으로 표시"""
+        """처리된 모든 행을 '확인'으로 표시"""
         try:
             if self.sheet and self.last_row_idx is not None:
                 비고_col = None
