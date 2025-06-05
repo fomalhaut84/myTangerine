@@ -33,6 +33,10 @@ class Config:
             '10kg': 35000
         }
 
+        self.MONGODB_URI = os.getenv('MONGODB_URI', 'mongodb://localhost:27017')
+        self.MONGODB_DB_NAME = os.getenv('MONGODB_DB_NAME', 'mytangerine')
+        self.MONGODB_COLLECTION_NAME = os.getenv('MONGODB_COLLECTION_NAME', 'orders')
+
         # DEFAULT_SENDER 값 검증
         if not all(self.DEFAULT_SENDER.values()):
             raise ValueError(

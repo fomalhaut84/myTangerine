@@ -1,5 +1,5 @@
 from config.config import Config
-from handlers.sheet_handler import GoogleSheetHandler
+from handlers.mongo_handler import MongoDBHandler
 from handlers.order_processor import OrderProcessor
 from formatters.label_formatter import LabelFormatter
 from exceptions.exceptions import OrderProcessingError
@@ -7,7 +7,7 @@ from exceptions.exceptions import OrderProcessingError
 class OrderManagementSystem:
     def __init__(self):
         self.config = Config()
-        self.sheet_handler = GoogleSheetHandler(self.config)
+        self.sheet_handler = MongoDBHandler(self.config)
         self.label_formatter = LabelFormatter(self.config)
         self.order_processor = OrderProcessor(self.config)
 

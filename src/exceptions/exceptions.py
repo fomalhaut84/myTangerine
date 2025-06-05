@@ -9,3 +9,7 @@ class SpreadsheetError(OrderProcessingError):
 class DataParsingError(OrderProcessingError):
     """데이터 파싱 관련 예외"""
     pass
+
+class DatabaseError(OrderProcessingError):
+    """데이터베이스 처리 관련 예외"""
+    pass
