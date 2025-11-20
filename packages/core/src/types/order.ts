@@ -255,7 +255,9 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     sender = {
       name: isEmpty(senderName) ? defaultSender.name : senderName,
       address: isEmpty(senderAddress) ? defaultSender.address : senderAddress,
-      phone: isEmpty(senderPhone) ? defaultSender.phone : formatPhoneNumber(senderPhone),
+      phone: isEmpty(senderPhone)
+        ? formatPhoneNumber(defaultSender.phone)
+        : formatPhoneNumber(senderPhone),
     };
   } else {
     // Config가 없는 경우: 원본 값 그대로 사용 (backward compatibility)
