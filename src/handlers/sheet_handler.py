@@ -96,7 +96,7 @@ class GoogleSheetHandler:
         except Exception as e:
             self.logger.error(f"예상치 못한 에러 발생: {str(e)}", exc_info=True)
             raise SpreadsheetError(f"Failed to get new orders: {str(e)}")
-        
+
     def mark_orders_as_confirmed(self):
         """성공적으로 처리된 주문을 '확인'으로 표시"""
         try:
@@ -132,13 +132,13 @@ class GoogleSheetHandler:
         try:
             am_pm = 'AM' if '오전' in timestamp_str else 'PM'
             timestamp_str = timestamp_str.replace('오전', 'AM').replace('오후', 'PM')
-            
+
             parts = timestamp_str.replace('.', '').strip().split()
             year = parts[0]
             month = parts[1].zfill(2)
             day = parts[2].zfill(2)
             time = parts[4]
-            
+
             formatted_str = f"{year}-{month}-{day} {am_pm} {time}"
             return pd.to_datetime(formatted_str, format='%Y-%m-%d %p %H:%M:%S')
         except Exception as e:

@@ -1,7 +1,12 @@
 import os
 from dataclasses import dataclass
 from typing import Dict
-from dotenv import load_dotenv
+try:
+    from dotenv import load_dotenv
+except ModuleNotFoundError:  # pragma: no cover - allow running without package
+    def load_dotenv() -> None:
+        """Fallback no-op when python-dotenv is absent."""
+        pass
 
 # .env 파일 로드
 load_dotenv()
