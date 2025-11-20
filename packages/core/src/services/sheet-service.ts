@@ -1,37 +1,43 @@
 import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
-import type { Config } from '../config/config.js';
-import type { SheetRow, Order } from '../types/order.js';
-import fs from 'fs';
+import { Config } from '../config/config.js';
+import type { SheetRow } from '../types/order.js';
 
 /**
- * Google Sheets 서비스
+ * Google Sheets API를 사용한 스프레드시트 서비스
  */
 export class SheetService {
-  private sheets: sheets_v4.Sheets | null = null;
+  private config: Config;
+  private sheets: sheets_v4.Sheets;
+  private auth: JWT;
   private spreadsheetId: string | null = null;
-  private lastRowIndex: number | null = null;
+  private newOrderRows: number[] = []; // 처리할 행들의 실제 인덱스 저장
 
-  constructor(private readonly config: Config) {}
+  constructor(config: Config) {
+    this.config = config;
+    this.auth = this.setupAuth();
+    this.sheets = google.sheets({ version: 'v4', auth: this.auth });
+  }
 
   /**
-   * Google Sheets API 인증
+   * Google 인증 설정
    */
-  private async authenticate(): Promise<void> {
+  private setupAuth(): JWT {
     try {
-      // credentials.json 파일 읽기
-      const credentialsPath = this.config.credentialsPath;
-      if (!fs.existsSync(credentialsPath)) {
-        throw new Error(
-          `인증 파일을 찾을 수 없습니다: ${credentialsPath}\n` +
-            `credentials.json.example을 참고하여 credentials.json 파일을 생성하세요.`
-        );
+      let credentials: any;
+
+      // 우선순위에 따라 credentials 로드
+      if (this.config.credentialsJson) {
+        // JSON 문자열에서 로드
+        credentials = JSON.parse(this.config.credentialsJson);
+      } else if (this.config.credentialsPath) {
+        // 파일에서 로드
+        credentials = require(this.config.credentialsPath);
+      } else {
+        throw new Error('No credentials provided');
       }
 
-      const credentials = JSON.parse(fs.readFileSync(credentialsPath, 'utf-8'));
-
-      // JWT 인증 설정
-      const auth = new JWT({
+      return new google.auth.JWT({
         email: credentials.client_email,
         key: credentials.private_key,
         scopes: [
@@ -39,55 +45,63 @@ export class SheetService {
           'https://www.googleapis.com/auth/drive.readonly',
         ],
       });
-
-      // Google Sheets API 클라이언트 생성
-      this.sheets = google.sheets({ version: 'v4', auth });
     } catch (error) {
-      throw new Error(`Google Sheets 인증 실패: ${error}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to setup Google authentication: ${message}`);
     }
   }
 
   /**
-   * 스프레드시트 ID 조회
+   * 스프레드시트 ID 가져오기
+   * Config에 ID가 있으면 사용, 없으면 이름으로 찾기
    */
   private async getSpreadsheetId(): Promise<string> {
+    // 이미 캐시된 ID가 있으면 반환
     if (this.spreadsheetId) {
       return this.spreadsheetId;
     }
 
-    if (!this.sheets) {
-      await this.authenticate();
+    // Config에 spreadsheetId가 있으면 사용
+    if (this.config.spreadsheetId) {
+      this.spreadsheetId = this.config.spreadsheetId;
+      return this.spreadsheetId;
     }
 
-    // 실제로는 Drive API를 사용하여 이름으로 검색해야 하지만,
-    // 간단한 PoC를 위해 환경 변수로 ID를 받도록 수정할 수 있습니다.
-    // 여기서는 스프레드시트 이름을 사용하는 것으로 가정합니다.
+    // 이름으로 찾기 (Drive API 사용)
+    try {
+      const drive = google.drive({ version: 'v3', auth: this.auth });
+      const response = await drive.files.list({
+        q: `name='${this.config.spreadsheetName}' and mimeType='application/vnd.google-apps.spreadsheet'`,
+        fields: 'files(id, name)',
+        spaces: 'drive',
+      });
 
-    throw new Error(
-      '스프레드시트 ID를 환경 변수에 추가해주세요.\n' +
-        'SPREADSHEET_ID=your_spreadsheet_id'
-    );
+      const files = response.data.files;
+      if (!files || files.length === 0) {
+        throw new Error(`Spreadsheet '${this.config.spreadsheetName}' not found`);
+      }
+
+      if (!files[0].id) {
+        throw new Error(`Spreadsheet ID is undefined`);
+      }
+
+      this.spreadsheetId = files[0].id;
+      return this.spreadsheetId;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to find spreadsheet: ${message}`);
+    }
   }
 
   /**
-   * 모든 행 데이터 가져오기
+   * 모든 행 가져오기
    */
   async getAllRows(): Promise<SheetRow[]> {
     try {
-      if (!this.sheets) {
-        await this.authenticate();
-      }
-
-      // 환경 변수에서 스프레드시트 ID 가져오기 (임시)
-      const spreadsheetId = process.env.SPREADSHEET_ID;
-      if (!spreadsheetId) {
-        throw new Error('SPREADSHEET_ID 환경 변수가 설정되지 않았습니다.');
-      }
-
-      // 시트의 모든 데이터 가져오기
-      const response = await this.sheets!.spreadsheets.values.get({
+      const spreadsheetId = await this.getSpreadsheetId();
+      const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: 'A1:Z1000', // 충분히 큰 범위
+        range: 'Sheet1', // 첫 번째 시트
       });
 
       const rows = response.data.values;
@@ -95,47 +109,93 @@ export class SheetService {
         return [];
       }
 
-      // 첫 행은 헤더
-      const [headers, ...dataRows] = rows;
-      this.lastRowIndex = dataRows.length;
+      // 첫 번째 행은 헤더
+      const headers = rows[0] as string[];
+      const dataRows = rows.slice(1);
 
-      // 객체 배열로 변환
-      return dataRows.map((row) => {
-        const rowData: any = {};
-        headers.forEach((header, index) => {
-          rowData[header] = row[index] || '';
+      // 헤더를 키로 사용하여 객체 배열로 변환
+      return dataRows.map((row, index) => {
+        const rowData: Record<string, string> = {};
+        headers.forEach((header, i) => {
+          rowData[header] = row[i] || '';
         });
-        return rowData as SheetRow;
+        // 실제 스프레드시트 행 번호 저장 (헤더 행 + 1, 1-based)
+        (rowData as any)._rowNumber = index + 2;
+        return rowData as unknown as SheetRow;
       });
     } catch (error) {
-      throw new Error(`스프레드시트 데이터 조회 실패: ${error}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get all rows: ${message}`);
     }
   }
 
   /**
-   * 새 주문만 가져오기 (비고가 "확인"이 아닌 것)
+   * 새로운 주문만 가져오기 (Python 버전과 동일한 로직)
+   * 마지막 "확인" 이후의 행들만 반환
    */
   async getNewOrders(): Promise<SheetRow[]> {
-    const allRows = await this.getAllRows();
-    return allRows.filter((row) => row.비고 !== '확인');
+    try {
+      const allRows = await this.getAllRows();
+
+      if (allRows.length === 0) {
+        this.newOrderRows = [];
+        return [];
+      }
+
+      // 필수 컬럼 검증
+      this.validateRequiredColumns(allRows[0]);
+
+      // 마지막 "확인" 행 찾기
+      let lastConfirmedIndex = -1;
+      for (let i = allRows.length - 1; i >= 0; i--) {
+        if (allRows[i]['비고'] === '확인') {
+          lastConfirmedIndex = i;
+          break;
+        }
+      }
+
+      // 마지막 확인 이후의 행들 선택
+      const newOrders = allRows.slice(lastConfirmedIndex + 1);
+
+      // 처리할 행들의 실제 스프레드시트 행 번호 저장
+      this.newOrderRows = newOrders.map(row => row._rowNumber || 0).filter(n => n > 0);
+
+      return newOrders;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get new orders: ${message}`);
+    }
+  }
+
+  /**
+   * 필수 컬럼 검증
+   */
+  private validateRequiredColumns(sampleRow: SheetRow): void {
+    const actualColumns = Object.keys(sampleRow).filter(key => !key.startsWith('_'));
+    const missingColumns = this.config.requiredColumns.filter(
+      col => !actualColumns.includes(col)
+    );
+
+    if (missingColumns.length > 0) {
+      throw new Error(
+        `스프레드시트에 필수 컬럼이 없습니다: ${missingColumns.join(', ')}\n` +
+        `필요한 컬럼: ${this.config.requiredColumns.join(', ')}`
+      );
+    }
   }
 
   /**
    * 특정 셀 업데이트
    */
-  async updateCell(row: number, column: string, value: string): Promise<void> {
+  async updateCell(row: number, col: number, value: string): Promise<void> {
     try {
-      if (!this.sheets) {
-        await this.authenticate();
-      }
+      const spreadsheetId = await this.getSpreadsheetId();
 
-      const spreadsheetId = process.env.SPREADSHEET_ID;
-      if (!spreadsheetId) {
-        throw new Error('SPREADSHEET_ID 환경 변수가 설정되지 않았습니다.');
-      }
+      // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ...)
+      const colLetter = String.fromCharCode(64 + col);
+      const range = `Sheet1!${colLetter}${row}`;
 
-      const range = `${column}${row}`;
-      await this.sheets!.spreadsheets.values.update({
+      await this.sheets.spreadsheets.values.update({
         spreadsheetId,
         range,
         valueInputOption: 'RAW',
@@ -144,16 +204,47 @@ export class SheetService {
         },
       });
     } catch (error) {
-      throw new Error(`셀 업데이트 실패: ${error}`);
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update cell: ${message}`);
     }
   }
 
   /**
-   * 주문을 "확인"으로 표시
+   * 처리된 주문을 "확인"으로 표시 (Python 버전과 동일한 로직)
    */
-  async markAsConfirmed(rowIndex: number): Promise<void> {
-    // 비고 컬럼 찾기 (예: K열)
-    // 실제로는 헤더에서 동적으로 찾아야 함
-    await this.updateCell(rowIndex + 2, 'K', '확인'); // +2는 헤더 행 + 1-based index
+  async markAsConfirmed(): Promise<void> {
+    try {
+      if (this.newOrderRows.length === 0) {
+        return; // 처리할 행이 없으면 종료
+      }
+
+      const spreadsheetId = await this.getSpreadsheetId();
+
+      // 헤더 행을 가져와서 '비고' 열 위치 찾기
+      const headerResponse = await this.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: 'Sheet1!1:1',
+      });
+
+      const headers = headerResponse.data.values?.[0];
+      if (!headers) {
+        throw new Error('Could not read headers');
+      }
+
+      const 비고ColIndex = headers.findIndex(h => h === '비고');
+      if (비고ColIndex === -1) {
+        throw new Error("Could not find '비고' column");
+      }
+
+      const 비고Col = 비고ColIndex + 1; // 1-based
+
+      // 모든 새 주문 행을 '확인'으로 업데이트
+      for (const rowNum of this.newOrderRows) {
+        await this.updateCell(rowNum, 비고Col, '확인');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark orders as confirmed: ${message}`);
+    }
   }
 }
