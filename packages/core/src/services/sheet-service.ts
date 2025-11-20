@@ -11,6 +11,7 @@ export class SheetService {
   private sheets: sheets_v4.Sheets;
   private auth: JWT;
   private spreadsheetId: string | null = null;
+  private firstSheetName: string | null = null; // 첫 번째 워크시트 이름 캐싱
   private newOrderRows: number[] = []; // 처리할 행들의 실제 인덱스 저장
 
   constructor(config: Config) {
@@ -26,13 +27,15 @@ export class SheetService {
     try {
       let credentials: any;
 
-      // 우선순위에 따라 credentials 로드
-      if (this.config.credentialsJson) {
-        // JSON 문자열에서 로드
+      // 우선순위에 따라 credentials 로드: PATH > FILE > JSON
+      if (this.config.credentialsPath) {
+        // 파일에서 로드 (우선순위 1)
+        const fs = require('fs');
+        const credentialsData = fs.readFileSync(this.config.credentialsPath, 'utf8');
+        credentials = JSON.parse(credentialsData);
+      } else if (this.config.credentialsJson) {
+        // JSON 문자열에서 로드 (우선순위 2)
         credentials = JSON.parse(this.config.credentialsJson);
-      } else if (this.config.credentialsPath) {
-        // 파일에서 로드
-        credentials = require(this.config.credentialsPath);
       } else {
         throw new Error('No credentials provided');
       }
@@ -48,6 +51,40 @@ export class SheetService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to setup Google authentication: ${message}`);
+    }
+  }
+
+  /**
+   * 첫 번째 워크시트 이름 가져오기
+   * Python 버전의 sheet1과 동일한 동작 (첫 번째 시트 사용)
+   */
+  private async getFirstSheetName(): Promise<string> {
+    // 이미 캐시된 이름이 있으면 반환
+    if (this.firstSheetName) {
+      return this.firstSheetName;
+    }
+
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const response = await this.sheets.spreadsheets.get({
+        spreadsheetId,
+      });
+
+      const sheets = response.data.sheets;
+      if (!sheets || sheets.length === 0) {
+        throw new Error('No sheets found in spreadsheet');
+      }
+
+      const firstSheet = sheets[0];
+      if (!firstSheet.properties?.title) {
+        throw new Error('First sheet has no title');
+      }
+
+      this.firstSheetName = firstSheet.properties.title;
+      return this.firstSheetName;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get first sheet name: ${message}`);
     }
   }
 
@@ -99,9 +136,10 @@ export class SheetService {
   async getAllRows(): Promise<SheetRow[]> {
     try {
       const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: 'Sheet1', // 첫 번째 시트
+        range: sheetName, // 첫 번째 시트 (Python의 sheet1과 동일)
       });
 
       const rows = response.data.values;
@@ -190,10 +228,11 @@ export class SheetService {
   async updateCell(row: number, col: number, value: string): Promise<void> {
     try {
       const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
 
       // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ...)
       const colLetter = String.fromCharCode(64 + col);
-      const range = `Sheet1!${colLetter}${row}`;
+      const range = `${sheetName}!${colLetter}${row}`;
 
       await this.sheets.spreadsheets.values.update({
         spreadsheetId,
@@ -219,11 +258,12 @@ export class SheetService {
       }
 
       const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
 
       // 헤더 행을 가져와서 '비고' 열 위치 찾기
       const headerResponse = await this.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: 'Sheet1!1:1',
+        range: `${sheetName}!1:1`,
       });
 
       const headers = headerResponse.data.values?.[0];
