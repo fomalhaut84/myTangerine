@@ -1,3 +1,5 @@
+import type { Config } from '../config/config.js';
+
 /**
  * 발송인 정보
  */
@@ -213,9 +215,17 @@ export function formatPhoneNumber(phone: string): string {
 }
 
 /**
- * SheetRow를 Order로 변환
+ * 문자열이 비어있는지 확인
  */
-export function sheetRowToOrder(row: SheetRow): Order {
+function isEmpty(value: string | undefined | null): boolean {
+  return !value || value.trim() === '';
+}
+
+/**
+ * SheetRow를 Order로 변환
+ * Python 버전의 LabelFormatter와 동일하게 발송인 정보가 비어있으면 기본값 사용
+ */
+export function sheetRowToOrder(row: SheetRow, config: Config): Order {
   const timestamp = parseKoreanTimestamp(row['타임스탬프']);
   const quantity = extractQuantity(row);
 
@@ -230,15 +240,23 @@ export function sheetRowToOrder(row: SheetRow): Order {
     throw new Error(`Unknown product type: ${productSelection}`);
   }
 
+  // 발송인 정보 (비어있으면 기본값 사용)
+  const senderName = row['보내는분 성함'];
+  const senderAddress = row['보내는분 주소 (도로명 주소로 부탁드려요)'];
+  const senderPhone = row['보내는분 연락처 (핸드폰번호)'];
+
+  const defaultSender = config.defaultSender;
+  const sender: Sender = {
+    name: isEmpty(senderName) ? defaultSender.name : senderName,
+    address: isEmpty(senderAddress) ? defaultSender.address : senderAddress,
+    phone: isEmpty(senderPhone) ? defaultSender.phone : formatPhoneNumber(senderPhone),
+  };
+
   return {
     timestamp,
     timestampRaw: row['타임스탬프'],
     status: row['비고'] as OrderStatus,
-    sender: {
-      name: row['보내는분 성함'],
-      address: row['보내는분 주소 (도로명 주소로 부탁드려요)'],
-      phone: formatPhoneNumber(row['보내는분 연락처 (핸드폰번호)']),
-    },
+    sender,
     recipient: {
       name: row['받으실분 성함'],
       address: row['받으실분 주소 (도로명 주소로 부탁드려요)'],
