@@ -224,8 +224,11 @@ function isEmpty(value: string | undefined | null): boolean {
 /**
  * SheetRow를 Order로 변환
  * Python 버전의 LabelFormatter와 동일하게 발송인 정보가 비어있으면 기본값 사용
+ *
+ * @param row - 스프레드시트 원본 행 데이터
+ * @param config - (선택) Config 객체. 제공되면 발송인 정보가 비어있을 때 defaultSender로 대체
  */
-export function sheetRowToOrder(row: SheetRow, config: Config): Order {
+export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
   const timestamp = parseKoreanTimestamp(row['타임스탬프']);
   const quantity = extractQuantity(row);
 
@@ -240,17 +243,28 @@ export function sheetRowToOrder(row: SheetRow, config: Config): Order {
     throw new Error(`Unknown product type: ${productSelection}`);
   }
 
-  // 발송인 정보 (비어있으면 기본값 사용)
+  // 발송인 정보 (config가 제공되고 필드가 비어있으면 기본값 사용)
   const senderName = row['보내는분 성함'];
   const senderAddress = row['보내는분 주소 (도로명 주소로 부탁드려요)'];
   const senderPhone = row['보내는분 연락처 (핸드폰번호)'];
 
-  const defaultSender = config.defaultSender;
-  const sender: Sender = {
-    name: isEmpty(senderName) ? defaultSender.name : senderName,
-    address: isEmpty(senderAddress) ? defaultSender.address : senderAddress,
-    phone: isEmpty(senderPhone) ? defaultSender.phone : formatPhoneNumber(senderPhone),
-  };
+  let sender: Sender;
+  if (config) {
+    // Config가 제공된 경우: 빈 필드를 defaultSender로 대체
+    const defaultSender = config.defaultSender;
+    sender = {
+      name: isEmpty(senderName) ? defaultSender.name : senderName,
+      address: isEmpty(senderAddress) ? defaultSender.address : senderAddress,
+      phone: isEmpty(senderPhone) ? defaultSender.phone : formatPhoneNumber(senderPhone),
+    };
+  } else {
+    // Config가 없는 경우: 원본 값 그대로 사용 (backward compatibility)
+    sender = {
+      name: senderName,
+      address: senderAddress,
+      phone: formatPhoneNumber(senderPhone),
+    };
+  }
 
   return {
     timestamp,
