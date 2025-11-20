@@ -163,3 +163,7 @@ cython_debug/
 
 #credentials
 credentials.json
+node_modules
+
+# Application logs
+logs/

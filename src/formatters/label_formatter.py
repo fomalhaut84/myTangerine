@@ -78,22 +78,29 @@ class LabelFormatter:
 
     def _format_recipient(self, row: pd.Series) -> List[str]:
         labels = ["받는사람\n"]
+
+        # 안전한 컬럼 접근 with 기본값
+        recipient_address = row.get('받으실분 주소 (도로명 주소로 부탁드려요)', '')
+        recipient_name = row.get('받으실분 성함', '')
+        recipient_phone = row.get('받으실분 연락처 (핸드폰번호)', '')
+
         labels.append(
-            f"{row['받으실분 주소 (도로명 주소로 부탁드려요)']} "
-            f"{row['받으실분 성함']} "
-            f"{OrderProcessor.format_phone_number(str(row['받으실분 연락처 (핸드폰번호)']))}\n"
+            f"{recipient_address} "
+            f"{recipient_name} "
+            f"{OrderProcessor.format_phone_number(str(recipient_phone))}\n"
         )
-        
+
         labels.append("주문상품\n")
         quantity = OrderProcessor.get_quantity(row)
-        
-        if '5kg' in str(row['상품 선택']):
+
+        product_selection = str(row.get('상품 선택', ''))
+        if '5kg' in product_selection:
             self.total_5kg += quantity
             labels.append(f"5kg / {quantity}박스\n\n")
-        elif '10kg' in str(row['상품 선택']):
+        elif '10kg' in product_selection:
             self.total_10kg += quantity
             labels.append(f"10kg / {quantity}박스\n\n")
-            
+
         return labels
 
     @staticmethod
