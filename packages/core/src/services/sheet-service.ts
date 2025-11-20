@@ -55,6 +55,16 @@ export class SheetService {
   }
 
   /**
+   * 시트 이름을 A1 notation에 맞게 인용
+   * 공백이나 특수문자가 있는 시트명은 작은따옴표로 감싸야 함
+   */
+  private quoteSheetName(sheetName: string): string {
+    // 시트명 내부의 작은따옴표는 두 개로 escape
+    const escaped = sheetName.replace(/'/g, "''");
+    return `'${escaped}'`;
+  }
+
+  /**
    * 첫 번째 워크시트 이름 가져오기
    * Python 버전의 sheet1과 동일한 동작 (첫 번째 시트 사용)
    */
@@ -139,7 +149,7 @@ export class SheetService {
       const sheetName = await this.getFirstSheetName();
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: sheetName, // 첫 번째 시트 (Python의 sheet1과 동일)
+        range: this.quoteSheetName(sheetName), // 첫 번째 시트 (Python의 sheet1과 동일)
       });
 
       const rows = response.data.values;
@@ -232,7 +242,7 @@ export class SheetService {
 
       // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ...)
       const colLetter = String.fromCharCode(64 + col);
-      const range = `${sheetName}!${colLetter}${row}`;
+      const range = `${this.quoteSheetName(sheetName)}!${colLetter}${row}`;
 
       await this.sheets.spreadsheets.values.update({
         spreadsheetId,
@@ -263,7 +273,7 @@ export class SheetService {
       // 헤더 행을 가져와서 '비고' 열 위치 찾기
       const headerResponse = await this.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `${sheetName}!1:1`,
+        range: `${this.quoteSheetName(sheetName)}!1:1`,
       });
 
       const headers = headerResponse.data.values?.[0];
