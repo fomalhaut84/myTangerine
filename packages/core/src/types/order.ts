@@ -124,9 +124,6 @@ export function parseKoreanTimestamp(timestampStr: string): Date {
     const day = parts[2].padStart(2, '0');
     const time = parts[4];
 
-    // ISO 형식으로 변환
-    const formatted = `${year}-${month}-${day} ${amPm} ${time}`;
-
     // Date 객체 생성
     const [timePart] = time.split(':');
     let hour = parseInt(timePart, 10);

@@ -1,6 +1,5 @@
 import { z } from 'zod';
 import { config as loadDotenv } from 'dotenv';
-import path from 'path';
 
 /**
  * 환경 변수 스키마
