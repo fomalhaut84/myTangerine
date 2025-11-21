@@ -348,6 +348,12 @@ myTangerine/
    });
    ```
 
+#### 완료 결과 (PR #20, 2025-01-21)
+
+- TypeScript `LabelFormatter`가 Python 버전과 1:1 동작하도록 구현되었고, `packages/core/src/formatters/__tests__/label-formatter.test.ts` 포함 총 40개의 Vitest 케이스가 통과했습니다.
+- `packages/core/scripts/compare-output.ts`를 통해 Python CLI와 TypeScript 출력이 완전히 일치함을 검증했습니다.
+- LabelFormatter는 `pnpm --filter @mytangerine/core test:coverage` 기준 statements/branches/functions/lines 100% 커버리지를 달성했으며, Phase 3(API 서버)에서 재사용할 수 있는 안정적인 포맷터 계층이 확보되었습니다.
+
 ### Phase 3: API 서버 구축 (2-3주)
 
 #### 목표

@@ -130,6 +130,23 @@ myTangerine/
    ↓ 비고 컬럼에 "확인" 표시
 ```
 
+### LabelFormatter (Phase 2)
+
+- `packages/core/src/formatters/label-formatter.ts`는 Python `src/formatters/label_formatter.py`와 동일한 날짜→발송인 그룹화, 전화번호 하이픈 처리(`OrderProcessor.format_phone_number`) 및 주문 요약 생성을 수행합니다.
+- 보내는 사람 정보가 비거나 유효하지 않으면 `.env`의 `DEFAULT_SENDER` 정보를 자동으로 사용해 CLI 동작과 완전히 일치합니다.
+- 5kg/10kg 누적 합계를 추적해 금액 요약을 출력 끝에 추가함으로써 Python CLI와 동일한 사용자 경험을 제공합니다.
+
+### 테스트 & 커버리지
+
+- `pnpm --filter @mytangerine/core test` : Vitest 40개 시나리오(날짜·발송인 그룹화, 기본 발송인 폴백, 요약 계산 등)를 실행합니다.
+- `pnpm --filter @mytangerine/core test:coverage` : LabelFormatter(`packages/core/src/formatters/label-formatter.ts`)가 statements/branches/functions/lines 100% 커버리지(Phase 2 목표)를 유지함을 확인합니다.
+- `npx tsx packages/core/scripts/compare-output.ts` : Python CLI와 TypeScript LabelFormatter 출력의 완전한 동일성을 검증합니다.
+
+## Phase 2 진행 현황
+
+- PR #20([Phase 2] LabelFormatter 구현 및 테스트, 4 commits)이 dev에 병합되어 비즈니스 로직 이식 단계가 완료되었습니다.
+- Python CLI와 TypeScript 패키지가 동일한 LabelFormatter 출력을 제공하며 Phase 3(API 서버) 작업을 위한 핵심 포맷터 모듈이 안정화되었습니다.
+
 ## 주요 기능 상세
 
 ### 전화번호 포맷팅
