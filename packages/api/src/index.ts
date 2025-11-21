@@ -9,6 +9,7 @@ import { loadEnv, loadPackageMetadata, type Env } from './config.js';
 import corePlugin from './plugins/core.js';
 import ordersRoutes from './routes/orders.js';
 import labelsRoutes from './routes/labels.js';
+import { errorHandler } from './middleware/error-handler.js';
 
 /**
  * Fastify 서버 생성 및 설정
@@ -37,6 +38,9 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
 
   // Core 플러그인 등록 (@mytangerine/core 연동)
   await server.register(corePlugin);
+
+  // 전역 에러 핸들러 등록
+  server.setErrorHandler(errorHandler);
 
   // Package metadata 로드
   const packageMetadata = await loadPackageMetadata();

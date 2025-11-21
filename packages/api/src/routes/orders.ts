@@ -13,127 +13,103 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
    * GET /api/orders
    * 새로운 주문 조회
    */
-  fastify.get('/api/orders', async (request, reply) => {
-    try {
-      const { sheetService, config } = fastify.core;
+  fastify.get('/api/orders', async () => {
+    const { sheetService, config } = fastify.core;
 
-      // 새로운 주문 가져오기
-      const sheetRows = await sheetService.getNewOrders();
+    // 새로운 주문 가져오기
+    const sheetRows = await sheetService.getNewOrders();
 
-      // SheetRow를 Order로 변환
-      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+    // SheetRow를 Order로 변환
+    const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
-      return {
-        success: true,
-        count: orders.length,
-        orders: orders.map((order) => ({
-          timestamp: order.timestamp.toISOString(),
-          timestampRaw: order.timestampRaw,
-          status: order.status,
-          sender: order.sender,
-          recipient: order.recipient,
-          productType: order.productType,
-          quantity: order.quantity,
-          rowNumber: order.rowNumber,
-        })),
-      };
-    } catch (error) {
-      fastify.log.error(error, 'Failed to fetch orders');
-      return reply.status(500).send({
-        success: false,
-        error: '주문 조회에 실패했습니다.',
-      });
-    }
+    return {
+      success: true,
+      count: orders.length,
+      orders: orders.map((order) => ({
+        timestamp: order.timestamp.toISOString(),
+        timestampRaw: order.timestampRaw,
+        status: order.status,
+        sender: order.sender,
+        recipient: order.recipient,
+        productType: order.productType,
+        quantity: order.quantity,
+        rowNumber: order.rowNumber,
+      })),
+    };
   });
 
   /**
    * GET /api/orders/summary
    * 주문 요약 정보
    */
-  fastify.get('/api/orders/summary', async (request, reply) => {
-    try {
-      const { sheetService, config } = fastify.core;
+  fastify.get('/api/orders/summary', async () => {
+    const { sheetService, config } = fastify.core;
 
-      // 새로운 주문 가져오기
-      const sheetRows = await sheetService.getNewOrders();
+    // 새로운 주문 가져오기
+    const sheetRows = await sheetService.getNewOrders();
 
-      // SheetRow를 Order로 변환
-      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+    // SheetRow를 Order로 변환
+    const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
-      // 5kg, 10kg 수량 집계
-      let total5kg = 0;
-      let total10kg = 0;
+    // 5kg, 10kg 수량 집계
+    let total5kg = 0;
+    let total10kg = 0;
 
-      orders.forEach((order) => {
-        if (order.productType === '5kg') {
-          total5kg += order.quantity;
-        } else if (order.productType === '10kg') {
-          total10kg += order.quantity;
-        }
-      });
+    orders.forEach((order) => {
+      if (order.productType === '5kg') {
+        total5kg += order.quantity;
+      } else if (order.productType === '10kg') {
+        total10kg += order.quantity;
+      }
+    });
 
-      // 가격 계산
-      const price5kg = total5kg * config.productPrices['5kg'];
-      const price10kg = total10kg * config.productPrices['10kg'];
-      const totalPrice = price5kg + price10kg;
+    // 가격 계산
+    const price5kg = total5kg * config.productPrices['5kg'];
+    const price10kg = total10kg * config.productPrices['10kg'];
+    const totalPrice = price5kg + price10kg;
 
-      return {
-        success: true,
-        summary: {
-          '5kg': {
-            count: total5kg,
-            amount: price5kg,
-          },
-          '10kg': {
-            count: total10kg,
-            amount: price10kg,
-          },
-          total: totalPrice,
+    return {
+      success: true,
+      summary: {
+        '5kg': {
+          count: total5kg,
+          amount: price5kg,
         },
-      };
-    } catch (error) {
-      fastify.log.error(error, 'Failed to fetch order summary');
-      return reply.status(500).send({
-        success: false,
-        error: '주문 요약 조회에 실패했습니다.',
-      });
-    }
+        '10kg': {
+          count: total10kg,
+          amount: price10kg,
+        },
+        total: totalPrice,
+      },
+    };
   });
 
   /**
    * POST /api/orders/confirm
    * 모든 새 주문을 "확인" 상태로 표시
    */
-  fastify.post('/api/orders/confirm', async (request, reply) => {
-    try {
-      const { sheetService } = fastify.core;
+  fastify.post('/api/orders/confirm', async () => {
+    const { sheetService } = fastify.core;
 
-      // 먼저 새로운 주문을 가져와서 newOrderRows를 갱신
-      const newOrders = await sheetService.getNewOrders();
+    // 먼저 새로운 주문을 가져와서 newOrderRows를 갱신
+    const newOrders = await sheetService.getNewOrders();
 
-      if (newOrders.length === 0) {
-        return {
-          success: true,
-          message: '확인할 새로운 주문이 없습니다.',
-          confirmedCount: 0,
-        };
-      }
-
-      // 주문을 확인 상태로 표시
-      await sheetService.markAsConfirmed();
-
+    if (newOrders.length === 0) {
       return {
         success: true,
-        message: `${newOrders.length}개의 주문이 확인되었습니다.`,
-        confirmedCount: newOrders.length,
+        message: '확인할 새로운 주문이 없습니다.',
+        confirmedCount: 0,
       };
-    } catch (error) {
-      fastify.log.error(error, 'Failed to confirm orders');
-      return reply.status(500).send({
-        success: false,
-        error: '주문 확인 처리에 실패했습니다.',
-      });
     }
+
+    // 주문을 확인 상태로 표시
+    await sheetService.markAsConfirmed();
+
+    return {
+      success: true,
+      message: `${newOrders.length}개의 주문이 확인되었습니다.`,
+      confirmedCount: newOrders.length,
+    };
   });
 };
 

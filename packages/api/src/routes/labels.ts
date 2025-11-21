@@ -35,12 +35,10 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
 
       return labels;
     } catch (error) {
-      fastify.log.error(error, 'Failed to generate labels');
+      // 에러 발생 시 Content-Type을 JSON으로 변경하고 에러를 throw
+      // 전역 에러 핸들러가 처리하도록 함
       reply.type('application/json; charset=utf-8');
-      return reply.status(500).send({
-        success: false,
-        error: '라벨 생성에 실패했습니다.',
-      });
+      throw error;
     }
   });
 };
