@@ -22,8 +22,8 @@ describe('Integration: SheetService + LabelFormatter', () => {
         phone: '010-6395-0618',
       },
       productPrices: {
-        '5kg': 30000,
-        '10kg': 55000,
+        '5kg': 20000,
+        '10kg': 35000,
       },
       requiredColumns: [],
       spreadsheetName: 'test',
@@ -88,9 +88,9 @@ describe('Integration: SheetService + LabelFormatter', () => {
 
       // 요약
       expect(result).toContain('주문 요약');
-      expect(result).toContain('5kg 주문: 2박스 (60,000원)');
-      expect(result).toContain('10kg 주문: 1박스 (55,000원)');
-      expect(result).toContain('총 주문금액: 115,000원');
+      expect(result).toContain('5kg 주문: 2박스 (40,000원)');
+      expect(result).toContain('10kg 주문: 1박스 (35,000원)');
+      expect(result).toContain('총 주문금액: 75,000원');
     });
 
     it('should handle empty sender info with defaultSender fallback', () => {
@@ -270,9 +270,9 @@ describe('Integration: SheetService + LabelFormatter', () => {
       expect(result).toContain('5kg / 1박스');
 
       // 요약
-      expect(result).toContain('5kg 주문: 3박스 (90,000원)');
-      expect(result).toContain('10kg 주문: 1박스 (55,000원)');
-      expect(result).toContain('총 주문금액: 145,000원');
+      expect(result).toContain('5kg 주문: 3박스 (60,000원)');
+      expect(result).toContain('10kg 주문: 1박스 (35,000원)');
+      expect(result).toContain('총 주문금액: 95,000원');
     });
 
     it('should correctly parse Korean timestamps and sort chronologically', () => {
@@ -391,7 +391,7 @@ describe('Integration: SheetService + LabelFormatter', () => {
       const result = formatter.formatLabels(orders);
 
       expect(result).toContain('5kg / 100박스');
-      expect(result).toContain('5kg 주문: 100박스 (3,000,000원)');
+      expect(result).toContain('5kg 주문: 100박스 (2,000,000원)');
     });
   });
 });

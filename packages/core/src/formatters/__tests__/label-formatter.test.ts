@@ -15,8 +15,8 @@ describe('LabelFormatter', () => {
         phone: '010-6395-0618',
       },
       productPrices: {
-        '5kg': 30000,
-        '10kg': 55000,
+        '5kg': 20000,
+        '10kg': 35000,
       },
       requiredColumns: [],
       spreadsheetName: 'test',
@@ -72,9 +72,9 @@ describe('LabelFormatter', () => {
 
       // 요약 확인
       expect(result).toContain('주문 요약');
-      expect(result).toContain('5kg 주문: 2박스 (60,000원)');
+      expect(result).toContain('5kg 주문: 2박스 (40,000원)');
       expect(result).toContain('10kg 주문: 0박스 (0원)');
-      expect(result).toContain('총 주문금액: 60,000원');
+      expect(result).toContain('총 주문금액: 40,000원');
     });
 
     it('should use defaultSender when sender info is invalid', () => {
@@ -292,9 +292,9 @@ describe('LabelFormatter', () => {
       const result = formatter.formatLabels(orders);
 
       // 요약에서 합산 확인
-      expect(result).toContain('5kg 주문: 4박스 (120,000원)'); // 3 + 1
-      expect(result).toContain('10kg 주문: 2박스 (110,000원)');
-      expect(result).toContain('총 주문금액: 230,000원'); // 120000 + 110000
+      expect(result).toContain('5kg 주문: 4박스 (80,000원)'); // 3 + 1
+      expect(result).toContain('10kg 주문: 2박스 (70,000원)');
+      expect(result).toContain('총 주문금액: 150,000원'); // 80000 + 70000
     });
 
     it('should format complex scenario with multiple dates and senders', () => {
@@ -363,9 +363,9 @@ describe('LabelFormatter', () => {
       expect(result).toContain('주문 요약');
 
       // 전체 합산 확인
-      expect(result).toContain('5kg 주문: 5박스 (150,000원)');
-      expect(result).toContain('10kg 주문: 1박스 (55,000원)');
-      expect(result).toContain('총 주문금액: 205,000원');
+      expect(result).toContain('5kg 주문: 5박스 (100,000원)');
+      expect(result).toContain('10kg 주문: 1박스 (35,000원)');
+      expect(result).toContain('총 주문금액: 135,000원');
     });
 
     it('should reset totals between formatLabels calls', () => {
