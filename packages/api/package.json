@@ -1,0 +1,43 @@
+{
+  "name": "@mytangerine/api",
+  "version": "0.1.0",
+  "description": "myTangerine API 서버 (Fastify)",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsup",
+    "start": "node dist/index.js",
+    "test": "vitest",
+    "test:coverage": "vitest --coverage",
+    "lint": "eslint src --ext .ts",
+    "type-check": "tsc --noEmit"
+  },
+  "keywords": [
+    "fastify",
+    "rest-api",
+    "order-management"
+  ],
+  "author": "fomalhaut84",
+  "license": "MIT",
+  "dependencies": {
+    "@mytangerine/core": "workspace:*",
+    "fastify": "^4.0.0",
+    "@fastify/cors": "^9.0.0",
+    "dotenv": "^16.3.0",
+    "zod": "^3.22.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@typescript-eslint/eslint-plugin": "^6.0.0",
+    "@typescript-eslint/parser": "^6.0.0",
+    "@vitest/coverage-v8": "^1.0.0",
+    "eslint": "^8.0.0",
+    "pino-pretty": "^11.0.0",
+    "tsup": "^8.0.0",
+    "tsx": "^4.0.0",
+    "typescript": "^5.0.0",
+    "vitest": "^1.0.0"
+  }
+}
