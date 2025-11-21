@@ -29,11 +29,11 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
               count: { type: 'integer', minimum: 0, description: '주문 개수', example: 5 },
               orders: {
                 type: 'array',
-                items: { $ref: '#/components/schemas/Order' },
+                items: { $ref: 'Order#' },
               },
             },
           },
-          500: { $ref: '#/components/schemas/ErrorResponse' },
+          500: { $ref: 'ErrorResponse#' },
         },
       },
     },
@@ -79,10 +79,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'summary'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
-              summary: { $ref: '#/components/schemas/OrderSummary' },
+              summary: { $ref: 'OrderSummary#' },
             },
           },
-          500: { $ref: '#/components/schemas/ErrorResponse' },
+          500: { $ref: 'ErrorResponse#' },
         },
       },
     },
@@ -139,11 +139,6 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ['orders'],
         summary: '주문 확인 처리',
         description: '모든 새로운 주문을 "확인" 상태로 표시합니다.',
-        body: {
-          type: 'object',
-          additionalProperties: false,
-          description: '요청 본문 없음',
-        },
         response: {
           200: {
             type: 'object',
@@ -159,7 +154,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
               },
             },
           },
-          500: { $ref: '#/components/schemas/ErrorResponse' },
+          500: { $ref: 'ErrorResponse#' },
         },
       },
     },

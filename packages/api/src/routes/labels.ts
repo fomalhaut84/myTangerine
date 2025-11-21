@@ -38,7 +38,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
             description: '에러 발생 시 JSON 응답',
             content: {
               'application/json': {
-                schema: { $ref: '#/components/schemas/ErrorResponse' },
+                schema: { $ref: 'ErrorResponse#' },
               },
             },
           },

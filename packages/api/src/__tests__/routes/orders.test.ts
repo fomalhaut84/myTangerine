@@ -2,42 +2,24 @@
  * 주문 API 통합 테스트
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
-import { createServer } from '../../index.js';
-import { Env } from '../../config.js';
+import { createTestServer } from '../helpers/test-server.js';
+import { MockSheetService, createMockSheetRows } from '../helpers/mock-sheet-service.js';
 
-// TODO: SheetService mock 추가 후 활성화
-describe.skip('Orders API', () => {
+describe('Orders API', () => {
   let server: FastifyInstance;
-
-  const testEnv: Env = {
-    PORT: 3001,
-    HOST: '127.0.0.1',
-    NODE_ENV: 'test',
-    LOG_LEVEL: 'silent',
-    CORS_ORIGIN: '*',
-  };
+  let mockSheetService: MockSheetService;
 
   beforeAll(async () => {
-    // 테스트용 환경 변수 설정
-    process.env.DEFAULT_SENDER_NAME = 'Test Sender';
-    process.env.DEFAULT_SENDER_PHONE = '010-1234-5678';
-    process.env.DEFAULT_SENDER_ADDRESS = 'Test Address';
-    process.env.SPREADSHEET_ID = 'test-sheet-id';
-    process.env.GOOGLE_CREDENTIALS_JSON = JSON.stringify({
-      type: 'service_account',
-      project_id: 'test-project',
-      private_key_id: 'test-key-id',
-      private_key: '-----BEGIN PRIVATE KEY-----\ntest\n-----END PRIVATE KEY-----\n',
-      client_email: 'test@test.iam.gserviceaccount.com',
-      client_id: 'test',
-      auth_uri: 'https://accounts.google.com/o/oauth2/auth',
-      token_uri: 'https://oauth2.googleapis.com/token',
-    });
+    const setup = await createTestServer();
+    server = setup.server;
+    mockSheetService = setup.mockSheetService;
+  });
 
-    server = await createServer(testEnv);
-    await server.ready();
+  beforeEach(() => {
+    // 각 테스트 전에 mock 초기화
+    mockSheetService.reset();
   });
 
   afterAll(async () => {
@@ -45,7 +27,10 @@ describe.skip('Orders API', () => {
   });
 
   describe('GET /api/orders', () => {
-    it('should return order list with 200 status', async () => {
+    it('should return empty order list when no orders', async () => {
+      // Mock: 주문 없음
+      mockSheetService.setMockNewOrders([]);
+
       const response = await server.inject({
         method: 'GET',
         url: '/api/orders',
@@ -54,35 +39,66 @@ describe.skip('Orders API', () => {
       expect(response.statusCode).toBe(200);
       const payload = JSON.parse(response.payload);
       expect(payload).toHaveProperty('success', true);
-      expect(payload).toHaveProperty('count');
-      expect(payload).toHaveProperty('orders');
+      expect(payload.count).toBe(0);
+      expect(payload.orders).toEqual([]);
+    });
+
+    it('should return order list with correct count', async () => {
+      // Mock: 5개의 주문
+      const mockOrders = createMockSheetRows(5);
+      mockSheetService.setMockNewOrders(mockOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+      expect(payload).toHaveProperty('success', true);
+      expect(payload.count).toBe(5);
       expect(Array.isArray(payload.orders)).toBe(true);
+      expect(payload.orders.length).toBe(5);
     });
 
     it('should return orders with correct structure', async () => {
+      // Mock: 1개의 주문
+      const mockOrders = createMockSheetRows(1);
+      mockSheetService.setMockNewOrders(mockOrders);
+
       const response = await server.inject({
         method: 'GET',
         url: '/api/orders',
       });
 
       const payload = JSON.parse(response.payload);
+      expect(payload.count).toBe(1);
 
-      if (payload.count > 0) {
-        const order = payload.orders[0];
-        expect(order).toHaveProperty('timestamp');
-        expect(order).toHaveProperty('timestampRaw');
-        expect(order).toHaveProperty('status');
-        expect(order).toHaveProperty('sender');
-        expect(order).toHaveProperty('recipient');
-        expect(order).toHaveProperty('productType');
-        expect(order).toHaveProperty('quantity');
-        expect(order).toHaveProperty('rowNumber');
-      }
+      const order = payload.orders[0];
+      expect(order).toHaveProperty('timestamp');
+      expect(order).toHaveProperty('timestampRaw');
+      expect(order).toHaveProperty('status');
+      expect(order).toHaveProperty('sender');
+      expect(order).toHaveProperty('recipient');
+      expect(order).toHaveProperty('productType');
+      expect(order).toHaveProperty('quantity');
+      expect(order).toHaveProperty('rowNumber');
+
+      // sender와 recipient 구조 확인
+      expect(order.sender).toHaveProperty('name');
+      expect(order.sender).toHaveProperty('phone');
+      expect(order.sender).toHaveProperty('address');
+      expect(order.recipient).toHaveProperty('name');
+      expect(order.recipient).toHaveProperty('phone');
+      expect(order.recipient).toHaveProperty('address');
     });
   });
 
   describe('GET /api/orders/summary', () => {
-    it('should return summary with 200 status', async () => {
+    it('should return empty summary when no orders', async () => {
+      // Mock: 주문 없음
+      mockSheetService.setMockNewOrders([]);
+
       const response = await server.inject({
         method: 'GET',
         url: '/api/orders/summary',
@@ -92,9 +108,20 @@ describe.skip('Orders API', () => {
       const payload = JSON.parse(response.payload);
       expect(payload).toHaveProperty('success', true);
       expect(payload).toHaveProperty('summary');
+
+      const { summary } = payload;
+      expect(summary['5kg'].count).toBe(0);
+      expect(summary['5kg'].amount).toBe(0);
+      expect(summary['10kg'].count).toBe(0);
+      expect(summary['10kg'].amount).toBe(0);
+      expect(summary.total).toBe(0);
     });
 
     it('should return summary with correct structure', async () => {
+      // Mock: 5kg 2개, 10kg 1개
+      const mockOrders = createMockSheetRows(3);
+      mockSheetService.setMockNewOrders(mockOrders);
+
       const response = await server.inject({
         method: 'GET',
         url: '/api/orders/summary',
@@ -120,6 +147,10 @@ describe.skip('Orders API', () => {
     });
 
     it('should calculate total correctly', async () => {
+      // Mock: 여러 주문
+      const mockOrders = createMockSheetRows(5);
+      mockSheetService.setMockNewOrders(mockOrders);
+
       const response = await server.inject({
         method: 'GET',
         url: '/api/orders/summary',
@@ -130,11 +161,15 @@ describe.skip('Orders API', () => {
 
       const expectedTotal = summary['5kg'].amount + summary['10kg'].amount;
       expect(summary.total).toBe(expectedTotal);
+      expect(summary.total).toBeGreaterThan(0);
     });
   });
 
   describe('POST /api/orders/confirm', () => {
-    it('should return success response', async () => {
+    it('should return message when no orders to confirm', async () => {
+      // Mock: 주문 없음
+      mockSheetService.setMockNewOrders([]);
+
       const response = await server.inject({
         method: 'POST',
         url: '/api/orders/confirm',
@@ -142,10 +177,48 @@ describe.skip('Orders API', () => {
 
       expect(response.statusCode).toBe(200);
       const payload = JSON.parse(response.payload);
-      expect(payload).toHaveProperty('success', true);
-      expect(payload).toHaveProperty('message');
-      expect(payload).toHaveProperty('confirmedCount');
-      expect(typeof payload.confirmedCount).toBe('number');
+      expect(payload.success).toBe(true);
+      expect(payload.message).toBe('확인할 새로운 주문이 없습니다.');
+      expect(payload.confirmedCount).toBe(0);
+    });
+
+    it('should confirm orders and return correct count', async () => {
+      // Mock: 3개의 주문
+      const mockOrders = createMockSheetRows(3);
+      mockSheetService.setMockNewOrders(mockOrders);
+
+      const response = await server.inject({
+        method: 'POST',
+        url: '/api/orders/confirm',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(true);
+      expect(payload.message).toBe('3개의 주문이 확인되었습니다.');
+      expect(payload.confirmedCount).toBe(3);
+    });
+
+    it('should clear orders after confirmation', async () => {
+      // Mock: 5개의 주문
+      const mockOrders = createMockSheetRows(5);
+      mockSheetService.setMockNewOrders(mockOrders);
+
+      // 첫 번째 확인
+      const response1 = await server.inject({
+        method: 'POST',
+        url: '/api/orders/confirm',
+      });
+      expect(JSON.parse(response1.payload).confirmedCount).toBe(5);
+
+      // 두 번째 확인 (주문이 이미 처리됨)
+      const response2 = await server.inject({
+        method: 'POST',
+        url: '/api/orders/confirm',
+      });
+      const payload2 = JSON.parse(response2.payload);
+      expect(payload2.confirmedCount).toBe(0);
+      expect(payload2.message).toBe('확인할 새로운 주문이 없습니다.');
     });
   });
 });
