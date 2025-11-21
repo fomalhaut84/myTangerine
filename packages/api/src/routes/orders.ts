@@ -23,36 +23,17 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         response: {
           200: {
             type: 'object',
+            required: ['success', 'count', 'orders'],
             properties: {
-              success: { type: 'boolean', example: true },
-              count: { type: 'number', example: 5 },
+              success: { type: 'boolean', enum: [true], example: true },
+              count: { type: 'integer', minimum: 0, description: '주문 개수', example: 5 },
               orders: {
                 type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    timestamp: { type: 'string', format: 'date-time' },
-                    timestampRaw: { type: 'string' },
-                    status: { type: 'string' },
-                    sender: { type: 'object' },
-                    recipient: { type: 'object' },
-                    productType: { type: 'string', enum: ['5kg', '10kg'] },
-                    quantity: { type: 'number' },
-                    rowNumber: { type: 'number' },
-                  },
-                },
+                items: { $ref: '#/components/schemas/Order' },
               },
             },
           },
-          500: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean', example: false },
-              error: { type: 'string' },
-              statusCode: { type: 'number', example: 500 },
-              timestamp: { type: 'string', format: 'date-time' },
-            },
-          },
+          500: { $ref: '#/components/schemas/ErrorResponse' },
         },
       },
     },
@@ -95,39 +76,13 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         response: {
           200: {
             type: 'object',
+            required: ['success', 'summary'],
             properties: {
-              success: { type: 'boolean', example: true },
-              summary: {
-                type: 'object',
-                properties: {
-                  '5kg': {
-                    type: 'object',
-                    properties: {
-                      count: { type: 'number', example: 10 },
-                      amount: { type: 'number', example: 350000 },
-                    },
-                  },
-                  '10kg': {
-                    type: 'object',
-                    properties: {
-                      count: { type: 'number', example: 5 },
-                      amount: { type: 'number', example: 300000 },
-                    },
-                  },
-                  total: { type: 'number', example: 650000 },
-                },
-              },
+              success: { type: 'boolean', enum: [true], example: true },
+              summary: { $ref: '#/components/schemas/OrderSummary' },
             },
           },
-          500: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean', example: false },
-              error: { type: 'string' },
-              statusCode: { type: 'number', example: 500 },
-              timestamp: { type: 'string', format: 'date-time' },
-            },
-          },
+          500: { $ref: '#/components/schemas/ErrorResponse' },
         },
       },
     },
@@ -184,24 +139,27 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         tags: ['orders'],
         summary: '주문 확인 처리',
         description: '모든 새로운 주문을 "확인" 상태로 표시합니다.',
+        body: {
+          type: 'object',
+          additionalProperties: false,
+          description: '요청 본문 없음',
+        },
         response: {
           200: {
             type: 'object',
+            required: ['success', 'message', 'confirmedCount'],
             properties: {
-              success: { type: 'boolean', example: true },
-              message: { type: 'string', example: '5개의 주문이 확인되었습니다.' },
-              confirmedCount: { type: 'number', example: 5 },
+              success: { type: 'boolean', enum: [true], example: true },
+              message: { type: 'string', description: '확인 메시지', example: '5개의 주문이 확인되었습니다.' },
+              confirmedCount: {
+                type: 'integer',
+                minimum: 0,
+                description: '확인된 주문 개수',
+                example: 5,
+              },
             },
           },
-          500: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean', example: false },
-              error: { type: 'string' },
-              statusCode: { type: 'number', example: 500 },
-              timestamp: { type: 'string', format: 'date-time' },
-            },
-          },
+          500: { $ref: '#/components/schemas/ErrorResponse' },
         },
       },
     },

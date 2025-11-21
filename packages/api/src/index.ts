@@ -59,6 +59,117 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
         { name: 'orders', description: '주문 관리 API' },
         { name: 'labels', description: '배송 라벨 생성 API' },
       ],
+      components: {
+        schemas: {
+          PersonInfo: {
+            type: 'object',
+            required: ['name', 'phone', 'address'],
+            properties: {
+              name: { type: 'string', description: '이름', example: '홍길동' },
+              phone: { type: 'string', description: '전화번호', example: '010-1234-5678' },
+              address: { type: 'string', description: '주소', example: '서울시 강남구' },
+            },
+          },
+          Order: {
+            type: 'object',
+            required: [
+              'timestamp',
+              'timestampRaw',
+              'status',
+              'sender',
+              'recipient',
+              'productType',
+              'quantity',
+              'rowNumber',
+            ],
+            properties: {
+              timestamp: {
+                type: 'string',
+                format: 'date-time',
+                description: '주문 시각 (ISO 8601)',
+                example: '2025-01-21T10:30:00.000Z',
+              },
+              timestampRaw: {
+                type: 'string',
+                description: '원본 타임스탬프',
+                example: '2025-01-21 오전 10:30:00',
+              },
+              status: {
+                type: 'string',
+                description: '주문 상태 (비고 컬럼 값)',
+                example: '',
+              },
+              sender: { $ref: '#/components/schemas/PersonInfo' },
+              recipient: { $ref: '#/components/schemas/PersonInfo' },
+              productType: {
+                type: 'string',
+                enum: ['5kg', '10kg'],
+                description: '상품 종류',
+                example: '5kg',
+              },
+              quantity: {
+                type: 'integer',
+                minimum: 1,
+                description: '주문 수량',
+                example: 2,
+              },
+              rowNumber: {
+                type: 'integer',
+                minimum: 1,
+                description: '스프레드시트 행 번호',
+                example: 15,
+              },
+            },
+          },
+          ProductSummary: {
+            type: 'object',
+            required: ['count', 'amount'],
+            properties: {
+              count: {
+                type: 'integer',
+                minimum: 0,
+                description: '수량',
+                example: 10,
+              },
+              amount: {
+                type: 'integer',
+                minimum: 0,
+                description: '금액 (KRW)',
+                example: 350000,
+              },
+            },
+          },
+          OrderSummary: {
+            type: 'object',
+            required: ['5kg', '10kg', 'total'],
+            properties: {
+              '5kg': { $ref: '#/components/schemas/ProductSummary' },
+              '10kg': { $ref: '#/components/schemas/ProductSummary' },
+              total: {
+                type: 'integer',
+                minimum: 0,
+                description: '총 금액 (KRW)',
+                example: 650000,
+              },
+            },
+          },
+          ErrorResponse: {
+            type: 'object',
+            required: ['success', 'error', 'statusCode', 'timestamp'],
+            properties: {
+              success: { type: 'boolean', enum: [false], example: false },
+              error: { type: 'string', description: '에러 메시지', example: '서버 내부 오류가 발생했습니다.' },
+              statusCode: { type: 'integer', description: 'HTTP 상태 코드', example: 500 },
+              timestamp: {
+                type: 'string',
+                format: 'date-time',
+                description: '에러 발생 시각',
+                example: '2025-01-21T10:30:00.000Z',
+              },
+            },
+          },
+        },
+      },
     },
   });
 
