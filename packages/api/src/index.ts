@@ -6,6 +6,9 @@
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
 import { loadEnv, loadPackageMetadata, type Env } from './config.js';
+import corePlugin from './plugins/core.js';
+import ordersRoutes from './routes/orders.js';
+import labelsRoutes from './routes/labels.js';
 
 /**
  * Fastify 서버 생성 및 설정
@@ -32,6 +35,9 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
     origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
   });
 
+  // Core 플러그인 등록 (@mytangerine/core 연동)
+  await server.register(corePlugin);
+
   // Package metadata 로드
   const packageMetadata = await loadPackageMetadata();
 
@@ -48,6 +54,10 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
   server.get('/', async () => {
     return packageMetadata;
   });
+
+  // API 라우트 등록
+  await server.register(ordersRoutes);
+  await server.register(labelsRoutes);
 
   return server;
 }

@@ -25,6 +25,7 @@
     "@mytangerine/core": "workspace:*",
     "fastify": "^4.0.0",
     "@fastify/cors": "^9.0.0",
+    "fastify-plugin": "^4.0.0",
     "dotenv": "^16.3.0",
     "zod": "^3.22.0"
   },
