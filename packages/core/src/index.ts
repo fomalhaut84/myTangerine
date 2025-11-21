@@ -13,8 +13,8 @@ export type { Env } from './config/env.js';
 // Services
 export { SheetService } from './services/sheet-service.js';
 
-// Formatters (추후 추가)
-// export { LabelFormatter } from './formatters/label-formatter.js';
+// Formatters
+export { LabelFormatter } from './formatters/label-formatter.js';
 
 // Utils (추후 추가)
 // export * from './utils/phone.js';
