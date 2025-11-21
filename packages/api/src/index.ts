@@ -5,6 +5,8 @@
 
 import Fastify, { type FastifyInstance } from 'fastify';
 import cors from '@fastify/cors';
+import swagger from '@fastify/swagger';
+import swaggerUi from '@fastify/swagger-ui';
 import { loadEnv, loadPackageMetadata, type Env } from './config.js';
 import corePlugin from './plugins/core.js';
 import ordersRoutes from './routes/orders.js';
@@ -36,14 +38,45 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
     origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
   });
 
+  // Package metadata 로드 (Swagger 설정에 필요)
+  const packageMetadata = await loadPackageMetadata();
+
+  // Swagger 문서화 설정
+  await server.register(swagger, {
+    openapi: {
+      info: {
+        title: packageMetadata.name,
+        description: packageMetadata.description,
+        version: packageMetadata.version,
+      },
+      servers: [
+        {
+          url: `http://${env.HOST}:${env.PORT}`,
+          description: 'Development server',
+        },
+      ],
+      tags: [
+        { name: 'orders', description: '주문 관리 API' },
+        { name: 'labels', description: '배송 라벨 생성 API' },
+      ],
+    },
+  });
+
+  // Swagger UI 등록
+  await server.register(swaggerUi, {
+    routePrefix: '/docs',
+    uiConfig: {
+      docExpansion: 'list',
+      deepLinking: true,
+    },
+    staticCSP: true,
+  });
+
   // Core 플러그인 등록 (@mytangerine/core 연동)
   await server.register(corePlugin);
 
   // 전역 에러 핸들러 등록
   server.setErrorHandler(errorHandler);
-
-  // Package metadata 로드
-  const packageMetadata = await loadPackageMetadata();
 
   // 헬스체크 엔드포인트
   server.get('/health', async () => {

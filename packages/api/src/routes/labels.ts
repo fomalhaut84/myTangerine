@@ -13,7 +13,35 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
    * GET /api/labels
    * 포맷팅된 배송 라벨 생성
    */
-  fastify.get('/api/labels', async (request, reply) => {
+  fastify.get(
+    '/api/labels',
+    {
+      schema: {
+        tags: ['labels'],
+        summary: '배송 라벨 생성',
+        description: '새로운 주문들에 대한 포맷팅된 배송 라벨을 생성합니다. 날짜와 발송인별로 그룹화됩니다.',
+        response: {
+          200: {
+            type: 'string',
+            description: '포맷팅된 배송 라벨 텍스트',
+            examples: [
+              '새로운 주문이 없습니다.',
+              '====================\n2025-01-21\n====================\n\n보내는분: 홍길동\n...',
+            ],
+          },
+          500: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean', example: false },
+              error: { type: 'string' },
+              statusCode: { type: 'number', example: 500 },
+              timestamp: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
     try {
       const { sheetService, config, labelFormatter } = fastify.core;
 

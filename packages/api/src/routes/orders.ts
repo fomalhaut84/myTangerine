@@ -13,7 +13,50 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
    * GET /api/orders
    * 새로운 주문 조회
    */
-  fastify.get('/api/orders', async () => {
+  fastify.get(
+    '/api/orders',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '새로운 주문 목록 조회',
+        description: '비고가 "확인"이 아닌 새로운 주문들을 조회합니다.',
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean', example: true },
+              count: { type: 'number', example: 5 },
+              orders: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    timestamp: { type: 'string', format: 'date-time' },
+                    timestampRaw: { type: 'string' },
+                    status: { type: 'string' },
+                    sender: { type: 'object' },
+                    recipient: { type: 'object' },
+                    productType: { type: 'string', enum: ['5kg', '10kg'] },
+                    quantity: { type: 'number' },
+                    rowNumber: { type: 'number' },
+                  },
+                },
+              },
+            },
+          },
+          500: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean', example: false },
+              error: { type: 'string' },
+              statusCode: { type: 'number', example: 500 },
+              timestamp: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+    async () => {
     const { sheetService, config } = fastify.core;
 
     // 새로운 주문 가져오기
@@ -42,7 +85,53 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
    * GET /api/orders/summary
    * 주문 요약 정보
    */
-  fastify.get('/api/orders/summary', async () => {
+  fastify.get(
+    '/api/orders/summary',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 요약 정보 조회',
+        description: '5kg, 10kg별 수량과 금액, 총 금액을 계산합니다.',
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean', example: true },
+              summary: {
+                type: 'object',
+                properties: {
+                  '5kg': {
+                    type: 'object',
+                    properties: {
+                      count: { type: 'number', example: 10 },
+                      amount: { type: 'number', example: 350000 },
+                    },
+                  },
+                  '10kg': {
+                    type: 'object',
+                    properties: {
+                      count: { type: 'number', example: 5 },
+                      amount: { type: 'number', example: 300000 },
+                    },
+                  },
+                  total: { type: 'number', example: 650000 },
+                },
+              },
+            },
+          },
+          500: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean', example: false },
+              error: { type: 'string' },
+              statusCode: { type: 'number', example: 500 },
+              timestamp: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+    async () => {
     const { sheetService, config } = fastify.core;
 
     // 새로운 주문 가져오기
@@ -88,7 +177,35 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
    * POST /api/orders/confirm
    * 모든 새 주문을 "확인" 상태로 표시
    */
-  fastify.post('/api/orders/confirm', async () => {
+  fastify.post(
+    '/api/orders/confirm',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 확인 처리',
+        description: '모든 새로운 주문을 "확인" 상태로 표시합니다.',
+        response: {
+          200: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean', example: true },
+              message: { type: 'string', example: '5개의 주문이 확인되었습니다.' },
+              confirmedCount: { type: 'number', example: 5 },
+            },
+          },
+          500: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean', example: false },
+              error: { type: 'string' },
+              statusCode: { type: 'number', example: 500 },
+              timestamp: { type: 'string', format: 'date-time' },
+            },
+          },
+        },
+      },
+    },
+    async () => {
     const { sheetService } = fastify.core;
 
     // 먼저 새로운 주문을 가져와서 newOrderRows를 갱신

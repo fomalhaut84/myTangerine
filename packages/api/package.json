@@ -22,11 +22,13 @@
   "author": "fomalhaut84",
   "license": "MIT",
   "dependencies": {
-    "@mytangerine/core": "workspace:*",
-    "fastify": "^4.0.0",
     "@fastify/cors": "^9.0.0",
-    "fastify-plugin": "^4.0.0",
+    "@fastify/swagger": "^9.6.1",
+    "@fastify/swagger-ui": "^5.2.3",
+    "@mytangerine/core": "workspace:*",
     "dotenv": "^16.3.0",
+    "fastify": "^4.0.0",
+    "fastify-plugin": "^4.0.0",
     "zod": "^3.22.0"
   },
   "devDependencies": {
