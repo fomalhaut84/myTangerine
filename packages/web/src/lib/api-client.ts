@@ -13,8 +13,10 @@ import type {
 /**
  * API Base URL 검증
  * - 환경 변수가 있으면 사용
- * - 없으면 localhost 기본값 사용 (빌드 시 및 개발 시)
+ * - 없으면 localhost:3001 기본값 사용 (빌드 시 및 개발 시)
  * - Production 런타임에서 환경 변수 설정 권장
+ *
+ * Note: API 서버는 3001번 포트를 사용합니다 (Next.js 웹 서버는 3000번)
  */
 function getApiBaseUrl(): string {
   const url = process.env.NEXT_PUBLIC_API_BASE_URL;
@@ -24,13 +26,13 @@ function getApiBaseUrl(): string {
     return url;
   }
 
-  // 없으면 localhost 기본값 사용 (브라우저에서만 경고)
+  // 없으면 localhost:3001 기본값 사용 (브라우저에서만 경고)
   if (typeof window !== 'undefined') {
     console.warn(
-      '[API Client] NEXT_PUBLIC_API_BASE_URL not set, using http://localhost:3000'
+      '[API Client] NEXT_PUBLIC_API_BASE_URL not set, using http://localhost:3001'
     );
   }
-  return 'http://localhost:3000';
+  return 'http://localhost:3001';
 }
 
 const apiBaseUrl = getApiBaseUrl();
