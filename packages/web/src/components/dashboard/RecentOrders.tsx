@@ -16,7 +16,7 @@ export function RecentOrders() {
       <Card title="최근 주문">
         <div className="animate-pulse space-y-4">
           {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-20 bg-gray-200 rounded"></div>
+            <div key={i} className="h-20 bg-gray-200 dark:bg-gray-700 rounded"></div>
           ))}
         </div>
       </Card>
@@ -48,9 +48,9 @@ export function RecentOrders() {
   return (
     <Card title="최근 주문">
       <div className="space-y-3">
-        {recentOrders.map((order, index) => (
+        {recentOrders.map((order) => (
           <div
-            key={index}
+            key={order.rowNumber}
             className="flex justify-between items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
           >
             <div className="flex-1">

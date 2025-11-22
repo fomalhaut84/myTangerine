@@ -39,6 +39,8 @@ export function useConfirmOrders() {
     onSuccess: () => {
       // 주문 목록 및 요약 갱신
       queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      // 라벨도 주문 기반이므로 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
     },
   });
 }

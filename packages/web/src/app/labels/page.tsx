@@ -9,13 +9,26 @@ import { useConfirmOrders } from '@/hooks/use-orders';
 import { LabelPreview } from '@/components/labels/LabelPreview';
 import { Card } from '@/components/common/Card';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export default function LabelsPage() {
   const { data: labelText, isLoading, error } = useLabels();
   const confirmMutation = useConfirmOrders();
   const [message, setMessage] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
+  const timeoutRef = useRef<NodeJS.Timeout>();
+  const copyTimeoutRef = useRef<NodeJS.Timeout>();
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+      if (copyTimeoutRef.current) {
+        clearTimeout(copyTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleCopy = async () => {
     if (!labelText) return;
@@ -23,7 +36,7 @@ export default function LabelsPage() {
     try {
       await navigator.clipboard.writeText(labelText);
       setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
     } catch (error) {
       alert('클립보드 복사에 실패했습니다.');
     }
@@ -42,10 +55,10 @@ export default function LabelsPage() {
     try {
       const result = await confirmMutation.mutateAsync();
       setMessage(result.message);
-      setTimeout(() => setMessage(null), 3000);
+      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
     } catch (error) {
       setMessage('주문 확인 처리 중 오류가 발생했습니다.');
-      setTimeout(() => setMessage(null), 3000);
+      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
     }
   };
 
@@ -114,7 +127,7 @@ export default function LabelsPage() {
           {isLoading ? (
             <div className="animate-pulse space-y-4">
               {[...Array(10)].map((_, i) => (
-                <div key={i} className="h-4 bg-gray-200 rounded"></div>
+                <div key={i} className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
               ))}
             </div>
           ) : error ? (
@@ -139,6 +152,7 @@ export default function LabelsPage() {
             .print-area,
             .print-area * {
               visibility: visible;
+              display: block !important;
             }
             .print-area {
               position: absolute;
@@ -151,7 +165,7 @@ export default function LabelsPage() {
             }
           }
         `}</style>
-        <div className="print-area" style={{ display: 'none' }}>
+        <div className="print-area hidden">
           {labelText}
         </div>
       </div>

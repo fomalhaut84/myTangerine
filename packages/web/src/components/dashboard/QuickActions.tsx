@@ -7,20 +7,29 @@
 import Link from 'next/link';
 import { useConfirmOrders } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export function QuickActions() {
   const confirmMutation = useConfirmOrders();
   const [message, setMessage] = useState<string | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout>();
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleConfirm = async () => {
     try {
       const result = await confirmMutation.mutateAsync();
       setMessage(result.message);
-      setTimeout(() => setMessage(null), 3000);
+      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
     } catch (error) {
       setMessage('주문 확인 처리 중 오류가 발생했습니다.');
-      setTimeout(() => setMessage(null), 3000);
+      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
     }
   };
 

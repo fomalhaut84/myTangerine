@@ -14,9 +14,9 @@ export function SummaryCard() {
     return (
       <Card title="주문 요약">
         <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-gray-200 rounded"></div>
-          <div className="h-4 bg-gray-200 rounded"></div>
-          <div className="h-4 bg-gray-200 rounded"></div>
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
+          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
         </div>
       </Card>
     );

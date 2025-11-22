@@ -8,12 +8,21 @@ import { useOrders, useConfirmOrders } from '@/hooks/use-orders';
 import { OrdersTable } from '@/components/orders/OrdersTable';
 import { Card } from '@/components/common/Card';
 import Link from 'next/link';
-import { useState } from 'react';
+import { useState, useEffect, useRef } from 'react';
 
 export default function OrdersPage() {
   const { data, isLoading, error } = useOrders();
   const confirmMutation = useConfirmOrders();
   const [message, setMessage] = useState<string | null>(null);
+  const timeoutRef = useRef<NodeJS.Timeout>();
+
+  useEffect(() => {
+    return () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+      }
+    };
+  }, []);
 
   const handleConfirm = async () => {
     if (!confirm('모든 주문을 확인 처리하시겠습니까?')) {
@@ -23,10 +32,10 @@ export default function OrdersPage() {
     try {
       const result = await confirmMutation.mutateAsync();
       setMessage(result.message);
-      setTimeout(() => setMessage(null), 3000);
+      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
     } catch (error) {
       setMessage('주문 확인 처리 중 오류가 발생했습니다.');
-      setTimeout(() => setMessage(null), 3000);
+      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
     }
   };
 
@@ -87,7 +96,7 @@ export default function OrdersPage() {
           {isLoading ? (
             <div className="animate-pulse space-y-4">
               {[...Array(5)].map((_, i) => (
-                <div key={i} className="h-12 bg-gray-200 rounded"></div>
+                <div key={i} className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
               ))}
             </div>
           ) : error ? (
