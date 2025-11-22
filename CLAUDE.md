@@ -31,30 +31,66 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ### 역할 분담
 - **Claude Code**: 프로젝트 개발 담당 (코드 작성, 버그 수정, 기능 구현)
-- **@codex-cli**: 문서화, 코드 분석, 코드 리뷰 담당
-  - ⚠️ **@codex-cli는 코드를 직접 수정하면 안됨**
+- **codex-cli**: 문서화, 코드 분석, 코드 리뷰 담당
+  - ⚠️ **codex-cli는 코드를 직접 수정하면 안됨**
+  - ⚠️ **codex-cli는 읽기 전용 환경**에서 실행되므로 일부 작업 제한:
+    - GitHub API 직접 접근 불가
+    - 파일 시스템 직접 읽기 불가
+    - 테스트/빌드/명령어 실행 불가
+
+### 문서화 작업 워크플로우
+
+codex-cli가 읽기 전용 환경이므로, 다음 워크플로우를 따릅니다:
+
+1. **Claude Code가 데이터 수집**
+   - GitHub 이슈/PR/코멘트 읽기 (`gh` CLI 또는 WebFetch)
+   - 코드 파일 읽기 (Read 도구)
+   - 필요한 모든 정보를 수집
+
+2. **Claude Code가 codex-cli에게 정보 전달**
+   - 수집한 정보를 codex-cli에게 명확히 전달
+   - 분석 또는 문서 작성 요청
+
+3. **codex-cli가 분석 및 문서 작성**
+   - 받은 정보를 바탕으로 분석 수행
+   - 이슈 본문, PR 본문, 코멘트 내용 등을 작성
+   - 결과를 Claude Code에게 반환
+
+4. **Claude Code가 결과 등록**
+   - codex-cli가 작성한 내용을 GitHub에 등록 (이슈 생성, PR 생성, 코멘트 작성 등)
+   - 출처 표시: "codex-cli 분석 기반으로 작성됨" (@ 기호 없이!)
+
+**예시:**
+```
+사용자: "GitHub 이슈 #13 확인해서 Phase 3.1 이슈 만들어줘"
+
+1. Claude Code: gh issue view 13 --comments 실행하여 내용 읽기
+2. Claude Code: codex-cli에게 이슈 내용 전달 및 Phase 3.1 이슈 본문 작성 요청
+3. codex-cli: 분석 후 이슈 본문 작성하여 반환
+4. Claude Code: gh issue create로 이슈 생성 (본문에 "codex-cli 분석 기반으로 작성됨" 표시)
+```
 
 ### 코드 리뷰 프로세스
 
 Claude Code는 다음 프로세스를 자동으로 수행합니다:
 
 1. **리뷰 요청**
-   - 작업이 마무리되면 Claude Code가 스스로 @codex-cli에게 코드 리뷰를 요청
+   - 작업이 마무리되면 Claude Code가 스스로 codex-cli에게 코드 리뷰를 요청
    - 리뷰 요청 시 작업 내용과 맥락을 명확히 전달
 
 2. **리뷰 반영**
-   - @codex-cli의 리뷰가 나오면 Claude Code가 스스로 피드백을 분석
+   - codex-cli의 리뷰가 나오면 Claude Code가 스스로 피드백을 분석
    - 지적된 사항들을 코드에 반영하여 수정
-   - 수정 완료 후 다시 @codex-cli에게 리뷰 요청
+   - 수정 완료 후 다시 codex-cli에게 리뷰 요청
 
 3. **테스트 및 빌드 실행**
-   - @codex-cli는 read-only 환경이라 테스트, 빌드 등을 직접 실행할 수 없음
-   - Claude Code가 대신 다음 작업을 수행하고 결과를 @codex-cli에게 공유:
+   - codex-cli는 읽기 전용 환경이라 테스트, 빌드 등을 직접 실행할 수 없음
+   - Claude Code가 대신 다음 작업을 수행하고 결과를 codex-cli에게 공유:
      - 의존성 설치 (`pnpm install`, `npm install` 등)
      - 빌드 실행 (`pnpm build`, `npm run build` 등)
      - 테스트 실행 (`pnpm test`, `npm test` 등)
      - 린트 체크 (`pnpm lint` 등)
-   - 실행 결과(성공/실패, 에러 메시지, 경고 등)를 @codex-cli에게 명확히 전달
+   - 실행 결과(성공/실패, 에러 메시지, 경고 등)를 codex-cli에게 명확히 전달
    - 빌드/테스트 에러 발생 시 수정 후 다시 실행하여 결과 공유
 
 4. **리뷰 내역 문서화**
@@ -68,11 +104,11 @@ Claude Code는 다음 프로세스를 자동으로 수행합니다:
 ```markdown
 ## 코드 리뷰 반영 내역
 
-### @codex-cli 1차 리뷰
+### codex-cli 1차 리뷰
 - [P1] REQUIRED_COLUMNS 오류: '수량' 대신 '5kg 수량', '10kg 수량' 사용 → 수정 완료
 - [P2] 로깅 부족 → 중앙 집중식 로거 추가
 
-### @codex-cli 2차 리뷰
+### codex-cli 2차 리뷰
 - 추가 이슈 없음 ✅
 ```
 
