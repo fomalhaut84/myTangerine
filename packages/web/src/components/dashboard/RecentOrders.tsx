@@ -43,7 +43,10 @@ export function RecentOrders() {
     );
   }
 
-  const recentOrders = data.orders.slice(0, 5);
+  // 최신 주문 5개를 표시하기 위해 타임스탬프 기준 내림차순 정렬
+  const recentOrders = [...data.orders]
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime())
+    .slice(0, 5);
 
   return (
     <Card title="최근 주문">

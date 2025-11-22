@@ -51,7 +51,7 @@ export function OrdersTable({ orders }: OrdersTableProps) {
               className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
             >
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
-                {new Date(order.timestamp).toLocaleDateString('ko-KR', {
+                {new Date(order.timestamp).toLocaleString('ko-KR', {
                   month: 'short',
                   day: 'numeric',
                   hour: '2-digit',
