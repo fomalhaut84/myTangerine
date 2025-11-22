@@ -1,0 +1,91 @@
+/**
+ * 최근 주문 목록 컴포넌트
+ */
+
+'use client';
+
+import { useOrders } from '@/hooks/use-orders';
+import { Card } from '@/components/common/Card';
+import Link from 'next/link';
+
+export function RecentOrders() {
+  const { data, isLoading, error } = useOrders();
+
+  if (isLoading) {
+    return (
+      <Card title="최근 주문">
+        <div className="animate-pulse space-y-4">
+          {[...Array(3)].map((_, i) => (
+            <div key={i} className="h-20 bg-gray-200 rounded"></div>
+          ))}
+        </div>
+      </Card>
+    );
+  }
+
+  if (error) {
+    return (
+      <Card title="최근 주문">
+        <div className="text-red-600">
+          주문 정보를 불러오는 중 오류가 발생했습니다.
+        </div>
+      </Card>
+    );
+  }
+
+  if (!data?.success || !data?.orders || data.orders.length === 0) {
+    return (
+      <Card title="최근 주문">
+        <div className="text-center py-8 text-gray-500">
+          새로운 주문이 없습니다.
+        </div>
+      </Card>
+    );
+  }
+
+  const recentOrders = data.orders.slice(0, 5);
+
+  return (
+    <Card title="최근 주문">
+      <div className="space-y-3">
+        {recentOrders.map((order, index) => (
+          <div
+            key={index}
+            className="flex justify-between items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+          >
+            <div className="flex-1">
+              <p className="font-semibold text-gray-900 dark:text-gray-100">
+                {order.recipient.name}
+              </p>
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {order.recipient.address}
+              </p>
+            </div>
+            <div className="text-right ml-4">
+              <span
+                className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                  order.productType === '5kg'
+                    ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                    : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                }`}
+              >
+                {order.productType} × {order.quantity}
+              </span>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {data.orders.length > 5 && (
+        <div className="mt-4 text-center">
+          <Link
+            href="/orders"
+            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+          >
+            모든 주문 보기 ({data.count}개)
+          </Link>
+        </div>
+      )}
+    </Card>
+  );
+}

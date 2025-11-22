@@ -1,0 +1,90 @@
+/**
+ * 주문 테이블 컴포넌트
+ */
+
+'use client';
+
+import type { Order } from '@/types/api';
+
+interface OrdersTableProps {
+  orders: Order[];
+}
+
+export function OrdersTable({ orders }: OrdersTableProps) {
+  if (orders.length === 0) {
+    return (
+      <div className="text-center py-12 text-gray-500">
+        주문이 없습니다.
+      </div>
+    );
+  }
+
+  return (
+    <div className="overflow-x-auto">
+      <table className="min-w-full divide-y divide-gray-200 dark:divide-gray-700">
+        <thead className="bg-gray-50 dark:bg-gray-800">
+          <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              타임스탬프
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              받는 사람
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              주소
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              연락처
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              상품
+            </th>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 dark:text-gray-400 uppercase tracking-wider">
+              수량
+            </th>
+          </tr>
+        </thead>
+        <tbody className="bg-white dark:bg-gray-900 divide-y divide-gray-200 dark:divide-gray-800">
+          {orders.map((order, index) => (
+            <tr
+              key={index}
+              className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+            >
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                {new Date(order.timestamp).toLocaleDateString('ko-KR', {
+                  month: 'short',
+                  day: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                })}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 dark:text-gray-100">
+                {order.recipient.name}
+              </td>
+              <td className="px-6 py-4 text-sm text-gray-600 dark:text-gray-400 max-w-xs truncate">
+                {order.recipient.address}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600 dark:text-gray-400">
+                {order.recipient.phone}
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap">
+                <span
+                  className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                    order.productType === '5kg'
+                      ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
+                      : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                  }`}
+                >
+                  {order.productType}
+                </span>
+              </td>
+              <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
+                {order.quantity}박스
+              </td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+}
