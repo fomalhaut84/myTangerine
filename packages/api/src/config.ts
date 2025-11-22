@@ -17,7 +17,7 @@ dotenvConfig();
 const EnvSchema = z.object({
   PORT: z
     .string()
-    .default('3000')
+    .default('3001')
     .transform((val) => parseInt(val, 10))
     .pipe(z.number().int().positive()),
   HOST: z.string().default('0.0.0.0'),
