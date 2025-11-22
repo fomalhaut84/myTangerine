@@ -30,8 +30,11 @@ export default function LabelsPage() {
     };
   }, []);
 
+  // 실제 라벨 데이터가 있는지 확인 (API가 주문 없음 메시지를 반환하지 않는지)
+  const hasLabels = labelText && labelText !== '새로운 주문이 없습니다.';
+
   const handleCopy = async () => {
-    if (!labelText) return;
+    if (!hasLabels) return;
 
     try {
       await navigator.clipboard.writeText(labelText);
@@ -43,11 +46,13 @@ export default function LabelsPage() {
   };
 
   const handlePrint = () => {
-    if (!labelText) return;
+    if (!hasLabels) return;
     window.print();
   };
 
   const handleConfirm = async () => {
+    if (!hasLabels) return;
+
     if (!confirm('라벨을 출력하고 모든 주문을 확인 처리하시겠습니까?')) {
       return;
     }
@@ -97,7 +102,7 @@ export default function LabelsPage() {
         <div className="mb-6 flex gap-3">
           <button
             onClick={handleCopy}
-            disabled={!labelText}
+            disabled={!hasLabels}
             className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
           >
             {copied ? '복사됨!' : '클립보드에 복사'}
@@ -105,7 +110,7 @@ export default function LabelsPage() {
 
           <button
             onClick={handlePrint}
-            disabled={!labelText}
+            disabled={!hasLabels}
             className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
           >
             출력
@@ -113,7 +118,7 @@ export default function LabelsPage() {
 
           <button
             onClick={handleConfirm}
-            disabled={confirmMutation.isPending || !labelText}
+            disabled={confirmMutation.isPending || !hasLabels}
             className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
           >
             {confirmMutation.isPending
@@ -134,7 +139,7 @@ export default function LabelsPage() {
             <div className="text-center py-12 text-red-600">
               라벨 정보를 불러오는 중 오류가 발생했습니다.
             </div>
-          ) : labelText ? (
+          ) : hasLabels ? (
             <LabelPreview labelText={labelText} />
           ) : (
             <div className="text-center py-12 text-gray-500">
@@ -144,30 +149,34 @@ export default function LabelsPage() {
         </Card>
 
         {/* 출력용 스타일 */}
-        <style jsx global>{`
-          @media print {
-            body * {
-              visibility: hidden;
-            }
-            .print-area,
-            .print-area * {
-              visibility: visible;
-              display: block !important;
-            }
-            .print-area {
-              position: absolute;
-              left: 0;
-              top: 0;
-              width: 100%;
-              font-family: monospace;
-              font-size: 12pt;
-              white-space: pre-wrap;
-            }
-          }
-        `}</style>
-        <div className="print-area hidden">
-          {labelText}
-        </div>
+        {hasLabels && (
+          <>
+            <style jsx global>{`
+              @media print {
+                body * {
+                  visibility: hidden;
+                }
+                .print-area,
+                .print-area * {
+                  visibility: visible;
+                  display: block !important;
+                }
+                .print-area {
+                  position: absolute;
+                  left: 0;
+                  top: 0;
+                  width: 100%;
+                  font-family: monospace;
+                  font-size: 12pt;
+                  white-space: pre-wrap;
+                }
+              }
+            `}</style>
+            <div className="print-area hidden">
+              {labelText}
+            </div>
+          </>
+        )}
       </div>
     </div>
   );
