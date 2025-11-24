@@ -2,6 +2,7 @@ import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { Config } from '../config/config.js';
 import type { SheetRow } from '../types/order.js';
+import fs from 'fs';
 
 /**
  * Google Sheets API를 사용한 스프레드시트 서비스
@@ -30,7 +31,6 @@ export class SheetService {
       // 우선순위에 따라 credentials 로드: PATH > FILE > JSON
       if (this.config.credentialsPath) {
         // 파일에서 로드 (우선순위 1)
-        const fs = require('fs');
         const credentialsData = fs.readFileSync(this.config.credentialsPath, 'utf8');
         credentials = JSON.parse(credentialsData);
       } else if (this.config.credentialsJson) {

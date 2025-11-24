@@ -31,6 +31,11 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
             }
           : undefined,
     },
+    ajv: {
+      customOptions: {
+        strict: false, // JSON Schema의 example 키워드 허용
+      },
+    },
   });
 
   // CORS 설정 (환경 변수에서 읽기)
