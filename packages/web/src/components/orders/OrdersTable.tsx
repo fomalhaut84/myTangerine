@@ -5,12 +5,15 @@
 'use client';
 
 import type { Order } from '@/types/api';
+import { useRouter } from 'next/navigation';
 
 interface OrdersTableProps {
   orders: Order[];
 }
 
 export function OrdersTable({ orders }: OrdersTableProps) {
+  const router = useRouter();
+
   if (orders.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
@@ -18,6 +21,10 @@ export function OrdersTable({ orders }: OrdersTableProps) {
       </div>
     );
   }
+
+  const handleRowClick = (orderId: number) => {
+    router.push(`/orders/${orderId}`);
+  };
 
   return (
     <div className="overflow-x-auto">
@@ -48,7 +55,8 @@ export function OrdersTable({ orders }: OrdersTableProps) {
           {orders.map((order) => (
             <tr
               key={order.rowNumber}
-              className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors"
+              onClick={() => handleRowClick(order.rowNumber)}
+              className="hover:bg-gray-50 dark:hover:bg-gray-800/50 transition-colors cursor-pointer"
             >
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900 dark:text-gray-100">
                 {new Date(order.timestamp).toLocaleString('ko-KR', {
