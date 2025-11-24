@@ -17,6 +17,7 @@ import {
 } from '@/components/ui/select';
 import Link from 'next/link';
 import { useState, useEffect, useRef, useMemo } from 'react';
+import { downloadCSV, downloadExcel, getExportFilename } from '@/lib/export-utils';
 
 type SortField = 'date' | 'quantity';
 type SortOrder = 'asc' | 'desc';
@@ -93,6 +94,32 @@ export default function OrdersPage() {
     }
   };
 
+  const handleDownloadCSV = () => {
+    if (filteredAndSortedOrders.length === 0) {
+      setMessage('다운로드할 주문이 없습니다.');
+      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+      return;
+    }
+
+    const filename = getExportFilename('주문목록', 'csv');
+    downloadCSV(filteredAndSortedOrders, filename);
+    setMessage(`${filteredAndSortedOrders.length}개의 주문을 CSV로 다운로드했습니다.`);
+    timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+  };
+
+  const handleDownloadExcel = () => {
+    if (filteredAndSortedOrders.length === 0) {
+      setMessage('다운로드할 주문이 없습니다.');
+      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+      return;
+    }
+
+    const filename = getExportFilename('주문목록', 'xlsx');
+    downloadExcel(filteredAndSortedOrders, filename);
+    setMessage(`${filteredAndSortedOrders.length}개의 주문을 Excel로 다운로드했습니다.`);
+    timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
       <div className="max-w-7xl mx-auto">
@@ -111,6 +138,30 @@ export default function OrdersPage() {
           </div>
 
           <div className="flex gap-3">
+            <button
+              onClick={handleDownloadCSV}
+              disabled={
+                !data?.orders ||
+                data.orders.length === 0 ||
+                filteredAndSortedOrders.length === 0
+              }
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+            >
+              CSV 다운로드
+            </button>
+
+            <button
+              onClick={handleDownloadExcel}
+              disabled={
+                !data?.orders ||
+                data.orders.length === 0 ||
+                filteredAndSortedOrders.length === 0
+              }
+              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+            >
+              Excel 다운로드
+            </button>
+
             <Link
               href="/labels"
               className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
