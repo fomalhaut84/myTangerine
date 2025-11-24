@@ -73,6 +73,19 @@ export async function confirmOrders(): Promise<ConfirmResponse> {
 }
 
 /**
+ * 개별 주문 확인 처리
+ */
+export async function confirmSingleOrder(rowNumber: number): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/confirm`).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
  * 라벨 텍스트 조회
  */
 export async function getLabels(): Promise<string> {

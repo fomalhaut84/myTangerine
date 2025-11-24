@@ -181,6 +181,66 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       confirmedCount: newOrders.length,
     };
   });
+
+  /**
+   * POST /api/orders/:rowNumber/confirm
+   * 특정 주문을 "확인" 상태로 표시
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber/confirm',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '개별 주문 확인 처리',
+        description: '특정 주문을 "확인" 상태로 표시합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '확인 메시지',
+                example: '주문이 확인되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request) => {
+      const { sheetService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        throw new Error('Invalid row number');
+      }
+
+      // 특정 주문을 확인 상태로 표시
+      await sheetService.markSingleAsConfirmed(rowNumber);
+
+      return {
+        success: true,
+        message: '주문이 확인되었습니다.',
+      };
+    }
+  );
 };
 
 export default ordersRoutes;

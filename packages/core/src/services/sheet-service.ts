@@ -297,4 +297,39 @@ export class SheetService {
       throw new Error(`Failed to mark orders as confirmed: ${message}`);
     }
   }
+
+  /**
+   * 특정 주문 행을 "확인"으로 표시
+   * @param rowNumber 스프레드시트 행 번호 (1-based, 헤더 포함)
+   */
+  async markSingleAsConfirmed(rowNumber: number): Promise<void> {
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+
+      // 헤더 행을 가져와서 '비고' 열 위치 찾기
+      const headerResponse = await this.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${this.quoteSheetName(sheetName)}!1:1`,
+      });
+
+      const headers = headerResponse.data.values?.[0];
+      if (!headers) {
+        throw new Error('Could not read headers');
+      }
+
+      const 비고ColIndex = headers.findIndex(h => h === '비고');
+      if (비고ColIndex === -1) {
+        throw new Error("Could not find '비고' column");
+      }
+
+      const 비고Col = 비고ColIndex + 1; // 1-based
+
+      // 특정 행을 '확인'으로 업데이트
+      await this.updateCell(rowNumber, 비고Col, '확인');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark single order as confirmed: ${message}`);
+    }
+  }
 }

@@ -4,22 +4,53 @@
 
 'use client';
 
-import { useOrders } from '@/hooks/use-orders';
+import { useOrders, useConfirmSingleOrder } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
 import Link from 'next/link';
-import { useParams } from 'next/navigation';
-import { useMemo } from 'react';
+import { useParams, useRouter } from 'next/navigation';
+import { useMemo, useState } from 'react';
+import { toast } from '@/hooks/use-toast';
 
 export default function OrderDetailPage() {
   const params = useParams();
+  const router = useRouter();
   const orderId = params.orderId as string;
   const { data, isLoading, error } = useOrders();
+  const confirmMutation = useConfirmSingleOrder();
+  const [isConfirming, setIsConfirming] = useState(false);
 
   // rowNumber로 주문 찾기
   const order = useMemo(() => {
     if (!data?.orders) return null;
     return data.orders.find((o) => o.rowNumber.toString() === orderId);
   }, [data?.orders, orderId]);
+
+  const handleConfirm = async () => {
+    if (!order) return;
+
+    if (!confirm('이 주문을 확인 처리하시겠습니까?')) {
+      return;
+    }
+
+    setIsConfirming(true);
+    try {
+      await confirmMutation.mutateAsync(order.rowNumber);
+      toast({
+        title: '성공',
+        description: '주문이 확인되었습니다.',
+      });
+      // 주문 목록으로 이동
+      router.push('/orders');
+    } catch (error) {
+      toast({
+        title: '오류',
+        description: '주문 확인 처리 중 오류가 발생했습니다.',
+        variant: 'destructive',
+      });
+    } finally {
+      setIsConfirming(false);
+    }
+  };
 
   if (isLoading) {
     return (
@@ -204,13 +235,13 @@ export default function OrderDetailPage() {
         {order.status !== '확인' && (
           <div className="flex justify-end">
             <button
-              className="px-6 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-lg font-medium transition-colors"
-              onClick={() => {
-                // TODO: 개별 주문 확인 API 구현
-                alert('개별 주문 확인 기능은 아직 구현되지 않았습니다.');
-              }}
+              className="px-6 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              onClick={handleConfirm}
+              disabled={isConfirming || confirmMutation.isPending}
             >
-              이 주문 확인
+              {isConfirming || confirmMutation.isPending
+                ? '처리 중...'
+                : '이 주문 확인'}
             </button>
           </div>
         )}
