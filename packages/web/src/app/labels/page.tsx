@@ -1,75 +1,148 @@
 /**
- * 라벨 관리 페이지
+ * 라벨 관리 페이지 (개선 버전)
  */
 
 'use client';
 
-import { useLabels } from '@/hooks/use-labels';
+import { useGroupedLabels } from '@/hooks/use-labels';
 import { useConfirmOrders } from '@/hooks/use-orders';
-import { LabelPreview } from '@/components/labels/LabelPreview';
+import { LabelGroupCard } from '@/components/labels/LabelGroupCard';
 import { Card } from '@/components/common/Card';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
-import { useState, useEffect, useRef } from 'react';
+import { useState, useMemo } from 'react';
+import { toast } from 'sonner';
 
 export default function LabelsPage() {
-  const { data: labelText, isLoading, error } = useLabels();
+  const { data, isLoading, error } = useGroupedLabels();
   const confirmMutation = useConfirmOrders();
-  const [message, setMessage] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
-  const timeoutRef = useRef<NodeJS.Timeout>();
-  const copyTimeoutRef = useRef<NodeJS.Timeout>();
 
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-      if (copyTimeoutRef.current) {
-        clearTimeout(copyTimeoutRef.current);
-      }
-    };
-  }, []);
+  const [selectedGroups, setSelectedGroups] = useState<Set<number>>(new Set());
+  const [dateFilter, setDateFilter] = useState('');
+  const [senderFilter, setSenderFilter] = useState('');
 
-  // 실제 라벨 데이터가 있는지 확인 (API가 주문 없음 메시지를 반환하지 않는지)
-  const hasLabels = labelText && labelText !== '새로운 주문이 없습니다.';
+  // 필터링된 그룹
+  const filteredGroups = useMemo(() => {
+    if (!data?.data) return [];
+
+    return data.data.filter((group) => {
+      const matchesDate = !dateFilter || group.date.includes(dateFilter);
+      const matchesSender = !senderFilter ||
+        group.sender.name.toLowerCase().includes(senderFilter.toLowerCase()) ||
+        group.sender.phone.includes(senderFilter);
+
+      return matchesDate && matchesSender;
+    });
+  }, [data, dateFilter, senderFilter]);
+
+  // 선택된 그룹들의 텍스트 생성
+  const getSelectedLabelsText = () => {
+    if (!data?.data) return '';
+
+    const selectedData = filteredGroups.filter((_, index) =>
+      selectedGroups.has(index)
+    );
+
+    return selectedData
+      .map((group) => {
+        const header = `====================\n${group.date}\n====================\n`;
+        const senderInfo = `\n보내는분: ${group.sender.name} (${group.sender.phone})\n주소: ${group.sender.address}\n`;
+
+        const orders = group.orders
+          .map(
+            (order) =>
+              `\n받으실분: ${order.recipient.name}\n주소: ${order.recipient.address}\n전화번호: ${order.recipient.phone}\n${order.productType} x ${order.quantity}박스\n\n---`
+          )
+          .join('\n');
+
+        const summary = `\n\n보내는분별 수량:\n  5kg: ${group.summary['5kg'].count} (${group.summary['5kg'].amount}원)\n  10kg: ${group.summary['10kg'].count} (${group.summary['10kg'].amount}원)\n  합계: ${group.summary.total}원\n\n====================\n`;
+
+        return header + senderInfo + orders + summary;
+      })
+      .join('\n');
+  };
+
+  const handleSelectAll = (checked: boolean) => {
+    if (checked) {
+      setSelectedGroups(new Set(filteredGroups.map((_, index) => index)));
+    } else {
+      setSelectedGroups(new Set());
+    }
+  };
+
+  const handleSelectGroup = (index: number, selected: boolean) => {
+    const newSelected = new Set(selectedGroups);
+    if (selected) {
+      newSelected.add(index);
+    } else {
+      newSelected.delete(index);
+    }
+    setSelectedGroups(newSelected);
+  };
 
   const handleCopy = async () => {
-    if (!hasLabels) return;
+    const text = getSelectedLabelsText();
+    if (!text) {
+      toast.error('선택된 라벨이 없습니다.');
+      return;
+    }
 
     try {
-      await navigator.clipboard.writeText(labelText);
-      setCopied(true);
-      copyTimeoutRef.current = setTimeout(() => setCopied(false), 2000);
+      await navigator.clipboard.writeText(text);
+      toast.success('클립보드에 복사되었습니다.');
     } catch (error) {
-      alert('클립보드 복사에 실패했습니다.');
+      toast.error('클립보드 복사에 실패했습니다.');
     }
   };
 
   const handlePrint = () => {
-    if (!hasLabels) return;
-    window.print();
+    const text = getSelectedLabelsText();
+    if (!text) {
+      toast.error('선택된 라벨이 없습니다.');
+      return;
+    }
+
+    // 프린트용 윈도우 생성
+    const printWindow = window.open('', '_blank');
+    if (!printWindow) return;
+
+    printWindow.document.write(`
+      <html>
+        <head>
+          <title>배송 라벨</title>
+          <style>
+            body { font-family: monospace; white-space: pre-wrap; padding: 20px; }
+          </style>
+        </head>
+        <body>${text}</body>
+      </html>
+    `);
+    printWindow.document.close();
+    printWindow.print();
   };
 
   const handleConfirm = async () => {
-    if (!hasLabels) return;
+    if (selectedGroups.size === 0) {
+      toast.error('선택된 라벨이 없습니다.');
+      return;
+    }
 
-    if (!confirm('라벨을 출력하고 모든 주문을 확인 처리하시겠습니까?')) {
+    if (!confirm(`${selectedGroups.size}개 그룹의 주문을 확인 처리하시겠습니까?`)) {
       return;
     }
 
     try {
       const result = await confirmMutation.mutateAsync();
-      setMessage(result.message);
-      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+      toast.success(result.message);
+      setSelectedGroups(new Set());
     } catch (error) {
-      setMessage('주문 확인 처리 중 오류가 발생했습니다.');
-      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+      toast.error('주문 확인 처리 중 오류가 발생했습니다.');
     }
   };
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
-      <div className="max-w-4xl mx-auto">
+      <div className="max-w-7xl mx-auto">
         {/* 헤더 */}
         <div className="flex justify-between items-center mb-8">
           <div>
@@ -85,97 +158,111 @@ export default function LabelsPage() {
           </div>
         </div>
 
-        {/* 메시지 */}
-        {message && (
-          <div
-            className={`mb-6 p-4 rounded-lg ${
-              message.includes('오류')
-                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-            }`}
-          >
-            {message}
-          </div>
-        )}
+        {/* 액션 및 필터 */}
+        <Card className="mb-6">
+          <div className="space-y-4">
+            {/* 액션 버튼 */}
+            <div className="flex gap-3">
+              <button
+                onClick={() => handleSelectAll(selectedGroups.size !== filteredGroups.length)}
+                disabled={filteredGroups.length === 0}
+                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              >
+                {selectedGroups.size === filteredGroups.length ? '전체 해제' : '전체 선택'}
+              </button>
 
-        {/* 액션 버튼 */}
-        <div className="mb-6 flex gap-3">
-          <button
-            onClick={handleCopy}
-            disabled={!hasLabels}
-            className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-          >
-            {copied ? '복사됨!' : '클립보드에 복사'}
-          </button>
+              <button
+                onClick={handleCopy}
+                disabled={selectedGroups.size === 0}
+                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              >
+                복사 ({selectedGroups.size})
+              </button>
 
-          <button
-            onClick={handlePrint}
-            disabled={!hasLabels}
-            className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-          >
-            출력
-          </button>
+              <button
+                onClick={handlePrint}
+                disabled={selectedGroups.size === 0}
+                className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              >
+                출력 ({selectedGroups.size})
+              </button>
 
-          <button
-            onClick={handleConfirm}
-            disabled={confirmMutation.isPending || !hasLabels}
-            className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-          >
-            {confirmMutation.isPending
-              ? '처리 중...'
-              : '출력 후 주문 확인'}
-          </button>
-        </div>
-
-        {/* 라벨 프리뷰 */}
-        <Card title="라벨 프리뷰">
-          {isLoading ? (
-            <div className="animate-pulse space-y-4">
-              {[...Array(10)].map((_, i) => (
-                <div key={i} className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
-              ))}
+              <button
+                onClick={handleConfirm}
+                disabled={confirmMutation.isPending || selectedGroups.size === 0}
+                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              >
+                {confirmMutation.isPending ? '처리 중...' : `확인 (${selectedGroups.size})`}
+              </button>
             </div>
-          ) : error ? (
+
+            {/* 필터 */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  날짜 필터
+                </label>
+                <Input
+                  type="text"
+                  placeholder="날짜로 검색..."
+                  value={dateFilter}
+                  onChange={(e) => setDateFilter(e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  발신자 필터
+                </label>
+                <Input
+                  type="text"
+                  placeholder="이름 또는 전화번호로 검색..."
+                  value={senderFilter}
+                  onChange={(e) => setSenderFilter(e.target.value)}
+                />
+              </div>
+            </div>
+          </div>
+        </Card>
+
+        {/* 그리드 뷰 */}
+        {isLoading ? (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[...Array(6)].map((_, i) => (
+              <div key={i} className="h-64 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+            ))}
+          </div>
+        ) : error ? (
+          <Card>
             <div className="text-center py-12 text-red-600">
               라벨 정보를 불러오는 중 오류가 발생했습니다.
             </div>
-          ) : hasLabels ? (
-            <LabelPreview labelText={labelText} />
-          ) : (
+          </Card>
+        ) : filteredGroups.length === 0 ? (
+          <Card>
             <div className="text-center py-12 text-gray-500">
-              생성할 라벨이 없습니다.
+              {data?.data.length === 0
+                ? '생성할 라벨이 없습니다.'
+                : '필터 조건에 맞는 라벨이 없습니다.'}
             </div>
-          )}
-        </Card>
-
-        {/* 출력용 스타일 */}
-        {hasLabels && (
-          <>
-            <style jsx global>{`
-              @media print {
-                body * {
-                  visibility: hidden;
-                }
-                .print-area,
-                .print-area * {
-                  visibility: visible;
-                  display: block !important;
-                }
-                .print-area {
-                  position: absolute;
-                  left: 0;
-                  top: 0;
-                  width: 100%;
-                  font-family: monospace;
-                  font-size: 12pt;
-                  white-space: pre-wrap;
-                }
-              }
-            `}</style>
-            <div className="print-area hidden">
-              {labelText}
+          </Card>
+        ) : (
+          <div>
+            <div className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+              전체 <span className="font-semibold">{data?.data.length}개</span> 중{' '}
+              <span className="font-semibold">{filteredGroups.length}개</span>{' '}
+              (선택: {selectedGroups.size}개)
             </div>
-          </>
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+              {filteredGroups.map((group, index) => (
+                <LabelGroupCard
+                  key={`${group.date}-${group.sender.name}-${index}`}
+                  group={group}
+                  isSelected={selectedGroups.has(index)}
+                  onSelect={(selected) => handleSelectGroup(index, selected)}
+                />
+              ))}
+            </div>
+          </div>
         )}
       </div>
     </div>

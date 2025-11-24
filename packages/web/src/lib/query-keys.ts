@@ -12,5 +12,6 @@ export const queryKeys = {
   labels: {
     all: ['labels'] as const,
     text: () => [...queryKeys.labels.all, 'text'] as const,
+    grouped: () => [...queryKeys.labels.all, 'grouped'] as const,
   },
 } as const;

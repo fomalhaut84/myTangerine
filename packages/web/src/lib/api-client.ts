@@ -9,6 +9,7 @@ import type {
   SummaryResponse,
   ConfirmResponse,
   MonthlyStatsResponse,
+  GroupedLabelsResponse,
 } from '@/types/api';
 
 /**
@@ -98,4 +99,11 @@ export async function getLabels(): Promise<string> {
  */
 export async function getMonthlyStats(): Promise<MonthlyStatsResponse> {
   return api.get('api/orders/stats/monthly').json<MonthlyStatsResponse>();
+}
+
+/**
+ * 그룹화된 라벨 데이터 조회 (날짜/발신자별)
+ */
+export async function getGroupedLabels(): Promise<GroupedLabelsResponse> {
+  return api.get('api/labels/grouped').json<GroupedLabelsResponse>();
 }

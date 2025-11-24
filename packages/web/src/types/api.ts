@@ -66,3 +66,32 @@ export interface MonthlyStatsResponse {
   success: boolean;
   data: MonthlyStats[];
 }
+
+/**
+ * 라벨 그룹 (날짜/발신자별)
+ */
+export interface LabelGroup {
+  date: string;
+  sender: {
+    name: string;
+    phone: string;
+    address: string;
+  };
+  orders: Order[];
+  summary: {
+    '5kg': {
+      count: number;
+      amount: number;
+    };
+    '10kg': {
+      count: number;
+      amount: number;
+    };
+    total: number;
+  };
+}
+
+export interface GroupedLabelsResponse {
+  success: boolean;
+  data: LabelGroup[];
+}

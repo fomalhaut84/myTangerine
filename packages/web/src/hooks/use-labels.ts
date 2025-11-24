@@ -5,7 +5,7 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { getLabels } from '@/lib/api-client';
+import { getLabels, getGroupedLabels } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
 /**
@@ -15,5 +15,15 @@ export function useLabels() {
   return useQuery({
     queryKey: queryKeys.labels.text(),
     queryFn: getLabels,
+  });
+}
+
+/**
+ * 그룹화된 라벨 데이터 조회 훅
+ */
+export function useGroupedLabels() {
+  return useQuery({
+    queryKey: queryKeys.labels.grouped(),
+    queryFn: getGroupedLabels,
   });
 }
