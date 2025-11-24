@@ -6,20 +6,13 @@
 
 import { useOrdersSummary } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
+import { SummaryCardSkeleton } from '@/components/common/DashboardSkeleton';
 
 export function SummaryCard() {
   const { data, isLoading, error } = useOrdersSummary();
 
   if (isLoading) {
-    return (
-      <Card title="주문 요약">
-        <div className="animate-pulse space-y-4">
-          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
-          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
-          <div className="h-4 bg-gray-200 dark:bg-gray-700 rounded"></div>
-        </div>
-      </Card>
-    );
+    return <SummaryCardSkeleton />;
   }
 
   if (error) {

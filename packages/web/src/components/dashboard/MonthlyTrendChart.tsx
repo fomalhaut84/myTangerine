@@ -7,20 +7,13 @@
 import { LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { useMonthlyStats } from '@/hooks/use-stats';
 import { Card } from '@/components/common/Card';
+import { ChartSkeleton } from '@/components/common/DashboardSkeleton';
 
 export function MonthlyTrendChart() {
   const { data, isLoading, error } = useMonthlyStats();
 
   if (isLoading) {
-    return (
-      <Card title="월별 주문 추이">
-        <div className="h-80 flex items-center justify-center">
-          <div className="animate-pulse text-gray-500 dark:text-gray-400">
-            데이터를 불러오는 중...
-          </div>
-        </div>
-      </Card>
-    );
+    return <ChartSkeleton title="월별 주문 추이" />;
   }
 
   if (error) {

@@ -7,6 +7,7 @@
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import { useOrdersSummary } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
+import { ChartSkeleton } from '@/components/common/DashboardSkeleton';
 
 const COLORS = {
   '5kg': '#f97316', // orange-500
@@ -17,15 +18,7 @@ export function ProductRatioChart() {
   const { data, isLoading, error } = useOrdersSummary();
 
   if (isLoading) {
-    return (
-      <Card title="상품 비율">
-        <div className="h-80 flex items-center justify-center">
-          <div className="animate-pulse text-gray-500 dark:text-gray-400">
-            데이터를 불러오는 중...
-          </div>
-        </div>
-      </Card>
-    );
+    return <ChartSkeleton title="상품 비율" />;
   }
 
   if (error) {

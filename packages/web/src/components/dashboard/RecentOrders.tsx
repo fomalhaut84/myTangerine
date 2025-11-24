@@ -6,21 +6,14 @@
 
 import { useOrders } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
+import { RecentOrdersSkeleton } from '@/components/common/DashboardSkeleton';
 import Link from 'next/link';
 
 export function RecentOrders() {
   const { data, isLoading, error } = useOrders();
 
   if (isLoading) {
-    return (
-      <Card title="최근 주문">
-        <div className="animate-pulse space-y-4">
-          {[...Array(3)].map((_, i) => (
-            <div key={i} className="h-20 bg-gray-200 dark:bg-gray-700 rounded"></div>
-          ))}
-        </div>
-      </Card>
-    );
+    return <RecentOrdersSkeleton />;
   }
 
   if (error) {

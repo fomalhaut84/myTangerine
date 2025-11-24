@@ -16,8 +16,9 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import Link from 'next/link';
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useMemo } from 'react';
 import { downloadCSV, downloadExcel, getExportFilename } from '@/lib/export-utils';
+import { toast } from 'sonner';
 
 type SortField = 'date' | 'quantity';
 type SortOrder = 'asc' | 'desc';
@@ -25,22 +26,12 @@ type SortOrder = 'asc' | 'desc';
 export default function OrdersPage() {
   const { data, isLoading, error } = useOrders();
   const confirmMutation = useConfirmOrders();
-  const [message, setMessage] = useState<string | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout>();
 
   // 검색, 필터, 정렬 상태
   const [searchTerm, setSearchTerm] = useState('');
   const [productTypeFilter, setProductTypeFilter] = useState<string>('all');
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-
-  useEffect(() => {
-    return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
-    };
-  }, []);
 
   // 검색, 필터, 정렬이 적용된 주문 목록
   const filteredAndSortedOrders = useMemo(() => {
@@ -86,38 +77,32 @@ export default function OrdersPage() {
 
     try {
       const result = await confirmMutation.mutateAsync();
-      setMessage(result.message);
-      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+      toast.success(result.message);
     } catch (error) {
-      setMessage('주문 확인 처리 중 오류가 발생했습니다.');
-      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+      toast.error('주문 확인 처리 중 오류가 발생했습니다.');
     }
   };
 
   const handleDownloadCSV = () => {
     if (filteredAndSortedOrders.length === 0) {
-      setMessage('다운로드할 주문이 없습니다.');
-      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+      toast.error('다운로드할 주문이 없습니다.');
       return;
     }
 
     const filename = getExportFilename('주문목록', 'csv');
     downloadCSV(filteredAndSortedOrders, filename);
-    setMessage(`${filteredAndSortedOrders.length}개의 주문을 CSV로 다운로드했습니다.`);
-    timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+    toast.success(`${filteredAndSortedOrders.length}개의 주문을 CSV로 다운로드했습니다.`);
   };
 
   const handleDownloadExcel = () => {
     if (filteredAndSortedOrders.length === 0) {
-      setMessage('다운로드할 주문이 없습니다.');
-      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+      toast.error('다운로드할 주문이 없습니다.');
       return;
     }
 
     const filename = getExportFilename('주문목록', 'xlsx');
     downloadExcel(filteredAndSortedOrders, filename);
-    setMessage(`${filteredAndSortedOrders.length}개의 주문을 Excel로 다운로드했습니다.`);
-    timeoutRef.current = setTimeout(() => setMessage(null), 3000);
+    toast.success(`${filteredAndSortedOrders.length}개의 주문을 Excel로 다운로드했습니다.`);
   };
 
   return (
@@ -182,19 +167,6 @@ export default function OrdersPage() {
             </button>
           </div>
         </div>
-
-        {/* 메시지 */}
-        {message && (
-          <div
-            className={`mb-6 p-4 rounded-lg ${
-              message.includes('오류')
-                ? 'bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400'
-                : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
-            }`}
-          >
-            {message}
-          </div>
-        )}
 
         {/* 검색 및 필터 */}
         <Card className="mb-6">
