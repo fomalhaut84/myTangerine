@@ -54,3 +54,15 @@ export interface ErrorResponse {
   statusCode: number;
   timestamp: string;
 }
+
+export interface MonthlyStats {
+  month: string; // YYYY-MM
+  total5kg: number;
+  total10kg: number;
+  count: number;
+}
+
+export interface MonthlyStatsResponse {
+  success: boolean;
+  data: MonthlyStats[];
+}

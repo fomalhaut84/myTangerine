@@ -8,6 +8,7 @@ import type {
   OrdersResponse,
   SummaryResponse,
   ConfirmResponse,
+  MonthlyStatsResponse,
 } from '@/types/api';
 
 /**
@@ -90,4 +91,11 @@ export async function confirmSingleOrder(rowNumber: number): Promise<{
  */
 export async function getLabels(): Promise<string> {
   return api.get('api/labels').text();
+}
+
+/**
+ * 월별 주문 통계 조회
+ */
+export async function getMonthlyStats(): Promise<MonthlyStatsResponse> {
+  return api.get('api/orders/stats/monthly').json<MonthlyStatsResponse>();
 }

@@ -7,6 +7,7 @@ export const queryKeys = {
     all: ['orders'] as const,
     list: () => [...queryKeys.orders.all, 'list'] as const,
     summary: () => [...queryKeys.orders.all, 'summary'] as const,
+    monthlyStats: () => [...queryKeys.orders.all, 'stats', 'monthly'] as const,
   },
   labels: {
     all: ['labels'] as const,
