@@ -5,7 +5,7 @@
 'use client';
 
 import { useGroupedLabels } from '@/hooks/use-labels';
-import { useConfirmOrders } from '@/hooks/use-orders';
+import { useConfirmSingleOrder } from '@/hooks/use-orders';
 import { LabelGroupCard } from '@/components/labels/LabelGroupCard';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/ui/input';
@@ -15,7 +15,7 @@ import { toast } from 'sonner';
 
 export default function LabelsPage() {
   const { data, isLoading, error } = useGroupedLabels();
-  const confirmMutation = useConfirmOrders();
+  const confirmSingleMutation = useConfirmSingleOrder();
 
   const [selectedGroups, setSelectedGroups] = useState<Set<number>>(new Set());
   const [dateFilter, setDateFilter] = useState('');
@@ -106,6 +106,7 @@ export default function LabelsPage() {
     const printWindow = window.open('', '_blank');
     if (!printWindow) return;
 
+    // XSS 방지: textContent를 사용하여 안전하게 텍스트 삽입
     printWindow.document.write(`
       <html>
         <head>
@@ -114,10 +115,17 @@ export default function LabelsPage() {
             body { font-family: monospace; white-space: pre-wrap; padding: 20px; }
           </style>
         </head>
-        <body>${text}</body>
+        <body><pre id="content"></pre></body>
       </html>
     `);
     printWindow.document.close();
+
+    // textContent를 사용하여 안전하게 텍스트 삽입 (HTML 이스케이프)
+    const preElement = printWindow.document.getElementById('content');
+    if (preElement) {
+      preElement.textContent = text;
+    }
+
     printWindow.print();
   };
 
@@ -127,13 +135,41 @@ export default function LabelsPage() {
       return;
     }
 
-    if (!confirm(`${selectedGroups.size}개 그룹의 주문을 확인 처리하시겠습니까?`)) {
+    // 선택된 그룹의 모든 rowNumber 추출
+    const selectedData = filteredGroups.filter((_, index) =>
+      selectedGroups.has(index)
+    );
+    const totalOrders = selectedData.reduce((sum, group) => sum + group.orders.length, 0);
+
+    if (!confirm(`${selectedGroups.size}개 그룹 (총 ${totalOrders}건)의 주문을 확인 처리하시겠습니까?`)) {
       return;
     }
 
     try {
-      const result = await confirmMutation.mutateAsync();
-      toast.success(result.message);
+      // 선택된 그룹의 모든 주문에 대해 개별 확인 처리
+      const rowNumbers = selectedData.flatMap(group =>
+        group.orders.map(order => order.rowNumber)
+      );
+
+      let successCount = 0;
+      let failCount = 0;
+
+      for (const rowNumber of rowNumbers) {
+        try {
+          await confirmSingleMutation.mutateAsync(rowNumber);
+          successCount++;
+        } catch (error) {
+          failCount++;
+          console.error(`Failed to confirm order ${rowNumber}:`, error);
+        }
+      }
+
+      if (failCount === 0) {
+        toast.success(`${successCount}건의 주문이 확인되었습니다.`);
+      } else {
+        toast.warning(`${successCount}건 확인, ${failCount}건 실패했습니다.`);
+      }
+
       setSelectedGroups(new Set());
     } catch (error) {
       toast.error('주문 확인 처리 중 오류가 발생했습니다.');
@@ -189,10 +225,10 @@ export default function LabelsPage() {
 
               <button
                 onClick={handleConfirm}
-                disabled={confirmMutation.isPending || selectedGroups.size === 0}
+                disabled={confirmSingleMutation.isPending || selectedGroups.size === 0}
                 className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
               >
-                {confirmMutation.isPending ? '처리 중...' : `확인 (${selectedGroups.size})`}
+                {confirmSingleMutation.isPending ? '처리 중...' : `확인 (${selectedGroups.size})`}
               </button>
             </div>
 

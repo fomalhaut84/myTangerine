@@ -33,7 +33,9 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
     },
     ajv: {
       customOptions: {
-        strict: false, // JSON Schema의 example 키워드 허용
+        // JSON Schema의 example 키워드 허용 (OpenAPI spec용)
+        // strict mode는 유지하되 example 키워드만 허용
+        keywords: ['example'],
       },
     },
   });

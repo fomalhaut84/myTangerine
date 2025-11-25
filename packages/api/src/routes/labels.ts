@@ -177,10 +177,10 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
         orders.forEach((order) => {
           if (order.productType === '5kg') {
             summary['5kg'].count += order.quantity;
-            summary['5kg'].amount += config.PRODUCT_PRICES['5kg'] * order.quantity;
+            summary['5kg'].amount += config.productPrices['5kg'] * order.quantity;
           } else if (order.productType === '10kg') {
             summary['10kg'].count += order.quantity;
-            summary['10kg'].amount += config.PRODUCT_PRICES['10kg'] * order.quantity;
+            summary['10kg'].amount += config.productPrices['10kg'] * order.quantity;
           }
         });
 
