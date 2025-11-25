@@ -9,7 +9,7 @@ import { Card } from '@/components/common/Card';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
 import { useMemo, useState } from 'react';
-import { toast } from '@/hooks/use-toast';
+import { toast } from 'sonner';
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -35,18 +35,11 @@ export default function OrderDetailPage() {
     setIsConfirming(true);
     try {
       await confirmMutation.mutateAsync(order.rowNumber);
-      toast({
-        title: '성공',
-        description: '주문이 확인되었습니다.',
-      });
+      toast.success('주문이 확인되었습니다.');
       // 주문 목록으로 이동
       router.push('/orders');
     } catch (error) {
-      toast({
-        title: '오류',
-        description: '주문 확인 처리 중 오류가 발생했습니다.',
-        variant: 'destructive',
-      });
+      toast.error('주문 확인 처리 중 오류가 발생했습니다.');
     } finally {
       setIsConfirming(false);
     }
