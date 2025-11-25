@@ -17,9 +17,14 @@ export default function LabelsPage() {
   const { data, isLoading, error } = useGroupedLabels();
   const confirmSingleMutation = useConfirmSingleOrder();
 
-  const [selectedGroups, setSelectedGroups] = useState<Set<number>>(new Set());
+  const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [dateFilter, setDateFilter] = useState('');
   const [senderFilter, setSenderFilter] = useState('');
+
+  // 그룹의 안정적인 고유 ID 생성
+  const getGroupId = (group: { date: string; sender: { name: string; phone: string } }) => {
+    return `${group.date}|${group.sender.name}|${group.sender.phone}`;
+  };
 
   // 필터링된 그룹
   const filteredGroups = useMemo(() => {
@@ -39,8 +44,8 @@ export default function LabelsPage() {
   const getSelectedLabelsText = () => {
     if (!data?.data) return '';
 
-    const selectedData = filteredGroups.filter((_, index) =>
-      selectedGroups.has(index)
+    const selectedData = filteredGroups.filter((group) =>
+      selectedGroups.has(getGroupId(group))
     );
 
     return selectedData
@@ -64,18 +69,18 @@ export default function LabelsPage() {
 
   const handleSelectAll = (checked: boolean) => {
     if (checked) {
-      setSelectedGroups(new Set(filteredGroups.map((_, index) => index)));
+      setSelectedGroups(new Set(filteredGroups.map(group => getGroupId(group))));
     } else {
       setSelectedGroups(new Set());
     }
   };
 
-  const handleSelectGroup = (index: number, selected: boolean) => {
+  const handleSelectGroup = (groupId: string, selected: boolean) => {
     const newSelected = new Set(selectedGroups);
     if (selected) {
-      newSelected.add(index);
+      newSelected.add(groupId);
     } else {
-      newSelected.delete(index);
+      newSelected.delete(groupId);
     }
     setSelectedGroups(newSelected);
   };
@@ -136,8 +141,8 @@ export default function LabelsPage() {
     }
 
     // 선택된 그룹의 모든 rowNumber 추출
-    const selectedData = filteredGroups.filter((_, index) =>
-      selectedGroups.has(index)
+    const selectedData = filteredGroups.filter((group) =>
+      selectedGroups.has(getGroupId(group))
     );
     const totalOrders = selectedData.reduce((sum, group) => sum + group.orders.length, 0);
 
@@ -289,14 +294,17 @@ export default function LabelsPage() {
               (선택: {selectedGroups.size}개)
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {filteredGroups.map((group, index) => (
-                <LabelGroupCard
-                  key={`${group.date}-${group.sender.name}-${index}`}
-                  group={group}
-                  isSelected={selectedGroups.has(index)}
-                  onSelect={(selected) => handleSelectGroup(index, selected)}
-                />
-              ))}
+              {filteredGroups.map((group) => {
+                const groupId = getGroupId(group);
+                return (
+                  <LabelGroupCard
+                    key={groupId}
+                    group={group}
+                    isSelected={selectedGroups.has(groupId)}
+                    onSelect={(selected) => handleSelectGroup(groupId, selected)}
+                  />
+                );
+              })}
             </div>
           </div>
         )}
