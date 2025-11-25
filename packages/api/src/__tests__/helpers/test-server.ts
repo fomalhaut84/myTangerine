@@ -37,7 +37,15 @@ export async function createTestServer(): Promise<{
     token_uri: 'https://oauth2.googleapis.com/token',
   });
 
-  const server = Fastify({ logger: false });
+  const server = Fastify({
+    logger: false,
+    ajv: {
+      customOptions: {
+        // JSON Schema의 example 키워드 허용 (OpenAPI spec용)
+        strict: false,
+      },
+    },
+  });
 
   // CORS
   await server.register(cors, { origin: true });
