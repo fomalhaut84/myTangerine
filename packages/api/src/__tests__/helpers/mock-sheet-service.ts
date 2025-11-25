@@ -19,10 +19,23 @@ export class MockSheetService {
   }
 
   /**
-   * 새로운 주문 조회 (mock)
+   * Status별 주문 조회 (mock)
+   * @param status - 'new', 'completed', 'all'
+   */
+  async getOrdersByStatus(status: 'new' | 'completed' | 'all' = 'new'): Promise<SheetRow[]> {
+    // Mock에서는 단순히 mockNewOrders를 반환
+    // status에 따른 필터링은 실제 SheetService에서만 동작
+    if (status === 'new' || status === 'all') {
+      return this.mockNewOrders;
+    }
+    return []; // completed는 빈 배열
+  }
+
+  /**
+   * 새로운 주문 조회 (mock) - 하위 호환성
    */
   async getNewOrders(): Promise<SheetRow[]> {
-    return this.mockNewOrders;
+    return this.getOrdersByStatus('new');
   }
 
   /**
