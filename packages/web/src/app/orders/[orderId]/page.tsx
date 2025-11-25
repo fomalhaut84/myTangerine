@@ -76,7 +76,7 @@ export default function OrderDetailPage() {
         <div className="max-w-4xl mx-auto">
           <Link
             href="/orders"
-            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 mb-4 inline-block"
+            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100 mb-4 inline-block"
           >
             ← 주문 목록으로 돌아가기
           </Link>
@@ -95,7 +95,7 @@ export default function OrderDetailPage() {
         <div className="mb-8">
           <Link
             href="/orders"
-            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 mb-2 inline-block"
+            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100 mb-2 inline-block"
           >
             ← 주문 목록으로 돌아가기
           </Link>

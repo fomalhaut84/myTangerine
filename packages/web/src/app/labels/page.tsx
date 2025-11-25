@@ -189,7 +189,7 @@ export default function LabelsPage() {
           <div>
             <Link
               href="/dashboard"
-              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 mb-2 inline-block"
+              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100 mb-2 inline-block"
             >
               ← 대시보드로 돌아가기
             </Link>

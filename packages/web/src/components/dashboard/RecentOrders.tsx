@@ -76,7 +76,7 @@ export function RecentOrders() {
         <div className="mt-4 text-center">
           <Link
             href="/orders"
-            className="text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+            className="text-blue-600 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100 font-medium"
           >
             모든 주문 보기 ({data.count}개)
           </Link>

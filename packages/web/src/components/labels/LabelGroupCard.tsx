@@ -36,7 +36,7 @@ export function LabelGroupCard({ group, isSelected, onSelect }: LabelGroupCardPr
                 <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
                   {group.date}
                 </h3>
-                <span className="text-sm px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 rounded-full">
+                <span className="text-sm px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-200 rounded-full">
                   {group.orders.length}건
                 </span>
               </div>
@@ -48,7 +48,7 @@ export function LabelGroupCard({ group, isSelected, onSelect }: LabelGroupCardPr
 
           <button
             onClick={() => setIsExpanded(!isExpanded)}
-            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 font-medium"
+            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100 font-medium"
           >
             {isExpanded ? '접기' : '상세보기'}
           </button>
@@ -80,7 +80,7 @@ export function LabelGroupCard({ group, isSelected, onSelect }: LabelGroupCardPr
           )}
           <div>
             <p className="text-xs text-gray-500 dark:text-gray-400">합계</p>
-            <p className="text-lg font-bold text-blue-600 dark:text-blue-400">
+            <p className="text-lg font-bold text-blue-600 dark:text-blue-200">
               {group.summary.total.toLocaleString()}원
             </p>
           </div>

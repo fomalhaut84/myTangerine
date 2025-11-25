@@ -76,7 +76,7 @@ export function SummaryCard() {
             <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
               총 주문 금액
             </p>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">
+            <p className="text-2xl font-bold text-blue-600 dark:text-blue-200">
               {summary.total.toLocaleString()}원
             </p>
           </div>
