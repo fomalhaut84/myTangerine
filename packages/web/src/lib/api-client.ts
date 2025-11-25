@@ -55,9 +55,11 @@ export const api = ky.create({
 
 /**
  * 주문 목록 조회
+ * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
  */
-export async function getOrders(): Promise<OrdersResponse> {
-  return api.get('api/orders').json<OrdersResponse>();
+export async function getOrders(status?: 'new' | 'completed' | 'all'): Promise<OrdersResponse> {
+  const searchParams = status ? { status } : {};
+  return api.get('api/orders', { searchParams }).json<OrdersResponse>();
 }
 
 /**

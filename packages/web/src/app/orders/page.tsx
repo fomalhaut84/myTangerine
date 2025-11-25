@@ -23,20 +23,22 @@ import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 
 type SortField = 'date' | 'quantity';
 type SortOrder = 'asc' | 'desc';
+type StatusFilter = 'new' | 'completed' | 'all';
 
 const ITEMS_PER_PAGE = 20;
 
 export default function OrdersPage() {
-  const { data, isLoading, error } = useOrders();
-  const confirmMutation = useConfirmOrders();
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
   // 검색, 필터, 정렬 상태
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
   const [searchTerm, setSearchTerm] = useState('');
   const [productTypeFilter, setProductTypeFilter] = useState<string>('all');
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
+
+  const { data, isLoading, error } = useOrders(statusFilter);
+  const confirmMutation = useConfirmOrders();
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 키보드 단축키
   useKeyboardShortcuts([
@@ -95,6 +97,11 @@ export default function OrdersPage() {
   // 필터 변경 시 페이지를 1로 리셋
   const handleSearchChange = (value: string) => {
     setSearchTerm(value);
+    setCurrentPage(1);
+  };
+
+  const handleStatusChange = (value: StatusFilter) => {
+    setStatusFilter(value);
     setCurrentPage(1);
   };
 
@@ -227,7 +234,24 @@ export default function OrdersPage() {
             </div>
 
             {/* 필터 및 정렬 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* 주문 상태 필터 */}
+              <div>
+                <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                  주문 상태
+                </label>
+                <Select value={statusFilter} onValueChange={handleStatusChange}>
+                  <SelectTrigger id="status-filter">
+                    <SelectValue placeholder="신규 주문" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">신규 주문</SelectItem>
+                    <SelectItem value="completed">완료된 주문</SelectItem>
+                    <SelectItem value="all">전체</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* 상품 타입 필터 */}
               <div>
                 <label htmlFor="product-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
