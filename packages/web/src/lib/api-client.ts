@@ -8,6 +8,8 @@ import type {
   OrdersResponse,
   SummaryResponse,
   ConfirmResponse,
+  MonthlyStatsResponse,
+  GroupedLabelsResponse,
 } from '@/types/api';
 
 /**
@@ -73,8 +75,35 @@ export async function confirmOrders(): Promise<ConfirmResponse> {
 }
 
 /**
+ * 개별 주문 확인 처리
+ */
+export async function confirmSingleOrder(rowNumber: number): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/confirm`).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
  * 라벨 텍스트 조회
  */
 export async function getLabels(): Promise<string> {
   return api.get('api/labels').text();
+}
+
+/**
+ * 월별 주문 통계 조회
+ */
+export async function getMonthlyStats(): Promise<MonthlyStatsResponse> {
+  return api.get('api/orders/stats/monthly').json<MonthlyStatsResponse>();
+}
+
+/**
+ * 그룹화된 라벨 데이터 조회 (날짜/발신자별)
+ */
+export async function getGroupedLabels(): Promise<GroupedLabelsResponse> {
+  return api.get('api/labels/grouped').json<GroupedLabelsResponse>();
 }

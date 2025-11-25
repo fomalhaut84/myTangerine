@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder } from '@mytangerine/core';
+import { sheetRowToOrder, type Order } from '@mytangerine/core';
 
 /**
  * 라벨 라우트
@@ -73,6 +73,137 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       throw error;
     }
   });
+
+  /**
+   * GET /api/labels/grouped
+   * 날짜/발신자별로 그룹화된 라벨 데이터 반환 (JSON)
+   */
+  fastify.get(
+    '/api/labels/grouped',
+    {
+      schema: {
+        tags: ['labels'],
+        summary: '그룹화된 라벨 데이터 조회',
+        description: '날짜와 발신자별로 그룹화된 주문 데이터를 JSON으로 반환합니다.',
+        response: {
+          200: {
+            description: '그룹화된 라벨 데이터',
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              data: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    date: { type: 'string' },
+                    sender: {
+                      type: 'object',
+                      properties: {
+                        name: { type: 'string' },
+                        phone: { type: 'string' },
+                        address: { type: 'string' },
+                      },
+                    },
+                    orders: {
+                      type: 'array',
+                      items: { $ref: 'Order#' },
+                    },
+                    summary: {
+                      type: 'object',
+                      properties: {
+                        '5kg': {
+                          type: 'object',
+                          properties: {
+                            count: { type: 'number' },
+                            amount: { type: 'number' },
+                          },
+                        },
+                        '10kg': {
+                          type: 'object',
+                          properties: {
+                            count: { type: 'number' },
+                            amount: { type: 'number' },
+                          },
+                        },
+                        total: { type: 'number' },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+        },
+      },
+    },
+    async () => {
+      const { sheetService, config } = fastify.core;
+
+      // 새로운 주문 가져오기
+      const sheetRows = await sheetService.getNewOrders();
+
+      if (sheetRows.length === 0) {
+        return { success: true, data: [] };
+      }
+
+      // SheetRow를 Order로 변환
+      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+
+      // 날짜 + 발신자별로 그룹화
+      const grouped = new Map<string, Order[]>();
+
+      orders.forEach((order) => {
+        const date = new Date(order.timestamp).toLocaleDateString('ko-KR');
+        const key = `${date}|${order.sender.name}|${order.sender.phone}`;
+
+        if (!grouped.has(key)) {
+          grouped.set(key, []);
+        }
+        grouped.get(key)!.push(order);
+      });
+
+      // 그룹별로 요약 정보 계산
+      const result = Array.from(grouped.entries()).map(([key, orders]) => {
+        const [date] = key.split('|');
+        const sender = orders[0].sender;
+
+        const summary = {
+          '5kg': { count: 0, amount: 0 },
+          '10kg': { count: 0, amount: 0 },
+          total: 0,
+        };
+
+        orders.forEach((order) => {
+          if (order.productType === '5kg') {
+            summary['5kg'].count += order.quantity;
+            summary['5kg'].amount += config.productPrices['5kg'] * order.quantity;
+          } else if (order.productType === '10kg') {
+            summary['10kg'].count += order.quantity;
+            summary['10kg'].amount += config.productPrices['10kg'] * order.quantity;
+          }
+        });
+
+        summary.total = summary['5kg'].amount + summary['10kg'].amount;
+
+        return {
+          date,
+          sender,
+          orders,
+          summary,
+        };
+      });
+
+      // 날짜순 정렬
+      result.sort((a, b) => {
+        const dateA = new Date(a.orders[0].timestamp);
+        const dateB = new Date(b.orders[0].timestamp);
+        return dateA.getTime() - dateB.getTime();
+      });
+
+      return { success: true, data: result };
+    }
+  );
 };
 
 export default labelsRoutes;

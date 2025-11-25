@@ -1,0 +1,9 @@
+{
+  "name": "myTangerine - 주문 관리",
+  "short_name": "myTangerine",
+  "description": "감귤 주문 관리 시스템",
+  "start_url": "/dashboard",
+  "display": "standalone",
+  "background_color": "#ffffff",
+  "theme_color": "#f97316"
+}

@@ -1,8 +1,16 @@
 /**
  * 공통 카드 컴포넌트
+ * shadcn/ui Card를 사용하여 재구현
  */
 
 import type { ReactNode } from 'react';
+import {
+  Card as ShadcnCard,
+  CardContent,
+  CardHeader,
+  CardTitle,
+} from '@/components/ui/card';
+import { cn } from '@/lib/utils';
 
 interface CardProps {
   title?: string;
@@ -10,17 +18,17 @@ interface CardProps {
   className?: string;
 }
 
-export function Card({ title, children, className = '' }: CardProps) {
+export function Card({ title, children, className }: CardProps) {
   return (
-    <div
-      className={`bg-white dark:bg-gray-800 rounded-lg shadow-md p-6 ${className}`}
-    >
+    <ShadcnCard className={cn(className)}>
       {title && (
-        <h2 className="text-xl font-semibold mb-4 text-gray-900 dark:text-gray-100">
-          {title}
-        </h2>
+        <CardHeader>
+          <CardTitle>{title}</CardTitle>
+        </CardHeader>
       )}
-      {children}
-    </div>
+      <CardContent className={cn(!title && 'pt-6')}>
+        {children}
+      </CardContent>
+    </ShadcnCard>
   );
 }

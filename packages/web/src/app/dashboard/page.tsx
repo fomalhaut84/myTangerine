@@ -5,6 +5,8 @@
 import { SummaryCard } from '@/components/dashboard/SummaryCard';
 import { RecentOrders } from '@/components/dashboard/RecentOrders';
 import { QuickActions } from '@/components/dashboard/QuickActions';
+import { MonthlyTrendChart } from '@/components/dashboard/MonthlyTrendChart';
+import { ProductRatioChart } from '@/components/dashboard/ProductRatioChart';
 
 export default function DashboardPage() {
   return (
@@ -24,6 +26,15 @@ export default function DashboardPage() {
           <div className="lg:col-span-2">
             <RecentOrders />
           </div>
+        </div>
+
+        {/* 차트 영역 */}
+        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* 월별 추이 차트 */}
+          <MonthlyTrendChart />
+
+          {/* 상품 비율 차트 */}
+          <ProductRatioChart />
         </div>
 
         {/* 하단: 빠른 작업 */}

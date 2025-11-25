@@ -31,6 +31,13 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
             }
           : undefined,
     },
+    ajv: {
+      customOptions: {
+        // JSON Schema의 example 키워드 허용 (OpenAPI spec용)
+        // strict: false는 모든 strict checks를 비활성화
+        strict: false,
+      },
+    },
   });
 
   // CORS 설정 (환경 변수에서 읽기)

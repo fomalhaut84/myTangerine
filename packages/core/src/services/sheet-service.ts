@@ -2,6 +2,7 @@ import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { Config } from '../config/config.js';
 import type { SheetRow } from '../types/order.js';
+import fs from 'fs';
 
 /**
  * Google Sheets API를 사용한 스프레드시트 서비스
@@ -30,7 +31,6 @@ export class SheetService {
       // 우선순위에 따라 credentials 로드: PATH > FILE > JSON
       if (this.config.credentialsPath) {
         // 파일에서 로드 (우선순위 1)
-        const fs = require('fs');
         const credentialsData = fs.readFileSync(this.config.credentialsPath, 'utf8');
         credentials = JSON.parse(credentialsData);
       } else if (this.config.credentialsJson) {
@@ -178,8 +178,15 @@ export class SheetService {
   }
 
   /**
-   * 새로운 주문만 가져오기 (Python 버전과 동일한 로직)
-   * 마지막 "확인" 이후의 행들만 반환
+   * 새로운 주문만 가져오기
+   * 비고 컬럼이 "확인"이 아닌 모든 행 반환
+   *
+   * 개별 주문 확인을 지원하기 위해 로직 변경:
+   * - 이전: 마지막 "확인" 행 이후의 모든 행
+   * - 현재: 비고가 "확인"이 아닌 모든 행
+   *
+   * 이렇게 하면 순서에 상관없이 개별 확인이 가능하며,
+   * 다른 미확인 주문이 건너뛰어지지 않습니다.
    */
   async getNewOrders(): Promise<SheetRow[]> {
     try {
@@ -193,17 +200,8 @@ export class SheetService {
       // 필수 컬럼 검증
       this.validateRequiredColumns(allRows[0]);
 
-      // 마지막 "확인" 행 찾기
-      let lastConfirmedIndex = -1;
-      for (let i = allRows.length - 1; i >= 0; i--) {
-        if (allRows[i]['비고'] === '확인') {
-          lastConfirmedIndex = i;
-          break;
-        }
-      }
-
-      // 마지막 확인 이후의 행들 선택
-      const newOrders = allRows.slice(lastConfirmedIndex + 1);
+      // 비고가 "확인"이 아닌 모든 행 선택 (개별 확인 지원)
+      const newOrders = allRows.filter(row => row['비고'] !== '확인');
 
       // 처리할 행들의 실제 스프레드시트 행 번호 저장
       this.newOrderRows = newOrders.map(row => row._rowNumber || 0).filter(n => n > 0);
@@ -295,6 +293,41 @@ export class SheetService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to mark orders as confirmed: ${message}`);
+    }
+  }
+
+  /**
+   * 특정 주문 행을 "확인"으로 표시
+   * @param rowNumber 스프레드시트 행 번호 (1-based, 헤더 포함)
+   */
+  async markSingleAsConfirmed(rowNumber: number): Promise<void> {
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+
+      // 헤더 행을 가져와서 '비고' 열 위치 찾기
+      const headerResponse = await this.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${this.quoteSheetName(sheetName)}!1:1`,
+      });
+
+      const headers = headerResponse.data.values?.[0];
+      if (!headers) {
+        throw new Error('Could not read headers');
+      }
+
+      const 비고ColIndex = headers.findIndex(h => h === '비고');
+      if (비고ColIndex === -1) {
+        throw new Error("Could not find '비고' column");
+      }
+
+      const 비고Col = 비고ColIndex + 1; // 1-based
+
+      // 특정 행을 '확인'으로 업데이트
+      await this.updateCell(rowNumber, 비고Col, '확인');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark single order as confirmed: ${message}`);
     }
   }
 }
