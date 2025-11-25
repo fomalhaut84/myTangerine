@@ -32,16 +32,19 @@ export function LabelGroupCard({ group, isSelected, onSelect }: LabelGroupCardPr
               />
             )}
             <div>
-              <div className="flex items-center gap-2">
-                <h3 className="text-lg font-semibold text-gray-900 dark:text-gray-100">
-                  {group.date}
+              <div className="flex items-center gap-2 mb-1">
+                <h3 className="text-xl font-bold text-gray-900 dark:text-gray-100">
+                  {group.sender.name}
                 </h3>
                 <span className="text-sm px-2 py-1 bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-200 rounded-full">
                   {group.orders.length}건
                 </span>
               </div>
-              <p className="text-sm text-gray-600 dark:text-gray-400 mt-1">
-                {group.sender.name} ({group.sender.phone})
+              <p className="text-sm text-gray-600 dark:text-gray-400">
+                {group.sender.phone}
+              </p>
+              <p className="text-xs text-gray-500 dark:text-gray-500 mt-1">
+                {group.date}
               </p>
             </div>
           </div>
