@@ -224,12 +224,17 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async (request) => {
+    async (request, reply) => {
       const { sheetService } = fastify.core;
       const rowNumber = parseInt(request.params.rowNumber, 10);
 
       if (isNaN(rowNumber) || rowNumber < 2) {
-        throw new Error('Invalid row number');
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
       }
 
       // 특정 주문을 확인 상태로 표시
