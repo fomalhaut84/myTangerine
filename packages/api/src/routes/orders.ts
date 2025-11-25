@@ -11,15 +11,28 @@ import { sheetRowToOrder } from '@mytangerine/core';
 const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   /**
    * GET /api/orders
-   * 새로운 주문 조회
+   * 주문 조회 (상태별 필터링 지원)
    */
-  fastify.get(
+  fastify.get<{
+    Querystring: { status?: 'new' | 'completed' | 'all' };
+  }>(
     '/api/orders',
     {
       schema: {
         tags: ['orders'],
-        summary: '새로운 주문 목록 조회',
-        description: '비고가 "확인"이 아닌 새로운 주문들을 조회합니다.',
+        summary: '주문 목록 조회',
+        description: 'Status별로 주문들을 조회합니다. 기본값은 새로운 주문(비고 != "확인")입니다.',
+        querystring: {
+          type: 'object',
+          properties: {
+            status: {
+              type: 'string',
+              enum: ['new', 'completed', 'all'],
+              description: '주문 상태 필터 (new: 신규, completed: 완료, all: 전체)',
+              default: 'new',
+            },
+          },
+        },
         response: {
           200: {
             type: 'object',
@@ -37,11 +50,12 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         },
       },
     },
-    async () => {
+    async (request) => {
     const { sheetService, config } = fastify.core;
+    const status = request.query.status || 'new';
 
-    // 새로운 주문 가져오기
-    const sheetRows = await sheetService.getNewOrders();
+    // Status별 주문 가져오기
+    const sheetRows = await sheetService.getOrdersByStatus(status);
 
     // SheetRow를 Order로 변환
     const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
