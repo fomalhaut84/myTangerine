@@ -23,20 +23,22 @@ import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
 
 type SortField = 'date' | 'quantity';
 type SortOrder = 'asc' | 'desc';
+type StatusFilter = 'new' | 'completed' | 'all';
 
 const ITEMS_PER_PAGE = 20;
 
 export default function OrdersPage() {
-  const { data, isLoading, error } = useOrders();
-  const confirmMutation = useConfirmOrders();
-  const searchInputRef = useRef<HTMLInputElement>(null);
-
   // 검색, 필터, 정렬 상태
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
   const [searchTerm, setSearchTerm] = useState('');
   const [productTypeFilter, setProductTypeFilter] = useState<string>('all');
   const [sortField, setSortField] = useState<SortField>('date');
   const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
   const [currentPage, setCurrentPage] = useState(1);
+
+  const { data, isLoading, error } = useOrders(statusFilter);
+  const confirmMutation = useConfirmOrders();
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 키보드 단축키
   useKeyboardShortcuts([
@@ -98,6 +100,11 @@ export default function OrdersPage() {
     setCurrentPage(1);
   };
 
+  const handleStatusChange = (value: StatusFilter) => {
+    setStatusFilter(value);
+    setCurrentPage(1);
+  };
+
   const handleProductTypeChange = (value: string) => {
     setProductTypeFilter(value);
     setCurrentPage(1);
@@ -145,18 +152,18 @@ export default function OrdersPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
+    <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
         {/* 헤더 */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <Link
               href="/dashboard"
-              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 mb-2 inline-block"
+              className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block"
             >
               ← 대시보드로 돌아가기
             </Link>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+            <h1 className="text-3xl font-bold text-gray-900">
               주문 목록
             </h1>
           </div>
@@ -212,7 +219,7 @@ export default function OrdersPage() {
           <div className="space-y-4">
             {/* 검색 */}
             <div>
-              <label htmlFor="search" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+              <label htmlFor="search" className="block text-sm font-medium text-gray-700 mb-2">
                 검색
               </label>
               <Input
@@ -227,10 +234,27 @@ export default function OrdersPage() {
             </div>
 
             {/* 필터 및 정렬 */}
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {/* 주문 상태 필터 */}
+              <div>
+                <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-2">
+                  주문 상태
+                </label>
+                <Select value={statusFilter} onValueChange={handleStatusChange}>
+                  <SelectTrigger id="status-filter">
+                    <SelectValue placeholder="신규 주문" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="new">신규 주문</SelectItem>
+                    <SelectItem value="completed">완료된 주문</SelectItem>
+                    <SelectItem value="all">전체</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
               {/* 상품 타입 필터 */}
               <div>
-                <label htmlFor="product-type" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="product-type" className="block text-sm font-medium text-gray-700 mb-2">
                   상품 타입
                 </label>
                 <Select value={productTypeFilter} onValueChange={handleProductTypeChange}>
@@ -247,7 +271,7 @@ export default function OrdersPage() {
 
               {/* 정렬 기준 */}
               <div>
-                <label htmlFor="sort-field" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="sort-field" className="block text-sm font-medium text-gray-700 mb-2">
                   정렬 기준
                 </label>
                 <Select value={sortField} onValueChange={(value) => handleSortChange(value as SortField, undefined)}>
@@ -263,7 +287,7 @@ export default function OrdersPage() {
 
               {/* 정렬 순서 */}
               <div>
-                <label htmlFor="sort-order" className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label htmlFor="sort-order" className="block text-sm font-medium text-gray-700 mb-2">
                   정렬 순서
                 </label>
                 <Select value={sortOrder} onValueChange={(value) => handleSortChange(undefined, value as SortOrder)}>
@@ -285,7 +309,7 @@ export default function OrdersPage() {
           {isLoading ? (
             <div className="animate-pulse space-y-4">
               {[...Array(5)].map((_, i) => (
-                <div key={i} className="h-12 bg-gray-200 dark:bg-gray-700 rounded"></div>
+                <div key={i} className="h-12 bg-gray-200 rounded"></div>
               ))}
             </div>
           ) : error ? (
@@ -294,7 +318,7 @@ export default function OrdersPage() {
             </div>
           ) : data?.success && data.orders ? (
             <>
-              <div className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+              <div className="mb-4 text-sm text-gray-600">
                 전체 <span className="font-semibold">{data.count}개</span> 중{' '}
                 <span className="font-semibold">{filteredAndSortedOrders.length}개</span>{' '}
                 (페이지 {currentPage} / {totalPages})
@@ -307,14 +331,14 @@ export default function OrdersPage() {
                   <button
                     onClick={() => setCurrentPage(1)}
                     disabled={currentPage === 1}
-                    className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     처음
                   </button>
                   <button
                     onClick={() => setCurrentPage(currentPage - 1)}
                     disabled={currentPage === 1}
-                    className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     이전
                   </button>
@@ -339,7 +363,7 @@ export default function OrdersPage() {
                         className={`px-3 py-2 rounded-lg border transition-colors ${
                           currentPage === pageNum
                             ? 'border-blue-600 bg-blue-600 text-white'
-                            : 'border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'
+                            : 'border-gray-300 bg-white text-gray-700 hover:bg-gray-50'
                         }`}
                       >
                         {pageNum}
@@ -350,14 +374,14 @@ export default function OrdersPage() {
                   <button
                     onClick={() => setCurrentPage(currentPage + 1)}
                     disabled={currentPage === totalPages}
-                    className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     다음
                   </button>
                   <button
                     onClick={() => setCurrentPage(totalPages)}
                     disabled={currentPage === totalPages}
-                    className="px-3 py-2 rounded-lg border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     마지막
                   </button>

@@ -28,7 +28,7 @@ export function RecentOrdersSkeleton() {
         {Array.from({ length: 5 }).map((_, index) => (
           <div
             key={index}
-            className="flex items-center justify-between p-4 rounded-lg border border-gray-200 dark:border-gray-700"
+            className="flex items-center justify-between p-4 rounded-lg border border-gray-200"
           >
             <div className="space-y-2 flex-1">
               <Skeleton className="h-5 w-32" />

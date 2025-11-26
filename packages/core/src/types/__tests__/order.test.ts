@@ -246,7 +246,7 @@ describe('sheetRowToOrder', () => {
     it('should throw error for unknown product type', () => {
       expect(() =>
         sheetRowToOrder({ ...mockRow, '상품 선택': '감귤 3kg' })
-      ).toThrow('Unknown product type');
+      ).toThrow('알 수 없는 상품 타입');
     });
   });
 });

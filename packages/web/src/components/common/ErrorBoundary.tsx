@@ -44,16 +44,16 @@ export class ErrorBoundary extends React.Component<
       return (
         <Card title="오류가 발생했습니다">
           <div className="space-y-4">
-            <div className="text-red-600 dark:text-red-400">
+            <div className="text-red-600">
               예상치 못한 오류가 발생했습니다. 페이지를 새로고침하거나 잠시 후 다시
               시도해주세요.
             </div>
             {this.state.error && (
-              <details className="text-sm text-gray-600 dark:text-gray-400">
+              <details className="text-sm text-gray-600">
                 <summary className="cursor-pointer hover:underline">
                   오류 상세 정보
                 </summary>
-                <pre className="mt-2 p-4 bg-gray-100 dark:bg-gray-800 rounded overflow-auto">
+                <pre className="mt-2 p-4 bg-gray-100 rounded overflow-auto">
                   {this.state.error.message}
                 </pre>
               </details>

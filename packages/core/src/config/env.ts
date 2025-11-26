@@ -1,5 +1,10 @@
 import { z } from 'zod';
 import { config as loadDotenv } from 'dotenv';
+import { findProjectRoot } from '../utils/find-root.js';
+import path from 'path';
+
+// findProjectRoot를 외부에서도 사용할 수 있도록 re-export
+export { findProjectRoot };
 
 /**
  * 환경 변수 스키마
@@ -47,8 +52,10 @@ export type Env = z.infer<typeof envSchema>;
  * 환경 변수 로드 및 검증
  */
 export function loadEnv(): Env {
-  // .env 파일 로드
-  loadDotenv();
+  // Monorepo 프로젝트 루트에서 .env 파일 로드
+  const projectRoot = findProjectRoot();
+  const envPath = path.join(projectRoot, '.env');
+  loadDotenv({ path: envPath });
 
   try {
     // 환경 변수 검증

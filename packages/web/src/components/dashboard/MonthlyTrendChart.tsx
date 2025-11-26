@@ -32,7 +32,7 @@ export function MonthlyTrendChart() {
     return (
       <Card title="월별 주문 추이">
         <div className="h-80 flex items-center justify-center">
-          <div className="text-gray-500 dark:text-gray-400">
+          <div className="text-gray-500">
             데이터가 없습니다.
           </div>
         </div>
@@ -61,12 +61,12 @@ export function MonthlyTrendChart() {
               bottom: 5,
             }}
           >
-            <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200 dark:stroke-gray-700" />
+            <CartesianGrid strokeDasharray="3 3" className="stroke-gray-200" />
             <XAxis
               dataKey="month"
-              className="text-xs fill-gray-600 dark:fill-gray-400"
+              className="text-xs fill-gray-600"
             />
-            <YAxis className="text-xs fill-gray-600 dark:fill-gray-400" />
+            <YAxis className="text-xs fill-gray-600" />
             <Tooltip
               contentStyle={{
                 backgroundColor: 'rgba(255, 255, 255, 0.95)',

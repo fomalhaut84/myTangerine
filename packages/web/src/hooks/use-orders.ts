@@ -10,11 +10,12 @@ import { queryKeys } from '@/lib/query-keys';
 
 /**
  * 주문 목록 조회 훅
+ * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
  */
-export function useOrders() {
+export function useOrders(status?: 'new' | 'completed' | 'all') {
   return useQuery({
-    queryKey: queryKeys.orders.list(),
-    queryFn: getOrders,
+    queryKey: [...queryKeys.orders.list(), status],
+    queryFn: () => getOrders(status),
   });
 }
 

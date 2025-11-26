@@ -182,18 +182,18 @@ export default function LabelsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
+    <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
         {/* 헤더 */}
         <div className="flex justify-between items-center mb-8">
           <div>
             <Link
               href="/dashboard"
-              className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-400 dark:hover:text-blue-300 mb-2 inline-block"
+              className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block"
             >
               ← 대시보드로 돌아가기
             </Link>
-            <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+            <h1 className="text-3xl font-bold text-gray-900">
               배송 라벨
             </h1>
           </div>
@@ -240,7 +240,7 @@ export default function LabelsPage() {
             {/* 필터 */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   날짜 필터
                 </label>
                 <Input
@@ -251,7 +251,7 @@ export default function LabelsPage() {
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 dark:text-gray-300 mb-2">
+                <label className="block text-sm font-medium text-gray-700 mb-2">
                   발신자 필터
                 </label>
                 <Input
@@ -269,7 +269,7 @@ export default function LabelsPage() {
         {isLoading ? (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {[...Array(6)].map((_, i) => (
-              <div key={i} className="h-64 bg-gray-200 dark:bg-gray-700 rounded-lg animate-pulse"></div>
+              <div key={i} className="h-64 bg-gray-200 rounded-lg animate-pulse"></div>
             ))}
           </div>
         ) : error ? (
@@ -288,7 +288,7 @@ export default function LabelsPage() {
           </Card>
         ) : (
           <div>
-            <div className="mb-4 text-sm text-gray-600 dark:text-gray-400">
+            <div className="mb-4 text-sm text-gray-600">
               전체 <span className="font-semibold">{data?.data.length}개</span> 중{' '}
               <span className="font-semibold">{filteredGroups.length}개</span>{' '}
               (선택: {selectedGroups.size}개)

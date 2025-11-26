@@ -26,7 +26,7 @@ export class SheetService {
    */
   private setupAuth(): JWT {
     try {
-      let credentials: any;
+      let credentials: { client_email: string; private_key: string };
 
       // 우선순위에 따라 credentials 로드: PATH > FILE > JSON
       if (this.config.credentialsPath) {
@@ -161,15 +161,39 @@ export class SheetService {
       const headers = rows[0] as string[];
       const dataRows = rows.slice(1);
 
+      // 헤더 검증 먼저 수행 (데이터 변환 전)
+      const headerRow: Record<string, string> = {};
+      headers.forEach((header) => {
+        headerRow[header] = '';
+      });
+      this.validateRequiredColumns(headerRow as unknown as SheetRow);
+
       // 헤더를 키로 사용하여 객체 배열로 변환
-      return dataRows.map((row, index) => {
-        const rowData: Record<string, string> = {};
+      const allRows = dataRows.map((row, index) => {
+        const rowData: Record<string, string | number> = {};
         headers.forEach((header, i) => {
           rowData[header] = row[i] || '';
         });
         // 실제 스프레드시트 행 번호 저장 (헤더 행 + 1, 1-based)
-        (rowData as any)._rowNumber = index + 2;
+        rowData._rowNumber = index + 2;
         return rowData as unknown as SheetRow;
+      });
+
+      // 필수 필드가 비어있는 행은 제외 (데이터 정합성 유지)
+      // 타임스탬프, 받으실분 정보(이름, 주소, 전화번호)만 검증
+      // 상품 선택은 sheetRowToOrder에서 처리하여 명확한 에러 메시지 제공
+      return allRows.filter((row) => {
+        const timestamp = row['타임스탬프'] || '';
+        const recipientName = row['받으실분 성함'] || '';
+        const recipientAddress = row['받으실분 주소 (도로명 주소로 부탁드려요)'] || '';
+        const recipientPhone = row['받으실분 연락처 (핸드폰번호)'] || '';
+
+        return (
+          timestamp.trim() !== '' &&
+          recipientName.trim() !== '' &&
+          recipientAddress.trim() !== '' &&
+          recipientPhone.trim() !== ''
+        );
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -178,7 +202,57 @@ export class SheetService {
   }
 
   /**
-   * 새로운 주문만 가져오기
+   * Status별 주문 가져오기
+   * @param status - 'new' (비고 != "확인"), 'completed' (비고 == "확인"), 'all' (모든 행)
+   */
+  async getOrdersByStatus(status: 'new' | 'completed' | 'all' = 'new'): Promise<SheetRow[]> {
+    try {
+      const allRows = await this.getAllRows();
+
+      if (allRows.length === 0) {
+        // status='new'일 때만 newOrderRows 초기화 (race condition 방지)
+        if (status === 'new') {
+          this.newOrderRows = [];
+        }
+        return [];
+      }
+
+      // 필수 컬럼 검증
+      this.validateRequiredColumns(allRows[0]);
+
+      // Status에 따라 필터링
+      let filteredOrders: SheetRow[];
+
+      switch (status) {
+        case 'completed':
+          // 비고가 "확인"인 주문
+          filteredOrders = allRows.filter(row => row['비고'] === '확인');
+          break;
+        case 'all':
+          // 모든 주문
+          filteredOrders = allRows;
+          break;
+        case 'new':
+        default:
+          // 비고가 "확인"이 아닌 주문 (기본값)
+          filteredOrders = allRows.filter(row => row['비고'] !== '확인');
+          break;
+      }
+
+      // status='new'일 때만 처리할 행들의 실제 스프레드시트 행 번호 저장 (race condition 방지)
+      if (status === 'new') {
+        this.newOrderRows = filteredOrders.map(row => row._rowNumber || 0).filter(n => n > 0);
+      }
+
+      return filteredOrders;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get orders by status: ${message}`);
+    }
+  }
+
+  /**
+   * 새로운 주문만 가져오기 (하위 호환성)
    * 비고 컬럼이 "확인"이 아닌 모든 행 반환
    *
    * 개별 주문 확인을 지원하기 위해 로직 변경:
@@ -189,28 +263,7 @@ export class SheetService {
    * 다른 미확인 주문이 건너뛰어지지 않습니다.
    */
   async getNewOrders(): Promise<SheetRow[]> {
-    try {
-      const allRows = await this.getAllRows();
-
-      if (allRows.length === 0) {
-        this.newOrderRows = [];
-        return [];
-      }
-
-      // 필수 컬럼 검증
-      this.validateRequiredColumns(allRows[0]);
-
-      // 비고가 "확인"이 아닌 모든 행 선택 (개별 확인 지원)
-      const newOrders = allRows.filter(row => row['비고'] !== '확인');
-
-      // 처리할 행들의 실제 스프레드시트 행 번호 저장
-      this.newOrderRows = newOrders.map(row => row._rowNumber || 0).filter(n => n > 0);
-
-      return newOrders;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to get new orders: ${message}`);
-    }
+    return this.getOrdersByStatus('new');
   }
 
   /**
@@ -258,10 +311,14 @@ export class SheetService {
 
   /**
    * 처리된 주문을 "확인"으로 표시 (Python 버전과 동일한 로직)
+   * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 newOrderRows 사용 (하위 호환성)
    */
-  async markAsConfirmed(): Promise<void> {
+  async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
     try {
-      if (this.newOrderRows.length === 0) {
+      // 명시적으로 전달된 행 번호 또는 기존 newOrderRows 사용 (하위 호환성)
+      const targetRows = rowNumbers || this.newOrderRows;
+
+      if (targetRows.length === 0) {
         return; // 처리할 행이 없으면 종료
       }
 
@@ -286,8 +343,8 @@ export class SheetService {
 
       const 비고Col = 비고ColIndex + 1; // 1-based
 
-      // 모든 새 주문 행을 '확인'으로 업데이트
-      for (const rowNum of this.newOrderRows) {
+      // 지정된 주문 행을 '확인'으로 업데이트
+      for (const rowNum of targetRows) {
         await this.updateCell(rowNum, 비고Col, '확인');
       }
     } catch (error) {
