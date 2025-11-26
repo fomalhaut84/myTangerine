@@ -48,7 +48,7 @@ export class LabelFormatter {
 
       // 보내는 사람별 처리
       let firstSender = true;
-      for (const [_senderKey, senderOrders] of Object.entries(senderGrouped)) {
+      for (const [, senderOrders] of Object.entries(senderGrouped)) {
         if (!firstSender) {
           formattedLabels.push('\n');
         }

@@ -26,7 +26,7 @@ export class SheetService {
    */
   private setupAuth(): JWT {
     try {
-      let credentials: any;
+      let credentials: { client_email: string; private_key: string };
 
       // 우선순위에 따라 credentials 로드: PATH > FILE > JSON
       if (this.config.credentialsPath) {
@@ -170,12 +170,12 @@ export class SheetService {
 
       // 헤더를 키로 사용하여 객체 배열로 변환
       const allRows = dataRows.map((row, index) => {
-        const rowData: Record<string, string> = {};
+        const rowData: Record<string, string | number> = {};
         headers.forEach((header, i) => {
           rowData[header] = row[i] || '';
         });
         // 실제 스프레드시트 행 번호 저장 (헤더 행 + 1, 1-based)
-        (rowData as any)._rowNumber = index + 2;
+        rowData._rowNumber = index + 2;
         return rowData as unknown as SheetRow;
       });
 
