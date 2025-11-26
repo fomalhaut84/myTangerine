@@ -10,8 +10,8 @@ interface LabelPreviewProps {
 
 export function LabelPreview({ labelText }: LabelPreviewProps) {
   return (
-    <div className="bg-white dark:bg-gray-800 border-2 border-gray-300 dark:border-gray-700 rounded-lg p-6 font-mono text-sm overflow-auto max-h-[600px]">
-      <pre className="whitespace-pre-wrap break-words text-gray-900 dark:text-gray-100">
+    <div className="bg-white border-2 border-gray-300 rounded-lg p-6 font-mono text-sm overflow-auto max-h-[600px]">
+      <pre className="whitespace-pre-wrap break-words text-gray-900">
         {labelText}
       </pre>
     </div>

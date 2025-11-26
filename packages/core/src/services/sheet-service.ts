@@ -161,8 +161,15 @@ export class SheetService {
       const headers = rows[0] as string[];
       const dataRows = rows.slice(1);
 
+      // 헤더 검증 먼저 수행 (데이터 변환 전)
+      const headerRow: Record<string, string> = {};
+      headers.forEach((header) => {
+        headerRow[header] = '';
+      });
+      this.validateRequiredColumns(headerRow as unknown as SheetRow);
+
       // 헤더를 키로 사용하여 객체 배열로 변환
-      return dataRows.map((row, index) => {
+      const allRows = dataRows.map((row, index) => {
         const rowData: Record<string, string> = {};
         headers.forEach((header, i) => {
           rowData[header] = row[i] || '';
@@ -170,6 +177,23 @@ export class SheetService {
         // 실제 스프레드시트 행 번호 저장 (헤더 행 + 1, 1-based)
         (rowData as any)._rowNumber = index + 2;
         return rowData as unknown as SheetRow;
+      });
+
+      // 필수 필드가 비어있는 행은 제외 (데이터 정합성 유지)
+      // 타임스탬프, 받으실분 정보(이름, 주소, 전화번호)만 검증
+      // 상품 선택은 sheetRowToOrder에서 처리하여 명확한 에러 메시지 제공
+      return allRows.filter((row) => {
+        const timestamp = row['타임스탬프'] || '';
+        const recipientName = row['받으실분 성함'] || '';
+        const recipientAddress = row['받으실분 주소 (도로명 주소로 부탁드려요)'] || '';
+        const recipientPhone = row['받으실분 연락처 (핸드폰번호)'] || '';
+
+        return (
+          timestamp.trim() !== '' &&
+          recipientName.trim() !== '' &&
+          recipientAddress.trim() !== '' &&
+          recipientPhone.trim() !== ''
+        );
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

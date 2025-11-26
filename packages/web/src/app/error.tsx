@@ -18,20 +18,20 @@ export default function Error({
   }, [error]);
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 flex items-center justify-center p-8">
-      <div className="max-w-md w-full bg-white dark:bg-gray-800 rounded-lg shadow-lg p-8">
-        <h2 className="text-2xl font-bold text-red-600 dark:text-red-400 mb-4">
+    <div className="min-h-screen bg-gray-50 flex items-center justify-center p-8">
+      <div className="max-w-md w-full bg-white rounded-lg shadow-lg p-8">
+        <h2 className="text-2xl font-bold text-red-600 mb-4">
           오류가 발생했습니다
         </h2>
-        <p className="text-gray-700 dark:text-gray-300 mb-6">
+        <p className="text-gray-700 mb-6">
           예상치 못한 오류가 발생했습니다. 잠시 후 다시 시도해주세요.
         </p>
         {error.message && (
-          <details className="mb-6 text-sm text-gray-600 dark:text-gray-400">
+          <details className="mb-6 text-sm text-gray-600">
             <summary className="cursor-pointer hover:underline mb-2">
               오류 상세 정보
             </summary>
-            <pre className="p-4 bg-gray-100 dark:bg-gray-700 rounded overflow-auto">
+            <pre className="p-4 bg-gray-100 rounded overflow-auto">
               {error.message}
             </pre>
           </details>
@@ -45,7 +45,7 @@ export default function Error({
           </button>
           <button
             onClick={() => (window.location.href = '/')}
-            className="flex-1 px-4 py-2 bg-gray-200 dark:bg-gray-700 text-gray-900 dark:text-gray-100 rounded-lg hover:bg-gray-300 dark:hover:bg-gray-600 transition-colors"
+            className="flex-1 px-4 py-2 bg-gray-200 text-gray-900 rounded-lg hover:bg-gray-300 transition-colors"
           >
             홈으로 이동
           </button>

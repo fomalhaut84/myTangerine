@@ -37,7 +37,7 @@ export function ProductRatioChart() {
     return (
       <Card title="상품 비율">
         <div className="h-80 flex items-center justify-center">
-          <div className="text-gray-500 dark:text-gray-400">
+          <div className="text-gray-500">
             데이터가 없습니다.
           </div>
         </div>
@@ -62,7 +62,7 @@ export function ProductRatioChart() {
     return (
       <Card title="상품 비율">
         <div className="h-80 flex items-center justify-center">
-          <div className="text-gray-500 dark:text-gray-400">
+          <div className="text-gray-500">
             주문 데이터가 없습니다.
           </div>
         </div>

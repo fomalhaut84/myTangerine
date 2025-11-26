@@ -15,7 +15,7 @@ export default function OrderDetailPage() {
   const params = useParams();
   const router = useRouter();
   const orderId = params.orderId as string;
-  const { data, isLoading, error } = useOrders();
+  const { data, isLoading, error } = useOrders('all');
   const confirmMutation = useConfirmSingleOrder();
   const [isConfirming, setIsConfirming] = useState(false);
 
@@ -47,11 +47,11 @@ export default function OrderDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
+      <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-4xl mx-auto">
           <div className="animate-pulse space-y-4">
-            <div className="h-8 bg-gray-200 dark:bg-gray-700 rounded w-1/4"></div>
-            <div className="h-64 bg-gray-200 dark:bg-gray-700 rounded"></div>
+            <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+            <div className="h-64 bg-gray-200 rounded"></div>
           </div>
         </div>
       </div>
@@ -60,7 +60,7 @@ export default function OrderDetailPage() {
 
   if (error || !data?.success) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
+      <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-4xl mx-auto">
           <div className="text-center py-12 text-red-600">
             주문 정보를 불러오는 중 오류가 발생했습니다.
@@ -72,11 +72,11 @@ export default function OrderDetailPage() {
 
   if (!order) {
     return (
-      <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
+      <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-4xl mx-auto">
           <Link
             href="/orders"
-            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100 mb-4 inline-block"
+            className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block"
           >
             ← 주문 목록으로 돌아가기
           </Link>
@@ -89,17 +89,17 @@ export default function OrderDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 dark:bg-gray-900 p-8">
+    <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-4xl mx-auto">
         {/* 헤더 */}
         <div className="mb-8">
           <Link
             href="/orders"
-            className="text-sm text-blue-600 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100 mb-2 inline-block"
+            className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block"
           >
             ← 주문 목록으로 돌아가기
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900 dark:text-gray-100">
+          <h1 className="text-3xl font-bold text-gray-900">
             주문 상세 정보
           </h1>
         </div>
@@ -108,31 +108,31 @@ export default function OrderDetailPage() {
         <Card title="기본 정보" className="mb-6">
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 주문 번호
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 #{order.rowNumber}
               </dd>
             </div>
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 주문 일시
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.timestamp}
               </dd>
             </div>
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 상태
               </dt>
               <dd className="mt-1">
                 <span
                   className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                     order.status === '확인'
-                      ? 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400'
-                      : 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400'
+                      ? 'bg-green-100 text-green-800'
+                      : 'bg-yellow-100 text-yellow-800'
                   }`}
                 >
                   {order.status || '미확인'}
@@ -146,18 +146,18 @@ export default function OrderDetailPage() {
         <Card title="상품 정보" className="mb-6">
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 상품 타입
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.productType}
               </dd>
             </div>
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 수량
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.quantity}개
               </dd>
             </div>
@@ -168,26 +168,26 @@ export default function OrderDetailPage() {
         <Card title="수취인 정보" className="mb-6">
           <dl className="space-y-4">
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 이름
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.recipient.name}
               </dd>
             </div>
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 전화번호
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.recipient.phone}
               </dd>
             </div>
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 주소
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.recipient.address}
               </dd>
             </div>
@@ -198,26 +198,26 @@ export default function OrderDetailPage() {
         <Card title="발송인 정보" className="mb-6">
           <dl className="space-y-4">
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 이름
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.sender.name}
               </dd>
             </div>
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 전화번호
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.sender.phone}
               </dd>
             </div>
             <div>
-              <dt className="text-sm font-medium text-gray-500 dark:text-gray-400">
+              <dt className="text-sm font-medium text-gray-500">
                 주소
               </dt>
-              <dd className="mt-1 text-sm text-gray-900 dark:text-gray-100">
+              <dd className="mt-1 text-sm text-gray-900">
                 {order.sender.address}
               </dd>
             </div>

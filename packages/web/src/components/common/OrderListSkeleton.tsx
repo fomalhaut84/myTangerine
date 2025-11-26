@@ -17,8 +17,8 @@ export function OrderListSkeleton() {
         </div>
 
         {/* 테이블 헤더 */}
-        <div className="rounded-lg border border-gray-200 dark:border-gray-700">
-          <div className="grid grid-cols-7 gap-4 p-4 bg-gray-50 dark:bg-gray-800">
+        <div className="rounded-lg border border-gray-200">
+          <div className="grid grid-cols-7 gap-4 p-4 bg-gray-50">
             <Skeleton className="h-5 w-16" />
             <Skeleton className="h-5 w-24" />
             <Skeleton className="h-5 w-20" />
@@ -32,7 +32,7 @@ export function OrderListSkeleton() {
           {Array.from({ length: 10 }).map((_, index) => (
             <div
               key={index}
-              className="grid grid-cols-7 gap-4 p-4 border-t border-gray-200 dark:border-gray-700"
+              className="grid grid-cols-7 gap-4 p-4 border-t border-gray-200"
             >
               <Skeleton className="h-5 w-12" />
               <Skeleton className="h-5 w-full" />

@@ -39,44 +39,44 @@ export function SummaryCard() {
     <Card title="주문 요약">
       <div className="space-y-6">
         {/* 5kg 요약 */}
-        <div className="flex justify-between items-center p-4 bg-orange-50 dark:bg-orange-900/20 rounded-lg">
+        <div className="flex justify-between items-center p-4 bg-orange-50 rounded-lg">
           <div>
-            <p className="text-sm text-gray-600 dark:text-gray-400">5kg</p>
-            <p className="text-2xl font-bold text-orange-600 dark:text-orange-400">
+            <p className="text-sm text-gray-600">5kg</p>
+            <p className="text-2xl font-bold text-orange-600">
               {summary['5kg'].count}박스
             </p>
           </div>
           <div className="text-right">
-            <p className="text-sm text-gray-600 dark:text-gray-400">금액</p>
-            <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+            <p className="text-sm text-gray-600">금액</p>
+            <p className="text-xl font-semibold text-gray-900">
               {summary['5kg'].amount.toLocaleString()}원
             </p>
           </div>
         </div>
 
         {/* 10kg 요약 */}
-        <div className="flex justify-between items-center p-4 bg-green-50 dark:bg-green-900/20 rounded-lg">
+        <div className="flex justify-between items-center p-4 bg-green-50 rounded-lg">
           <div>
-            <p className="text-sm text-gray-600 dark:text-gray-400">10kg</p>
-            <p className="text-2xl font-bold text-green-600 dark:text-green-400">
+            <p className="text-sm text-gray-600">10kg</p>
+            <p className="text-2xl font-bold text-green-600">
               {summary['10kg'].count}박스
             </p>
           </div>
           <div className="text-right">
-            <p className="text-sm text-gray-600 dark:text-gray-400">금액</p>
-            <p className="text-xl font-semibold text-gray-900 dark:text-gray-100">
+            <p className="text-sm text-gray-600">금액</p>
+            <p className="text-xl font-semibold text-gray-900">
               {summary['10kg'].amount.toLocaleString()}원
             </p>
           </div>
         </div>
 
         {/* 총 금액 */}
-        <div className="pt-4 border-t border-gray-200 dark:border-gray-700">
+        <div className="pt-4 border-t border-gray-200">
           <div className="flex justify-between items-center">
-            <p className="text-lg font-semibold text-gray-900 dark:text-gray-100">
+            <p className="text-lg font-semibold text-gray-900">
               총 주문 금액
             </p>
-            <p className="text-2xl font-bold text-blue-600 dark:text-blue-200">
+            <p className="text-2xl font-bold text-blue-600">
               {summary.total.toLocaleString()}원
             </p>
           </div>

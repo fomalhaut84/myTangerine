@@ -1,11 +1,10 @@
 /**
- * React Query Provider + Theme Provider
+ * React Query Provider
  */
 
 'use client';
 
 import { QueryClientProvider } from '@tanstack/react-query';
-import { ThemeProvider } from 'next-themes';
 import { makeQueryClient } from '@/lib/query-client';
 import { useState } from 'react';
 import dynamic from 'next/dynamic';
@@ -26,11 +25,9 @@ export function Providers({ children }: { children: React.ReactNode }) {
   const [queryClient] = useState(() => makeQueryClient());
 
   return (
-    <ThemeProvider attribute="class" defaultTheme="system" enableSystem>
-      <QueryClientProvider client={queryClient}>
-        {children}
-        <ReactQueryDevtools initialIsOpen={false} />
-      </QueryClientProvider>
-    </ThemeProvider>
+    <QueryClientProvider client={queryClient}>
+      {children}
+      <ReactQueryDevtools initialIsOpen={false} />
+    </QueryClientProvider>
   );
 }

@@ -47,13 +47,13 @@ export function RecentOrders() {
         {recentOrders.map((order) => (
           <div
             key={order.rowNumber}
-            className="flex justify-between items-center p-4 border border-gray-200 dark:border-gray-700 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-700/50 transition-colors"
+            className="flex justify-between items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           >
             <div className="flex-1">
-              <p className="font-semibold text-gray-900 dark:text-gray-100">
+              <p className="font-semibold text-gray-900">
                 {order.recipient.name}
               </p>
-              <p className="text-sm text-gray-600 dark:text-gray-400">
+              <p className="text-sm text-gray-600">
                 {order.recipient.address}
               </p>
             </div>
@@ -61,8 +61,8 @@ export function RecentOrders() {
               <span
                 className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
                   order.productType === '5kg'
-                    ? 'bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400'
-                    : 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400'
+                    ? 'bg-orange-100 text-orange-700'
+                    : 'bg-green-100 text-green-700'
                 }`}
               >
                 {order.productType} × {order.quantity}
@@ -76,7 +76,7 @@ export function RecentOrders() {
         <div className="mt-4 text-center">
           <Link
             href="/orders"
-            className="text-blue-600 hover:text-blue-700 dark:text-blue-200 dark:hover:text-blue-100 font-medium"
+            className="text-blue-600 hover:text-blue-700 font-medium"
           >
             모든 주문 보기 ({data.count}개)
           </Link>

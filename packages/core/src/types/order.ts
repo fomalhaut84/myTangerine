@@ -233,14 +233,26 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
   const quantity = extractQuantity(row);
 
   // 상품 타입 결정
-  const productSelection = row['상품 선택'];
+  const productSelection = row['상품 선택'] || '';
   let productType: ProductType;
+
+  // 빈 값이거나 유효하지 않은 경우 처리
+  if (!productSelection || productSelection.trim() === '') {
+    throw new Error(
+      `상품 선택이 비어있습니다 (행 ${row._rowNumber || '알 수 없음'}). ` +
+      `스프레드시트에서 '상품 선택' 컬럼을 확인해주세요.`
+    );
+  }
+
   if (productSelection.includes('5kg')) {
     productType = '5kg';
   } else if (productSelection.includes('10kg')) {
     productType = '10kg';
   } else {
-    throw new Error(`Unknown product type: ${productSelection}`);
+    throw new Error(
+      `알 수 없는 상품 타입: "${productSelection}" (행 ${row._rowNumber || '알 수 없음'}). ` +
+      `"5kg" 또는 "10kg"이 포함되어야 합니다.`
+    );
   }
 
   // 발송인 정보 (config가 제공되고 필드가 비어있으면 기본값 사용)
