@@ -3,6 +3,9 @@ import { config as loadDotenv } from 'dotenv';
 import { findProjectRoot } from '../utils/find-root.js';
 import path from 'path';
 
+// findProjectRoot를 외부에서도 사용할 수 있도록 re-export
+export { findProjectRoot };
+
 /**
  * 환경 변수 스키마
  */

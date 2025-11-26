@@ -1,4 +1,4 @@
-import { type Env, loadEnv } from './env.js';
+import { type Env, loadEnv, findProjectRoot } from './env.js';
 import type { Sender } from '../types/order.js';
 import path from 'path';
 import fs from 'fs';
@@ -63,13 +63,16 @@ export class Config {
 
   /**
    * 우선순위에 따라 credentials 파일 경로 반환
+   * 상대 경로는 프로젝트 루트 기준으로 resolve
    */
   private getCredentialsPath(): string | null {
+    const projectRoot = findProjectRoot();
+
     if (this.env.GOOGLE_CREDENTIALS_PATH) {
-      return path.resolve(this.env.GOOGLE_CREDENTIALS_PATH);
+      return path.resolve(projectRoot, this.env.GOOGLE_CREDENTIALS_PATH);
     }
     if (this.env.GOOGLE_CREDENTIALS_FILE) {
-      return path.resolve(this.env.GOOGLE_CREDENTIALS_FILE);
+      return path.resolve(projectRoot, this.env.GOOGLE_CREDENTIALS_FILE);
     }
     return null;
   }
