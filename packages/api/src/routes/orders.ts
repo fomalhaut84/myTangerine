@@ -175,7 +175,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     async () => {
     const { sheetService } = fastify.core;
 
-    // 먼저 새로운 주문을 가져와서 newOrderRows를 갱신
+    // 먼저 새로운 주문을 가져오기
     const newOrders = await sheetService.getNewOrders();
 
     if (newOrders.length === 0) {
@@ -186,8 +186,13 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       };
     }
 
-    // 주문을 확인 상태로 표시
-    await sheetService.markAsConfirmed();
+    // 확인할 행 번호를 명시적으로 추출 (race condition 방지)
+    const rowNumbers = newOrders
+      .map((order) => order._rowNumber)
+      .filter((n): n is number => n !== undefined && n > 0);
+
+    // 주문을 확인 상태로 표시 (명시적으로 행 번호 전달)
+    await sheetService.markAsConfirmed(rowNumbers);
 
     return {
       success: true,

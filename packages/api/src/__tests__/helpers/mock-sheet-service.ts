@@ -40,10 +40,21 @@ export class MockSheetService {
 
   /**
    * 주문 확인 처리 (mock)
+   * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 모든 주문 확인
    */
-  async markAsConfirmed(): Promise<void> {
-    this.confirmedCount = this.mockNewOrders.length;
-    this.mockNewOrders = []; // 확인 후 비우기
+  async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
+    if (rowNumbers) {
+      // 명시적으로 전달된 행 번호만 확인
+      this.confirmedCount = rowNumbers.length;
+      // 해당 행들을 mockNewOrders에서 제거
+      this.mockNewOrders = this.mockNewOrders.filter(
+        (order) => !rowNumbers.includes(order._rowNumber || 0)
+      );
+    } else {
+      // 하위 호환성: 모든 주문 확인
+      this.confirmedCount = this.mockNewOrders.length;
+      this.mockNewOrders = []; // 확인 후 비우기
+    }
   }
 
   /**

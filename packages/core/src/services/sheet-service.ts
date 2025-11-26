@@ -210,7 +210,10 @@ export class SheetService {
       const allRows = await this.getAllRows();
 
       if (allRows.length === 0) {
-        this.newOrderRows = [];
+        // status='new'일 때만 newOrderRows 초기화 (race condition 방지)
+        if (status === 'new') {
+          this.newOrderRows = [];
+        }
         return [];
       }
 
@@ -236,8 +239,10 @@ export class SheetService {
           break;
       }
 
-      // 처리할 행들의 실제 스프레드시트 행 번호 저장
-      this.newOrderRows = filteredOrders.map(row => row._rowNumber || 0).filter(n => n > 0);
+      // status='new'일 때만 처리할 행들의 실제 스프레드시트 행 번호 저장 (race condition 방지)
+      if (status === 'new') {
+        this.newOrderRows = filteredOrders.map(row => row._rowNumber || 0).filter(n => n > 0);
+      }
 
       return filteredOrders;
     } catch (error) {
@@ -306,10 +311,14 @@ export class SheetService {
 
   /**
    * 처리된 주문을 "확인"으로 표시 (Python 버전과 동일한 로직)
+   * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 newOrderRows 사용 (하위 호환성)
    */
-  async markAsConfirmed(): Promise<void> {
+  async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
     try {
-      if (this.newOrderRows.length === 0) {
+      // 명시적으로 전달된 행 번호 또는 기존 newOrderRows 사용 (하위 호환성)
+      const targetRows = rowNumbers || this.newOrderRows;
+
+      if (targetRows.length === 0) {
         return; // 처리할 행이 없으면 종료
       }
 
@@ -334,8 +343,8 @@ export class SheetService {
 
       const 비고Col = 비고ColIndex + 1; // 1-based
 
-      // 모든 새 주문 행을 '확인'으로 업데이트
-      for (const rowNum of this.newOrderRows) {
+      // 지정된 주문 행을 '확인'으로 업데이트
+      for (const rowNum of targetRows) {
         await this.updateCell(rowNum, 비고Col, '확인');
       }
     } catch (error) {
