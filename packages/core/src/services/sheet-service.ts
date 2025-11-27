@@ -2,6 +2,7 @@ import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { Config } from '../config/config.js';
 import type { SheetRow } from '../types/order.js';
+import { validateProductSelection } from '../types/order.js';
 import fs from 'fs';
 
 /**
@@ -14,6 +15,7 @@ export class SheetService {
   private spreadsheetId: string | null = null;
   private firstSheetName: string | null = null; // 첫 번째 워크시트 이름 캐싱
   private newOrderRows: number[] = []; // 처리할 행들의 실제 인덱스 저장
+  private loggedInvalidRows: Set<number> = new Set(); // 이미 로그에 출력된 행 번호 캐싱
 
   constructor(config: Config) {
     this.config = config;
@@ -144,6 +146,9 @@ export class SheetService {
    * 모든 행 가져오기
    */
   async getAllRows(): Promise<SheetRow[]> {
+    // 매 요청마다 로그 캐시 초기화 (수정된 데이터의 재검증을 위해)
+    this.loggedInvalidRows.clear();
+
     try {
       const spreadsheetId = await this.getSpreadsheetId();
       const sheetName = await this.getFirstSheetName();
@@ -180,20 +185,45 @@ export class SheetService {
       });
 
       // 필수 필드가 비어있는 행은 제외 (데이터 정합성 유지)
-      // 타임스탬프, 받으실분 정보(이름, 주소, 전화번호)만 검증
-      // 상품 선택은 sheetRowToOrder에서 처리하여 명확한 에러 메시지 제공
+      // 타임스탬프, 받으실분 정보(이름, 주소, 전화번호)는 반드시 필요
+      // 상품 선택은 검증하되, 실패해도 제외하지 않고 _validationError 필드에 저장
       return allRows.filter((row) => {
         const timestamp = row['타임스탬프'] || '';
         const recipientName = row['받으실분 성함'] || '';
         const recipientAddress = row['받으실분 주소 (도로명 주소로 부탁드려요)'] || '';
         const recipientPhone = row['받으실분 연락처 (핸드폰번호)'] || '';
+        const productSelection = row['상품 선택'] || '';
 
-        return (
+        // 기본 필수 필드 검증
+        const hasRequiredFields = (
           timestamp.trim() !== '' &&
           recipientName.trim() !== '' &&
           recipientAddress.trim() !== '' &&
           recipientPhone.trim() !== ''
         );
+
+        // 필수 필드 누락 시 제외
+        if (!hasRequiredFields) {
+          if (row._rowNumber && !this.loggedInvalidRows.has(row._rowNumber)) {
+            this.loggedInvalidRows.add(row._rowNumber);
+            console.warn(`[SheetService] 필수 필드 누락으로 행 제외: 행 ${row._rowNumber}`);
+          }
+          return false;
+        }
+
+        // 상품 선택 유효성 검증 (validateProductSelection 헬퍼 사용)
+        const productValidation = validateProductSelection(productSelection);
+
+        // 상품 선택 검증 실패 시 _validationError 필드에 저장하고 행 포함
+        if (!productValidation.isValid) {
+          row._validationError = productValidation.reason;
+          if (row._rowNumber && !this.loggedInvalidRows.has(row._rowNumber)) {
+            this.loggedInvalidRows.add(row._rowNumber);
+            console.warn(`[SheetService] ${productValidation.reason}: 행 ${row._rowNumber} (API 응답에 포함됨)`);
+          }
+        }
+
+        return true;
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

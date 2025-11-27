@@ -15,9 +15,10 @@ export interface Order {
   status: string;
   sender: PersonInfo;
   recipient: PersonInfo;
-  productType: '5kg' | '10kg';
+  productType: '5kg' | '10kg' | null;
   quantity: number;
   rowNumber: number;
+  validationError?: string;
 }
 
 export interface ProductSummary {

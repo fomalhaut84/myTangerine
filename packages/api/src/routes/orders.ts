@@ -72,6 +72,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         productType: order.productType,
         quantity: order.quantity,
         rowNumber: order.rowNumber,
+        validationError: order.validationError,
       })),
     };
   });

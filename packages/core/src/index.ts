@@ -9,6 +9,7 @@ export * from './types/order.js';
 // Config
 export { Config } from './config/config.js';
 export type { Env } from './config/env.js';
+export { findProjectRoot } from './utils/find-root.js';
 
 // Services
 export { SheetService } from './services/sheet-service.js';

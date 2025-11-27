@@ -68,6 +68,9 @@ export interface SheetRow {
 
   /** 스프레드시트에서의 실제 행 번호 (헤더 행 포함, 1-based) */
   _rowNumber?: number;
+
+  /** 검증 에러 메시지 (검증 실패 시) */
+  _validationError?: string;
 }
 
 /**
@@ -90,14 +93,17 @@ export interface Order {
   /** 수취인 정보 */
   recipient: Recipient;
 
-  /** 선택한 상품 타입 */
-  productType: ProductType;
+  /** 선택한 상품 타입 (검증 실패 시 null) */
+  productType: ProductType | null;
 
   /** 주문 수량 */
   quantity: number;
 
   /** 스프레드시트에서의 실제 행 번호 */
   rowNumber: number;
+
+  /** 검증 에러 메시지 (검증 실패 시) */
+  validationError?: string;
 
   /** 원본 시트 행 데이터 (디버깅용) */
   _raw?: SheetRow;
@@ -222,6 +228,43 @@ function isEmpty(value: string | undefined | null): boolean {
 }
 
 /**
+ * 상품 선택 값의 유효성을 검증하고 상품 타입을 파싱
+ * @returns { isValid, productType, reason }
+ */
+export function validateProductSelection(productSelection: string): {
+  isValid: boolean;
+  productType: ProductType | null;
+  reason: string;
+} {
+  // 빈 값 검증
+  if (!productSelection || productSelection.trim() === '') {
+    return {
+      isValid: false,
+      productType: null,
+      reason: '상품 선택이 비어있습니다',
+    };
+  }
+
+  // 정규식으로 정확한 5kg 또는 10kg 매칭 (단어 경계 사용)
+  const match = productSelection.match(/\b(5|10)kg\b/);
+
+  if (!match) {
+    return {
+      isValid: false,
+      productType: null,
+      reason: `유효하지 않은 상품 타입: "${productSelection}"`,
+    };
+  }
+
+  const productType = `${match[1]}kg` as ProductType;
+  return {
+    isValid: true,
+    productType,
+    reason: '',
+  };
+}
+
+/**
  * SheetRow를 Order로 변환
  * Python 버전의 LabelFormatter와 동일하게 발송인 정보가 비어있으면 기본값 사용
  *
@@ -233,26 +276,21 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
   const quantity = extractQuantity(row);
 
   // 상품 타입 결정
-  const productSelection = row['상품 선택'] || '';
-  let productType: ProductType;
+  let productType: ProductType | null = null;
+  let validationError: string | undefined = undefined;
 
-  // 빈 값이거나 유효하지 않은 경우 처리
-  if (!productSelection || productSelection.trim() === '') {
-    throw new Error(
-      `상품 선택이 비어있습니다 (행 ${row._rowNumber || '알 수 없음'}). ` +
-      `스프레드시트에서 '상품 선택' 컬럼을 확인해주세요.`
-    );
-  }
-
-  if (productSelection.includes('5kg')) {
-    productType = '5kg';
-  } else if (productSelection.includes('10kg')) {
-    productType = '10kg';
+  // row에 이미 검증 에러가 있으면 사용, 없으면 새로 검증
+  if (row._validationError) {
+    validationError = row._validationError;
   } else {
-    throw new Error(
-      `알 수 없는 상품 타입: "${productSelection}" (행 ${row._rowNumber || '알 수 없음'}). ` +
-      `"5kg" 또는 "10kg"이 포함되어야 합니다.`
-    );
+    const productSelection = row['상품 선택'] || '';
+    const validation = validateProductSelection(productSelection);
+
+    if (!validation.isValid) {
+      validationError = validation.reason;
+    } else {
+      productType = validation.productType;
+    }
   }
 
   // 발송인 정보 (config가 제공되고 필드가 비어있으면 기본값 사용)
@@ -293,6 +331,7 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     productType,
     quantity,
     rowNumber: row._rowNumber || 0,
+    validationError,
     _raw: row,
   };
 }

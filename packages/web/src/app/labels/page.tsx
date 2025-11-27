@@ -54,10 +54,16 @@ export default function LabelsPage() {
         const senderInfo = `\n보내는분: ${group.sender.name} (${group.sender.phone})\n주소: ${group.sender.address}\n`;
 
         const orders = group.orders
-          .map(
-            (order) =>
-              `\n받으실분: ${order.recipient.name}\n주소: ${order.recipient.address}\n전화번호: ${order.recipient.phone}\n${order.productType} x ${order.quantity}박스\n\n---`
-          )
+          .map((order) => {
+            // 상품 정보: validationError 우선, 그 다음 productType, 그 다음 "알 수 없음"
+            const productInfo = order.validationError
+              ? `[오류] ${order.validationError}`
+              : order.productType
+              ? `${order.productType} x ${order.quantity}박스`
+              : '알 수 없음';
+
+            return `\n받으실분: ${order.recipient.name}\n주소: ${order.recipient.address}\n전화번호: ${order.recipient.phone}\n${productInfo}\n\n---`;
+          })
           .join('\n');
 
         const summary = `\n\n보내는분별 수량:\n  5kg: ${group.summary['5kg'].count} (${group.summary['5kg'].amount}원)\n  10kg: ${group.summary['10kg'].count} (${group.summary['10kg'].amount}원)\n  합계: ${group.summary.total}원\n\n====================\n`;

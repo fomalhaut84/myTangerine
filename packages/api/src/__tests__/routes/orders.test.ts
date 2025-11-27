@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { createTestServer } from '../helpers/test-server.js';
-import { MockSheetService, createMockSheetRows } from '../helpers/mock-sheet-service.js';
+import { MockSheetService, createMockSheetRows, createMockSheetRow } from '../helpers/mock-sheet-service.js';
 
 describe('Orders API', () => {
   let server: FastifyInstance;
@@ -91,6 +91,79 @@ describe('Orders API', () => {
       expect(order.recipient).toHaveProperty('name');
       expect(order.recipient).toHaveProperty('phone');
       expect(order.recipient).toHaveProperty('address');
+    });
+
+    it('should return invalid order with null productType and validationError', async () => {
+      // Mock: 유효하지 않은 상품 선택을 가진 주문
+      const mockOrders = [
+        createMockSheetRow({
+          _rowNumber: 20,
+          '상품 선택': '3kg', // 유효하지 않은 타입
+          '5kg 수량': '',
+          '10kg 수량': '',
+          _validationError: '유효하지 않은 상품 타입: "3kg"',
+        }),
+      ];
+      mockSheetService.setMockNewOrders(mockOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(true);
+      expect(payload.count).toBe(1);
+      expect(payload.orders.length).toBe(1);
+
+      const order = payload.orders[0];
+      // productType은 null이어야 함
+      expect(order.productType).toBeNull();
+      // validationError는 존재해야 함
+      expect(order.validationError).toBe('유효하지 않은 상품 타입: "3kg"');
+    });
+
+    it('should include both valid and invalid orders in response', async () => {
+      // Mock: 유효한 주문과 유효하지 않은 주문 혼합
+      const mockOrders = [
+        createMockSheetRow({
+          _rowNumber: 10,
+          '상품 선택': '5kg',
+          '5kg 수량': '2',
+        }),
+        createMockSheetRow({
+          _rowNumber: 11,
+          '상품 선택': '3kg',
+          _validationError: '유효하지 않은 상품 타입: "3kg"',
+        }),
+        createMockSheetRow({
+          _rowNumber: 12,
+          '상품 선택': '10kg',
+          '10kg 수량': '1',
+        }),
+      ];
+      mockSheetService.setMockNewOrders(mockOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders',
+      });
+
+      const payload = JSON.parse(response.payload);
+      expect(payload.count).toBe(3);
+
+      // 첫 번째: 유효한 5kg 주문
+      expect(payload.orders[0].productType).toBe('5kg');
+      expect(payload.orders[0].validationError).toBeUndefined();
+
+      // 두 번째: 유효하지 않은 주문
+      expect(payload.orders[1].productType).toBeNull();
+      expect(payload.orders[1].validationError).toBe('유효하지 않은 상품 타입: "3kg"');
+
+      // 세 번째: 유효한 10kg 주문
+      expect(payload.orders[2].productType).toBe('10kg');
+      expect(payload.orders[2].validationError).toBeUndefined();
     });
   });
 

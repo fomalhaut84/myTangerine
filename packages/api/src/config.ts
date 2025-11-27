@@ -7,9 +7,12 @@ import { z } from 'zod';
 import { readFile } from 'fs/promises';
 import { join, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { findProjectRoot } from '@mytangerine/core';
 
-// .env 파일 로드
-dotenvConfig();
+// Monorepo 프로젝트 루트에서 .env 파일 로드
+const projectRoot = findProjectRoot();
+const envPath = join(projectRoot, '.env');
+dotenvConfig({ path: envPath });
 
 /**
  * 환경 변수 스키마 (Zod)
