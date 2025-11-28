@@ -98,19 +98,21 @@ export function calculateOrderAmount(order: Order, config: Config): number {
 }
 
 /**
- * 주문을 월별로 그룹화
+ * 주문을 월별로 그룹화 (local time 기준)
  */
 export function groupByMonth(orders: Order[]): Map<string, Order[]> {
   const grouped = new Map<string, Order[]>();
 
   for (const order of orders) {
-    // YYYY-MM 형식으로 월 추출
-    const month = order.timestamp.toISOString().substring(0, 7);
+    // Local time 기준으로 YYYY-MM 형식 추출
+    const year = order.timestamp.getFullYear();
+    const month = String(order.timestamp.getMonth() + 1).padStart(2, '0');
+    const monthKey = `${year}-${month}`;
 
-    if (!grouped.has(month)) {
-      grouped.set(month, []);
+    if (!grouped.has(monthKey)) {
+      grouped.set(monthKey, []);
     }
-    grouped.get(month)!.push(order);
+    grouped.get(monthKey)!.push(order);
   }
 
   return grouped;
@@ -251,21 +253,38 @@ export function calculateSummary(
     totalRevenue,
     avgOrderAmount: Math.round(avgOrderAmount),
     dateRange: {
-      start: startDate.toISOString().split('T')[0],
-      end: endDate.toISOString().split('T')[0],
+      start: formatLocalDate(startDate),
+      end: formatLocalDate(endDate),
     },
   };
+}
+
+/**
+ * Date 객체를 local time 기준 YYYY-MM-DD 형식으로 포맷
+ */
+function formatLocalDate(date: Date): string {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 /**
  * 날짜 범위 계산
  */
 export function calculateDateRange(range: StatsRange, customStart?: Date, customEnd?: Date): { start: Date; end: Date } {
-  const end = customEnd || new Date();
+  let end = customEnd || new Date();
+
+  // Custom range인 경우 end date를 해당 날짜의 마지막 시간으로 설정
+  if (range === 'custom' && customEnd) {
+    end = new Date(customEnd);
+    end.setHours(23, 59, 59, 999);
+  }
 
   let start: Date;
   if (range === 'custom' && customStart) {
-    start = customStart;
+    start = new Date(customStart);
+    start.setHours(0, 0, 0, 0);
   } else if (range === '6m') {
     start = new Date(end);
     start.setMonth(start.getMonth() - 6);
@@ -330,11 +349,63 @@ export function calculateStats(
     previousMonthRevenue = monthStats.total5kgAmount + monthStats.total10kgAmount;
   }
 
-  // 통계 요약
-  const summary = calculateSummary(filteredOrders, config, start, end);
+  // 통계 요약 (한 번의 루프로 summary와 totalsByProduct 동시 계산)
+  let total5kgQty = 0;
+  let total10kgQty = 0;
+  let total5kgAmount = 0;
+  let total10kgAmount = 0;
 
-  // 상품별 합계
-  const totalsByProduct = calculateProductTotals(filteredOrders, config);
+  for (const order of filteredOrders) {
+    const amount = calculateOrderAmount(order, config);
+
+    if (order.productType === '5kg') {
+      total5kgQty += order.quantity;
+      total5kgAmount += amount;
+    } else if (order.productType === '10kg') {
+      total10kgQty += order.quantity;
+      total10kgAmount += amount;
+    }
+  }
+
+  const totalRevenue = total5kgAmount + total10kgAmount;
+  const avgOrderAmount = filteredOrders.length > 0 ? totalRevenue / filteredOrders.length : 0;
+
+  const summary: StatsSummary = {
+    total5kgQty,
+    total10kgQty,
+    total5kgAmount,
+    total10kgAmount,
+    totalRevenue,
+    avgOrderAmount: Math.round(avgOrderAmount),
+    dateRange: {
+      start: formatLocalDate(start),
+      end: formatLocalDate(end),
+    },
+  };
+
+  // 상품별 합계 및 비율
+  const totalQty = total5kgQty + total10kgQty;
+  const totalsByProduct: ProductTotals[] = [];
+
+  if (total5kgQty > 0) {
+    totalsByProduct.push({
+      productType: '5kg',
+      quantity: total5kgQty,
+      amount: total5kgAmount,
+      quantityPct: totalQty > 0 ? Math.round((total5kgQty / totalQty) * 10000) / 100 : 0,
+      revenuePct: totalRevenue > 0 ? Math.round((total5kgAmount / totalRevenue) * 10000) / 100 : 0,
+    });
+  }
+
+  if (total10kgQty > 0) {
+    totalsByProduct.push({
+      productType: '10kg',
+      quantity: total10kgQty,
+      amount: total10kgAmount,
+      quantityPct: totalQty > 0 ? Math.round((total10kgQty / totalQty) * 10000) / 100 : 0,
+      revenuePct: totalRevenue > 0 ? Math.round((total10kgAmount / totalRevenue) * 10000) / 100 : 0,
+    });
+  }
 
   return {
     success: true,

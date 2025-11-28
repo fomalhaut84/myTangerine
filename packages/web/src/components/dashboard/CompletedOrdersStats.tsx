@@ -16,7 +16,7 @@ export function CompletedOrdersStats() {
   const [range, setRange] = useState<StatsRange>('12m');
   const [metric, setMetric] = useState<StatsMetric>('quantity');
 
-  const { data, isLoading, error } = useOrderStats({
+  const { data, isLoading, error, isFetching } = useOrderStats({
     scope: 'completed',
     range,
     metric,
@@ -53,12 +53,18 @@ export function CompletedOrdersStats() {
     <div className="space-y-6">
       {/* 헤더 및 필터 */}
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-bold text-gray-900">완료 주문 통계</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-2xl font-bold text-gray-900">완료 주문 통계</h2>
+          {isFetching && !isLoading && (
+            <div className="animate-spin h-5 w-5 border-2 border-blue-600 rounded-full border-t-transparent"></div>
+          )}
+        </div>
         <div className="flex gap-2">
           <select
             value={range}
             onChange={(e) => setRange(e.target.value as StatsRange)}
-            className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            disabled={isFetching}
+            className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="6m">최근 6개월</option>
             <option value="12m">최근 12개월</option>
@@ -66,7 +72,8 @@ export function CompletedOrdersStats() {
           <select
             value={metric}
             onChange={(e) => setMetric(e.target.value as StatsMetric)}
-            className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50"
+            disabled={isFetching}
+            className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="quantity">수량 기준</option>
             <option value="amount">금액 기준</option>

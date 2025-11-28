@@ -311,8 +311,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             },
             grouping: {
               type: 'string',
-              enum: ['monthly', 'weekly'],
-              description: '그룹화 단위',
+              enum: ['monthly'],
+              description: '그룹화 단위 (현재 monthly만 지원)',
               default: 'monthly',
             },
             metric: {

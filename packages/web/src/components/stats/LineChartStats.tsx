@@ -16,12 +16,20 @@ interface LineChartStatsProps {
 export function LineChartStats({ data, metric }: LineChartStatsProps) {
   const isQuantity = metric === 'quantity';
 
-  // 데이터 변환: period (YYYY-MM) -> 월 표시
-  const chartData = data.map((item) => ({
-    ...item,
-    month: item.period.substring(5), // MM만 추출
-    fullDate: item.period,
-  }));
+  // 데이터 변환: period (YYYY-MM) -> 월 표시 (연도 경계 시 연도 포함)
+  const chartData = data.map((item, index) => {
+    const [year, month] = item.period.split('-');
+    const prevYear = index > 0 ? data[index - 1].period.split('-')[0] : year;
+
+    // 이전 달과 연도가 다르면 연도 포함
+    const monthLabel = year !== prevYear || index === 0 ? `${year.substring(2)}.${month}` : month;
+
+    return {
+      ...item,
+      month: monthLabel,
+      fullDate: item.period,
+    };
+  });
 
   return (
     <Card className="p-6">
@@ -41,7 +49,7 @@ export function LineChartStats({ data, metric }: LineChartStatsProps) {
             />
             <YAxis
               label={{
-                value: isQuantity ? '수량 (박스)' : '금액 (원)',
+                value: isQuantity ? '수량 (박스)' : '금액 (만원)',
                 angle: -90,
                 position: 'insideLeft',
               }}
@@ -49,7 +57,7 @@ export function LineChartStats({ data, metric }: LineChartStatsProps) {
                 if (isQuantity) {
                   return value.toString();
                 }
-                return (value / 10000).toFixed(0) + '만';
+                return (value / 10000).toFixed(0);
               }}
             />
             <Tooltip
@@ -58,7 +66,13 @@ export function LineChartStats({ data, metric }: LineChartStatsProps) {
                 const label = name.includes('5kg') ? '5kg' : '10kg';
                 return [formattedValue, label];
               }}
-              labelFormatter={(label) => `${label}월`}
+              labelFormatter={(label, payload) => {
+                if (payload && payload.length > 0 && payload[0].payload) {
+                  const fullDate = payload[0].payload.fullDate as string;
+                  return fullDate; // YYYY-MM 형식으로 표시
+                }
+                return label;
+              }}
             />
             <Legend />
             <Line
