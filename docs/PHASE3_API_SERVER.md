@@ -39,13 +39,14 @@ Phase 3에서는 `@mytangerine/core` 모듈 위에 Fastify 4 기반 REST API 서
 | `SPREADSHEET_ID` | 시트 ID (선택) | 선택 | - |
 | `SPREADSHEET_NAME` | 시트 탭 이름 | 선택 | `감귤 주문서(응답)` |
 
-> `packages/api/.env.example`을 복사해 필요한 값을 채우면 됩니다.
+> 프로젝트 루트의 `.env.example`을 복사해 필요한 값을 채우면 됩니다. Monorepo 구조에서 모든 패키지(Core, API)가 동일한 환경 변수를 공유합니다.
 
 ## 4. 로컬 실행 & 테스트
 
 ### 설정
-1. `cp packages/api/.env.example packages/api/.env` 후 필수 값 입력
-2. `pnpm install`
+1. **프로젝트 루트**에서 `.env` 파일 생성: `cp .env.example .env` 후 필수 값 입력
+2. `credentials.json` 파일을 프로젝트 루트에 배치
+3. `pnpm install`
 
 ### 실행
 - 개발 서버: `pnpm --filter @mytangerine/api dev`
