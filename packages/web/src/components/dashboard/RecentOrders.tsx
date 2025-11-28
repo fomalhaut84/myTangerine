@@ -47,26 +47,43 @@ export function RecentOrders() {
         {recentOrders.map((order) => (
           <div
             key={order.rowNumber}
-            className="flex justify-between items-center p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
+            className="p-4 border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
           >
-            <div className="flex-1">
-              <p className="font-semibold text-gray-900">
-                {order.recipient.name}
-              </p>
-              <p className="text-sm text-gray-600">
-                {order.recipient.address}
-              </p>
-            </div>
-            <div className="text-right ml-4">
-              <span
-                className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
-                  order.productType === '5kg'
-                    ? 'bg-orange-100 text-orange-700'
-                    : 'bg-green-100 text-green-700'
-                }`}
-              >
-                {order.productType} × {order.quantity}
-              </span>
+            <div className="flex justify-between items-start gap-3">
+              <div className="flex-1">
+                <p className="font-semibold text-gray-900">
+                  {order.recipient.name}
+                </p>
+                <p className="text-sm text-gray-600">
+                  {order.recipient.address}
+                </p>
+                {order.validationError && (
+                  <p className="mt-1 text-sm text-red-600">
+                    {order.validationError}
+                  </p>
+                )}
+              </div>
+              <div className="text-right">
+                {order.validationError ? (
+                  <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700 whitespace-nowrap">
+                    오류
+                  </span>
+                ) : order.productType ? (
+                  <span
+                    className={`inline-block px-3 py-1 rounded-full text-sm font-medium whitespace-nowrap ${
+                      order.productType === '5kg'
+                        ? 'bg-orange-100 text-orange-700'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                  >
+                    {order.productType} × {order.quantity}
+                  </span>
+                ) : (
+                  <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700 whitespace-nowrap">
+                    알 수 없음
+                  </span>
+                )}
+              </div>
             </div>
           </div>
         ))}

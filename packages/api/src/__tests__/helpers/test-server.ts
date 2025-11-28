@@ -86,9 +86,10 @@ export async function createTestServer(): Promise<{
               status: { type: 'string' },
               sender: { $ref: '#/components/schemas/PersonInfo' },
               recipient: { $ref: '#/components/schemas/PersonInfo' },
-              productType: { type: 'string', enum: ['5kg', '10kg'] },
+              productType: { type: ['string', 'null'], enum: ['5kg', '10kg', null] },
               quantity: { type: 'integer', minimum: 1 },
               rowNumber: { type: 'integer', minimum: 1 },
+              validationError: { type: 'string' },
             },
           },
           ProductSummary: {
@@ -159,9 +160,10 @@ export async function createTestServer(): Promise<{
       status: { type: 'string' },
       sender: { $ref: 'PersonInfo#' },
       recipient: { $ref: 'PersonInfo#' },
-      productType: { type: 'string', enum: ['5kg', '10kg'] },
+      productType: { type: ['string', 'null'], enum: ['5kg', '10kg', null] },
       quantity: { type: 'integer', minimum: 1 },
       rowNumber: { type: 'integer', minimum: 1 },
+      validationError: { type: 'string' },
     },
   });
 

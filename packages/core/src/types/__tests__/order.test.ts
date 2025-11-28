@@ -4,6 +4,7 @@ import {
   formatPhoneNumber,
   extractQuantity,
   sheetRowToOrder,
+  validateProductSelection,
   type SheetRow,
 } from '../order.js';
 import { Config } from '../../config/config.js';
@@ -125,6 +126,98 @@ describe('extractQuantity', () => {
   });
 });
 
+describe('validateProductSelection', () => {
+  describe('valid product types', () => {
+    it('should accept "5kg"', () => {
+      const result = validateProductSelection('5kg');
+      expect(result.isValid).toBe(true);
+      expect(result.productType).toBe('5kg');
+      expect(result.reason).toBe('');
+    });
+
+    it('should accept "10kg"', () => {
+      const result = validateProductSelection('10kg');
+      expect(result.isValid).toBe(true);
+      expect(result.productType).toBe('10kg');
+      expect(result.reason).toBe('');
+    });
+
+    it('should accept "감귤 5kg" (5kg with prefix)', () => {
+      const result = validateProductSelection('감귤 5kg');
+      expect(result.isValid).toBe(true);
+      expect(result.productType).toBe('5kg');
+      expect(result.reason).toBe('');
+    });
+
+    it('should accept "감귤 10kg" (10kg with prefix)', () => {
+      const result = validateProductSelection('감귤 10kg');
+      expect(result.isValid).toBe(true);
+      expect(result.productType).toBe('10kg');
+      expect(result.reason).toBe('');
+    });
+
+    it('should accept "5kg 감귤" (5kg with suffix)', () => {
+      const result = validateProductSelection('5kg 감귤');
+      expect(result.isValid).toBe(true);
+      expect(result.productType).toBe('5kg');
+      expect(result.reason).toBe('');
+    });
+  });
+
+  describe('invalid product types', () => {
+    it('should reject "15kg"', () => {
+      const result = validateProductSelection('15kg');
+      expect(result.isValid).toBe(false);
+      expect(result.productType).toBeNull();
+      expect(result.reason).toContain('유효하지 않은 상품 타입');
+    });
+
+    it('should reject "310kg"', () => {
+      const result = validateProductSelection('310kg');
+      expect(result.isValid).toBe(false);
+      expect(result.productType).toBeNull();
+      expect(result.reason).toContain('유효하지 않은 상품 타입');
+    });
+
+    it('should reject "3kg"', () => {
+      const result = validateProductSelection('3kg');
+      expect(result.isValid).toBe(false);
+      expect(result.productType).toBeNull();
+      expect(result.reason).toContain('유효하지 않은 상품 타입');
+    });
+
+    it('should reject "20kg"', () => {
+      const result = validateProductSelection('20kg');
+      expect(result.isValid).toBe(false);
+      expect(result.productType).toBeNull();
+      expect(result.reason).toContain('유효하지 않은 상품 타입');
+    });
+
+    it('should reject "상품 (28,000 / 1상자)"', () => {
+      const result = validateProductSelection('상품 (28,000 / 1상자)');
+      expect(result.isValid).toBe(false);
+      expect(result.productType).toBeNull();
+      expect(result.reason).toContain('유효하지 않은 상품 타입');
+    });
+  });
+
+  describe('empty or missing values', () => {
+    it('should reject empty string', () => {
+      const result = validateProductSelection('');
+      expect(result.isValid).toBe(false);
+      expect(result.productType).toBeNull();
+      expect(result.reason).toBe('상품 선택이 비어있습니다');
+    });
+
+    it('should reject whitespace-only string', () => {
+      const result = validateProductSelection('   ');
+      expect(result.isValid).toBe(false);
+      expect(result.productType).toBeNull();
+      expect(result.reason).toBe('상품 선택이 비어있습니다');
+    });
+  });
+});
+
 describe('sheetRowToOrder', () => {
   const mockRow: SheetRow = {
     '타임스탬프': '2024. 12. 5. 오후 3:45:23',
@@ -243,10 +336,10 @@ describe('sheetRowToOrder', () => {
       expect(order.productType).toBe('10kg');
     });
 
-    it('should throw error for unknown product type', () => {
-      expect(() =>
-        sheetRowToOrder({ ...mockRow, '상품 선택': '감귤 3kg' })
-      ).toThrow('알 수 없는 상품 타입');
+    it('should set validationError for unknown product type', () => {
+      const order = sheetRowToOrder({ ...mockRow, '상품 선택': '감귤 3kg' });
+      expect(order.validationError).toContain('유효하지 않은 상품 타입');
+      expect(order.productType).toBeNull();
     });
   });
 });

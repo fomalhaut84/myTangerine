@@ -109,9 +109,9 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
               sender: { $ref: '#/components/schemas/PersonInfo' },
               recipient: { $ref: '#/components/schemas/PersonInfo' },
               productType: {
-                type: 'string',
-                enum: ['5kg', '10kg'],
-                description: '상품 종류',
+                type: ['string', 'null'],
+                enum: ['5kg', '10kg', null],
+                description: '상품 종류 (검증 실패 시 null)',
                 example: '5kg',
               },
               quantity: {
@@ -125,6 +125,11 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
                 minimum: 1,
                 description: '스프레드시트 행 번호',
                 example: 15,
+              },
+              validationError: {
+                type: 'string',
+                description: '검증 에러 메시지 (상품 선택 검증 실패 시)',
+                example: '유효하지 않은 상품 타입: "3kg"',
               },
             },
           },
@@ -235,9 +240,9 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
       sender: { $ref: 'PersonInfo#' },
       recipient: { $ref: 'PersonInfo#' },
       productType: {
-        type: 'string',
-        enum: ['5kg', '10kg'],
-        description: '상품 종류',
+        type: ['string', 'null'],
+        enum: ['5kg', '10kg', null],
+        description: '상품 종류 (검증 실패 시 null)',
         example: '5kg',
       },
       quantity: {
@@ -251,6 +256,11 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
         minimum: 1,
         description: '스프레드시트 행 번호',
         example: 15,
+      },
+      validationError: {
+        type: 'string',
+        description: '검증 에러 메시지 (상품 선택 검증 실패 시)',
+        example: '유효하지 않은 상품 타입: "3kg"',
       },
     },
   });

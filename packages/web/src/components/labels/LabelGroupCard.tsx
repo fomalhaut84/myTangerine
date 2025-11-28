@@ -97,7 +97,7 @@ export function LabelGroupCard({ group, isSelected, onSelect }: LabelGroupCardPr
                 key={order.rowNumber}
                 className="p-3 bg-white border border-gray-200 rounded-lg"
               >
-                <div className="flex justify-between items-start">
+                <div className="flex justify-between items-start gap-3">
                   <div className="flex-1">
                     <p className="font-medium text-gray-900">
                       {order.recipient.name}
@@ -108,16 +108,31 @@ export function LabelGroupCard({ group, isSelected, onSelect }: LabelGroupCardPr
                     <p className="text-sm text-gray-500">
                       {order.recipient.phone}
                     </p>
+                    {order.validationError && (
+                      <p className="mt-2 text-sm text-red-600">
+                        {order.validationError}
+                      </p>
+                    )}
                   </div>
-                  <span
-                    className={`px-3 py-1 rounded-full text-sm font-medium whitespace-nowrap ${
-                      order.productType === '5kg'
-                        ? 'bg-orange-100 text-orange-700'
-                        : 'bg-green-100 text-green-700'
-                    }`}
-                  >
-                    {order.productType} × {order.quantity}
-                  </span>
+                  {order.validationError ? (
+                    <span className="px-3 py-1 rounded-full text-sm font-medium whitespace-nowrap bg-red-100 text-red-700">
+                      오류
+                    </span>
+                  ) : order.productType ? (
+                    <span
+                      className={`px-3 py-1 rounded-full text-sm font-medium whitespace-nowrap ${
+                        order.productType === '5kg'
+                          ? 'bg-orange-100 text-orange-700'
+                          : 'bg-green-100 text-green-700'
+                      }`}
+                    >
+                      {order.productType} × {order.quantity}
+                    </span>
+                  ) : (
+                    <span className="px-3 py-1 rounded-full text-sm font-medium whitespace-nowrap bg-gray-100 text-gray-700">
+                      알 수 없음
+                    </span>
+                  )}
                 </div>
               </div>
             ))}

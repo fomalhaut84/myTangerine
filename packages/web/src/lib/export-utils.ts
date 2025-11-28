@@ -35,7 +35,7 @@ function ordersToCSV(orders: Order[]): string {
     order.recipient.name,
     order.recipient.phone,
     order.recipient.address,
-    order.productType,
+    order.validationError ? `[오류] ${order.validationError}` : (order.productType || '알 수 없음'),
     order.quantity.toString(),
   ]);
 
@@ -106,7 +106,7 @@ export function downloadExcel(orders: Order[], filename: string = 'orders.xlsx')
       order.recipient.name,
       order.recipient.phone,
       order.recipient.address,
-      order.productType,
+      order.validationError ? `[오류] ${order.validationError}` : (order.productType || '알 수 없음'),
       order.quantity,
     ]),
   ];

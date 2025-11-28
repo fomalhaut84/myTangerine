@@ -108,12 +108,15 @@ export class LabelFormatter {
   private formatRecipient(order: Order): string[] {
     const labels: string[] = ['받는사람\n'];
 
-    const { recipient, productType, quantity } = order;
+    const { recipient, productType, quantity, validationError } = order;
     labels.push(`${recipient.address} ${recipient.name} ${recipient.phone}\n`);
 
     labels.push('주문상품\n');
 
-    if (productType === '5kg') {
+    // 검증 에러가 있는 경우 에러 메시지 출력
+    if (validationError) {
+      labels.push(`[오류] ${validationError}\n\n`);
+    } else if (productType === '5kg') {
       this.total5kg += quantity;
       labels.push(`5kg / ${quantity}박스\n\n`);
     } else if (productType === '10kg') {

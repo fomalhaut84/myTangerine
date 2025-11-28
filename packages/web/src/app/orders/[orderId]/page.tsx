@@ -149,8 +149,31 @@ export default function OrderDetailPage() {
               <dt className="text-sm font-medium text-gray-500">
                 상품 타입
               </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {order.productType}
+              <dd className="mt-1">
+                {order.validationError ? (
+                  <div>
+                    <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700">
+                      오류
+                    </span>
+                    <p className="mt-2 text-sm text-red-600">
+                      {order.validationError}
+                    </p>
+                  </div>
+                ) : order.productType ? (
+                  <span
+                    className={`inline-block px-3 py-1 rounded-full text-sm font-medium ${
+                      order.productType === '5kg'
+                        ? 'bg-orange-100 text-orange-700'
+                        : 'bg-green-100 text-green-700'
+                    }`}
+                  >
+                    {order.productType}
+                  </span>
+                ) : (
+                  <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-gray-100 text-gray-700">
+                    알 수 없음
+                  </span>
+                )}
               </dd>
             </div>
             <div>
