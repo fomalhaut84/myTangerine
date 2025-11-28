@@ -294,4 +294,271 @@ describe('Orders API', () => {
       expect(payload2.message).toBe('확인할 새로운 주문이 없습니다.');
     });
   });
+
+  describe('GET /api/orders/stats', () => {
+    it('should return stats with default parameters (scope=completed, range=12m)', async () => {
+      // Mock: 완료된 주문 설정
+      const completedOrders = createMockSheetRows(10);
+      completedOrders.forEach(order => {
+        order['비고'] = '확인';
+      });
+      mockSheetService.setMockCompletedOrders(completedOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+
+      // 응답 구조 검증
+      expect(payload).toHaveProperty('success', true);
+      expect(payload).toHaveProperty('filters');
+      expect(payload).toHaveProperty('summary');
+      expect(payload).toHaveProperty('series');
+      expect(payload).toHaveProperty('totalsByProduct');
+      expect(payload).toHaveProperty('meta');
+
+      // filters 검증
+      expect(payload.filters).toEqual({
+        scope: 'completed',
+        range: '12m',
+        grouping: 'monthly',
+        metric: 'quantity',
+      });
+
+      // meta 검증
+      expect(payload.meta).toHaveProperty('generatedAt');
+      expect(payload.meta).toHaveProperty('currency', 'KRW');
+    });
+
+    it('should return stats for new orders (scope=new)', async () => {
+      // Mock: 신규 주문 설정
+      const newOrders = createMockSheetRows(5);
+      mockSheetService.setMockNewOrders(newOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats?scope=new',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.filters.scope).toBe('new');
+      expect(payload.success).toBe(true);
+    });
+
+    it('should return stats for all orders (scope=all)', async () => {
+      // Mock: 모든 주문 설정
+      const allOrders = createMockSheetRows(15);
+      mockSheetService.setMockAllOrders(allOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats?scope=all',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.filters.scope).toBe('all');
+      expect(payload.success).toBe(true);
+    });
+
+    it('should return stats with 6 month range (range=6m)', async () => {
+      // Mock: 완료된 주문 설정
+      const completedOrders = createMockSheetRows(8);
+      completedOrders.forEach(order => {
+        order['비고'] = '확인';
+      });
+      mockSheetService.setMockCompletedOrders(completedOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats?range=6m',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.filters.range).toBe('6m');
+      expect(payload.success).toBe(true);
+    });
+
+    it('should return 400 error when range=custom but start/end not provided', async () => {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats?range=custom',
+      });
+
+      expect(response.statusCode).toBe(400);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.success).toBe(false);
+      expect(payload.error).toContain('start and end dates are required');
+    });
+
+    it('should return 400 error when date format is invalid', async () => {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats?range=custom&start=invalid&end=2025-12-31',
+      });
+
+      expect(response.statusCode).toBe(400);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.success).toBe(false);
+      // Fastify의 schema validation이 먼저 실행되어 format 에러 반환
+      expect(payload.error).toContain('must match format');
+    });
+
+    it('should return 400 error when start date is after end date', async () => {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats?range=custom&start=2025-12-31&end=2025-01-01',
+      });
+
+      expect(response.statusCode).toBe(400);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.success).toBe(false);
+      expect(payload.error).toContain('start date must be before or equal to end date');
+    });
+
+    it('should return stats with custom date range', async () => {
+      // Mock: 완료된 주문 설정
+      const completedOrders = createMockSheetRows(6);
+      completedOrders.forEach(order => {
+        order['비고'] = '확인';
+      });
+      mockSheetService.setMockCompletedOrders(completedOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats?range=custom&start=2025-01-01&end=2025-12-31',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.filters.range).toBe('custom');
+      expect(payload.summary.dateRange).toHaveProperty('start');
+      expect(payload.summary.dateRange).toHaveProperty('end');
+    });
+
+    it('should return correct summary structure', async () => {
+      // Mock: 완료된 주문 설정
+      const completedOrders = createMockSheetRows(10);
+      completedOrders.forEach(order => {
+        order['비고'] = '확인';
+      });
+      mockSheetService.setMockCompletedOrders(completedOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats',
+      });
+
+      const payload = JSON.parse(response.payload);
+      const { summary } = payload;
+
+      expect(summary).toHaveProperty('total5kgQty');
+      expect(summary).toHaveProperty('total10kgQty');
+      expect(summary).toHaveProperty('total5kgAmount');
+      expect(summary).toHaveProperty('total10kgAmount');
+      expect(summary).toHaveProperty('totalRevenue');
+      expect(summary).toHaveProperty('avgOrderAmount');
+      expect(summary).toHaveProperty('dateRange');
+
+      expect(typeof summary.total5kgQty).toBe('number');
+      expect(typeof summary.total10kgQty).toBe('number');
+      expect(typeof summary.total5kgAmount).toBe('number');
+      expect(typeof summary.total10kgAmount).toBe('number');
+      expect(typeof summary.totalRevenue).toBe('number');
+      expect(typeof summary.avgOrderAmount).toBe('number');
+    });
+
+    it('should return series array with correct structure', async () => {
+      // Mock: 완료된 주문 설정
+      const completedOrders = createMockSheetRows(10);
+      completedOrders.forEach(order => {
+        order['비고'] = '확인';
+      });
+      mockSheetService.setMockCompletedOrders(completedOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats',
+      });
+
+      const payload = JSON.parse(response.payload);
+      const { series } = payload;
+
+      expect(Array.isArray(series)).toBe(true);
+
+      if (series.length > 0) {
+        const firstEntry = series[0];
+        expect(firstEntry).toHaveProperty('period');
+        expect(firstEntry).toHaveProperty('total5kgQty');
+        expect(firstEntry).toHaveProperty('total10kgQty');
+        expect(firstEntry).toHaveProperty('total5kgAmount');
+        expect(firstEntry).toHaveProperty('total10kgAmount');
+        expect(firstEntry).toHaveProperty('orderCount');
+        expect(firstEntry).toHaveProperty('avgOrderAmount');
+        expect(firstEntry).toHaveProperty('momGrowthPct');
+      }
+    });
+
+    it('should return totalsByProduct array with correct structure', async () => {
+      // Mock: 완료된 주문 설정
+      const completedOrders = createMockSheetRows(10);
+      completedOrders.forEach(order => {
+        order['비고'] = '확인';
+      });
+      mockSheetService.setMockCompletedOrders(completedOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats',
+      });
+
+      const payload = JSON.parse(response.payload);
+      const { totalsByProduct } = payload;
+
+      expect(Array.isArray(totalsByProduct)).toBe(true);
+
+      if (totalsByProduct.length > 0) {
+        const firstProduct = totalsByProduct[0];
+        expect(firstProduct).toHaveProperty('productType');
+        expect(firstProduct).toHaveProperty('quantity');
+        expect(firstProduct).toHaveProperty('amount');
+        expect(firstProduct).toHaveProperty('quantityPct');
+        expect(firstProduct).toHaveProperty('revenuePct');
+
+        expect(['5kg', '10kg']).toContain(firstProduct.productType);
+      }
+    });
+
+    it('should return empty stats when no orders', async () => {
+      // Mock: 주문 없음
+      mockSheetService.setMockCompletedOrders([]);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/stats',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.success).toBe(true);
+      expect(payload.summary.total5kgQty).toBe(0);
+      expect(payload.summary.total10kgQty).toBe(0);
+      expect(payload.summary.totalRevenue).toBe(0);
+      expect(payload.series).toEqual([]);
+      expect(payload.totalsByProduct).toEqual([]);
+    });
+  });
 });

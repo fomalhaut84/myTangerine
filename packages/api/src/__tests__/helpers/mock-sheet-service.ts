@@ -9,13 +9,29 @@ import type { SheetRow } from '@mytangerine/core';
  */
 export class MockSheetService {
   private mockNewOrders: SheetRow[] = [];
+  private mockCompletedOrders: SheetRow[] = [];
+  private mockAllOrders: SheetRow[] = [];
   private confirmedCount = 0;
 
   /**
-   * Mock 데이터 설정
+   * Mock 데이터 설정 (신규 주문)
    */
   setMockNewOrders(orders: SheetRow[]): void {
     this.mockNewOrders = orders;
+  }
+
+  /**
+   * Mock 데이터 설정 (완료된 주문)
+   */
+  setMockCompletedOrders(orders: SheetRow[]): void {
+    this.mockCompletedOrders = orders;
+  }
+
+  /**
+   * Mock 데이터 설정 (전체 주문)
+   */
+  setMockAllOrders(orders: SheetRow[]): void {
+    this.mockAllOrders = orders;
   }
 
   /**
@@ -23,12 +39,17 @@ export class MockSheetService {
    * @param status - 'new', 'completed', 'all'
    */
   async getOrdersByStatus(status: 'new' | 'completed' | 'all' = 'new'): Promise<SheetRow[]> {
-    // Mock에서는 단순히 mockNewOrders를 반환
-    // status에 따른 필터링은 실제 SheetService에서만 동작
-    if (status === 'new' || status === 'all') {
+    if (status === 'completed') {
+      return this.mockCompletedOrders;
+    } else if (status === 'all') {
+      // mockAllOrders가 설정되어 있으면 그것을 사용, 아니면 new + completed 합산
+      if (this.mockAllOrders.length > 0) {
+        return this.mockAllOrders;
+      }
+      return [...this.mockNewOrders, ...this.mockCompletedOrders];
+    } else {
       return this.mockNewOrders;
     }
-    return []; // completed는 빈 배열
   }
 
   /**
@@ -69,6 +90,8 @@ export class MockSheetService {
    */
   reset(): void {
     this.mockNewOrders = [];
+    this.mockCompletedOrders = [];
+    this.mockAllOrders = [];
     this.confirmedCount = 0;
   }
 }

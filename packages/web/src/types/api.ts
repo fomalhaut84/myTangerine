@@ -96,3 +96,69 @@ export interface GroupedLabelsResponse {
   success: boolean;
   data: LabelGroup[];
 }
+
+/**
+ * 통합 통계 타입
+ */
+export type StatsScope = 'completed' | 'new' | 'all';
+export type StatsRange = '6m' | '12m' | 'custom';
+export type StatsGrouping = 'monthly' | 'weekly';
+export type StatsMetric = 'quantity' | 'amount';
+
+export interface StatsQueryParams {
+  scope?: StatsScope;
+  range?: StatsRange;
+  grouping?: StatsGrouping;
+  metric?: StatsMetric;
+  start?: string;
+  end?: string;
+}
+
+export interface StatsSummary {
+  total5kgQty: number;
+  total10kgQty: number;
+  total5kgAmount: number;
+  total10kgAmount: number;
+  totalRevenue: number;
+  avgOrderAmount: number;
+  dateRange: {
+    start: string;
+    end: string;
+  };
+}
+
+export interface MonthlyStatsSeries {
+  period: string; // YYYY-MM
+  total5kgQty: number;
+  total10kgQty: number;
+  total5kgAmount: number;
+  total10kgAmount: number;
+  orderCount: number;
+  avgOrderAmount: number;
+  momGrowthPct: number | null;
+}
+
+export interface ProductTotals {
+  productType: '5kg' | '10kg';
+  quantity: number;
+  amount: number;
+  quantityPct: number;
+  revenuePct: number;
+}
+
+export interface StatsResponse {
+  success: true;
+  filters: {
+    scope: StatsScope;
+    range: StatsRange;
+    grouping: StatsGrouping;
+    metric: StatsMetric;
+  };
+  summary: StatsSummary;
+  series: MonthlyStatsSeries[];
+  totalsByProduct: ProductTotals[];
+  meta: {
+    generatedAt: string;
+    currency: 'KRW';
+  };
+}

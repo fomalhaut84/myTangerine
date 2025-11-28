@@ -10,6 +10,8 @@ import type {
   ConfirmResponse,
   MonthlyStatsResponse,
   GroupedLabelsResponse,
+  StatsResponse,
+  StatsQueryParams,
 } from '@/types/api';
 
 /**
@@ -108,4 +110,11 @@ export async function getMonthlyStats(): Promise<MonthlyStatsResponse> {
  */
 export async function getGroupedLabels(): Promise<GroupedLabelsResponse> {
   return api.get('api/labels/grouped').json<GroupedLabelsResponse>();
+}
+
+/**
+ * 통합 통계 조회
+ */
+export async function getOrderStats(params?: StatsQueryParams): Promise<StatsResponse> {
+  return api.get('api/orders/stats', { searchParams: params as Record<string, string> }).json<StatsResponse>();
 }

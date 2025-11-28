@@ -5,7 +5,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { render, screen } from '@testing-library/react';
 import { RecentOrders } from '../RecentOrders';
-import type { Order, OrdersResponse } from '@/types/api';
+import type { Order } from '@/types/api';
 
 // useOrders hook mock
 vi.mock('@/hooks/use-orders', () => ({
@@ -46,7 +46,12 @@ describe('RecentOrders', () => {
       data: undefined,
       isLoading: true,
       error: null,
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: false,
+      isError: false,
+      status: 'pending',
+    });
 
     const { container } = render(<RecentOrders />);
     // RecentOrdersSkeleton이 렌더링되는지 확인 (Card title은 있어야 함)
@@ -58,7 +63,12 @@ describe('RecentOrders', () => {
       data: undefined,
       isLoading: false,
       error: new Error('Network error'),
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: false,
+      isError: true,
+      status: 'error',
+    });
 
     render(<RecentOrders />);
     expect(screen.getByText('주문 정보를 불러오는 중 오류가 발생했습니다.')).toBeInTheDocument();
@@ -69,7 +79,12 @@ describe('RecentOrders', () => {
       data: { success: true, orders: [], count: 0 },
       isLoading: false,
       error: null,
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: true,
+      isError: false,
+      status: 'success',
+    });
 
     render(<RecentOrders />);
     expect(screen.getByText('새로운 주문이 없습니다.')).toBeInTheDocument();
@@ -86,7 +101,12 @@ describe('RecentOrders', () => {
       data: { success: true, orders: [orderWithError], count: 1 },
       isLoading: false,
       error: null,
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: true,
+      isError: false,
+      status: 'success',
+    });
 
     render(<RecentOrders />);
 
@@ -110,7 +130,12 @@ describe('RecentOrders', () => {
       data: { success: true, orders: [orderWith5kg], count: 1 },
       isLoading: false,
       error: null,
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: true,
+      isError: false,
+      status: 'success',
+    });
 
     render(<RecentOrders />);
 
@@ -131,7 +156,12 @@ describe('RecentOrders', () => {
       data: { success: true, orders: [orderWith10kg], count: 1 },
       isLoading: false,
       error: null,
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: true,
+      isError: false,
+      status: 'success',
+    });
 
     render(<RecentOrders />);
 
@@ -151,7 +181,12 @@ describe('RecentOrders', () => {
       data: { success: true, orders: [orderWithUnknown], count: 1 },
       isLoading: false,
       error: null,
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: true,
+      isError: false,
+      status: 'success',
+    });
 
     render(<RecentOrders />);
 
@@ -172,7 +207,12 @@ describe('RecentOrders', () => {
       data: { success: true, orders: [orderWithBoth], count: 1 },
       isLoading: false,
       error: null,
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: true,
+      isError: false,
+      status: 'success',
+    });
 
     render(<RecentOrders />);
 
@@ -193,7 +233,12 @@ describe('RecentOrders', () => {
       data: { success: true, orders, count: 4 },
       isLoading: false,
       error: null,
-    } as any);
+      refetch: vi.fn(),
+      isRefetching: false,
+      isSuccess: true,
+      isError: false,
+      status: 'success',
+    });
 
     render(<RecentOrders />);
 

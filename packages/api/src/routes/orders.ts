@@ -4,6 +4,13 @@
 
 import { FastifyPluginAsync } from 'fastify';
 import { sheetRowToOrder } from '@mytangerine/core';
+import {
+  calculateStats,
+  type StatsScope,
+  type StatsRange,
+  type StatsGrouping,
+  type StatsMetric,
+} from '../utils/stats.js';
 
 /**
  * 주문 라우트
@@ -268,8 +275,233 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   /**
+   * GET /api/orders/stats
+   * 통합 통계 조회 (완료/신규/전체 주문별, 기간별)
+   */
+  fastify.get<{
+    Querystring: {
+      scope?: StatsScope;
+      range?: StatsRange;
+      grouping?: StatsGrouping;
+      metric?: StatsMetric;
+      start?: string;
+      end?: string;
+    };
+  }>(
+    '/api/orders/stats',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '통합 주문 통계 조회',
+        description: '완료된 주문 기반 통계를 조회합니다. 기간, 범위, 지표 등을 선택할 수 있습니다.',
+        querystring: {
+          type: 'object',
+          properties: {
+            scope: {
+              type: 'string',
+              enum: ['completed', 'new', 'all'],
+              description: '통계 범위 (completed: 완료 주문, new: 신규 주문, all: 전체)',
+              default: 'completed',
+            },
+            range: {
+              type: 'string',
+              enum: ['6m', '12m', 'custom'],
+              description: '기간 범위 (6m: 6개월, 12m: 12개월, custom: 사용자 지정)',
+              default: '12m',
+            },
+            grouping: {
+              type: 'string',
+              enum: ['monthly', 'weekly'],
+              description: '그룹화 단위',
+              default: 'monthly',
+            },
+            metric: {
+              type: 'string',
+              enum: ['quantity', 'amount'],
+              description: '측정 지표',
+              default: 'quantity',
+            },
+            start: {
+              type: 'string',
+              format: 'date',
+              description: '시작일 (YYYY-MM-DD, range=custom 시 필수)',
+            },
+            end: {
+              type: 'string',
+              format: 'date',
+              description: '종료일 (YYYY-MM-DD, range=custom 시 필수)',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'filters', 'summary', 'series', 'totalsByProduct', 'meta'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              filters: {
+                type: 'object',
+                required: ['scope', 'range', 'grouping', 'metric'],
+                properties: {
+                  scope: { type: 'string', example: 'completed' },
+                  range: { type: 'string', example: '12m' },
+                  grouping: { type: 'string', example: 'monthly' },
+                  metric: { type: 'string', example: 'quantity' },
+                },
+              },
+              summary: {
+                type: 'object',
+                required: [
+                  'total5kgQty',
+                  'total10kgQty',
+                  'total5kgAmount',
+                  'total10kgAmount',
+                  'totalRevenue',
+                  'avgOrderAmount',
+                  'dateRange',
+                ],
+                properties: {
+                  total5kgQty: { type: 'integer', example: 120 },
+                  total10kgQty: { type: 'integer', example: 80 },
+                  total5kgAmount: { type: 'integer', example: 2400000 },
+                  total10kgAmount: { type: 'integer', example: 2800000 },
+                  totalRevenue: { type: 'integer', example: 5200000 },
+                  avgOrderAmount: { type: 'integer', example: 35000 },
+                  dateRange: {
+                    type: 'object',
+                    required: ['start', 'end'],
+                    properties: {
+                      start: { type: 'string', format: 'date', example: '2024-01-01' },
+                      end: { type: 'string', format: 'date', example: '2025-01-31' },
+                    },
+                  },
+                },
+              },
+              series: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: [
+                    'period',
+                    'total5kgQty',
+                    'total10kgQty',
+                    'total5kgAmount',
+                    'total10kgAmount',
+                    'orderCount',
+                    'avgOrderAmount',
+                    'momGrowthPct',
+                  ],
+                  properties: {
+                    period: { type: 'string', example: '2025-01' },
+                    total5kgQty: { type: 'integer', example: 10 },
+                    total10kgQty: { type: 'integer', example: 5 },
+                    total5kgAmount: { type: 'integer', example: 200000 },
+                    total10kgAmount: { type: 'integer', example: 175000 },
+                    orderCount: { type: 'integer', example: 15 },
+                    avgOrderAmount: { type: 'integer', example: 25000 },
+                    momGrowthPct: { type: ['number', 'null'], example: 12.5 },
+                  },
+                },
+              },
+              totalsByProduct: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  required: ['productType', 'quantity', 'amount', 'quantityPct', 'revenuePct'],
+                  properties: {
+                    productType: { type: 'string', enum: ['5kg', '10kg'], example: '5kg' },
+                    quantity: { type: 'integer', example: 120 },
+                    amount: { type: 'integer', example: 2400000 },
+                    quantityPct: { type: 'number', example: 60.0 },
+                    revenuePct: { type: 'number', example: 46.15 },
+                  },
+                },
+              },
+              meta: {
+                type: 'object',
+                required: ['generatedAt', 'currency'],
+                properties: {
+                  generatedAt: { type: 'string', format: 'date-time', example: '2025-01-28T12:00:00Z' },
+                  currency: { type: 'string', enum: ['KRW'], example: 'KRW' },
+                },
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { sheetService, config } = fastify.core;
+
+      // Query parameter 기본값 설정
+      const scope: StatsScope = request.query.scope || 'completed';
+      const range: StatsRange = request.query.range || '12m';
+      const grouping: StatsGrouping = request.query.grouping || 'monthly';
+      const metric: StatsMetric = request.query.metric || 'quantity';
+
+      // Custom 범위인 경우 start/end 검증
+      let customStart: Date | undefined;
+      let customEnd: Date | undefined;
+
+      if (range === 'custom') {
+        if (!request.query.start || !request.query.end) {
+          return reply.code(400).send({
+            success: false,
+            error: 'start and end dates are required when range=custom',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        try {
+          customStart = new Date(request.query.start);
+          customEnd = new Date(request.query.end);
+
+          if (isNaN(customStart.getTime()) || isNaN(customEnd.getTime())) {
+            throw new Error('Invalid date format');
+          }
+
+          if (customStart > customEnd) {
+            return reply.code(400).send({
+              success: false,
+              error: 'start date must be before or equal to end date',
+              statusCode: 400,
+              timestamp: new Date().toISOString(),
+            });
+          }
+        } catch (error) {
+          return reply.code(400).send({
+            success: false,
+            error: 'Invalid date format. Use YYYY-MM-DD',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+
+      // Scope에 따라 주문 가져오기
+      const sheetRows = await sheetService.getOrdersByStatus(scope);
+      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+
+      // 통계 계산
+      const stats = calculateStats(orders, config, {
+        scope,
+        range,
+        grouping,
+        metric,
+        customStart,
+        customEnd,
+      });
+
+      return stats;
+    }
+  );
+
+  /**
    * GET /api/orders/stats/monthly
-   * 월별 주문 통계
+   * 월별 주문 통계 (하위 호환성을 위해 유지)
    */
   fastify.get(
     '/api/orders/stats/monthly',

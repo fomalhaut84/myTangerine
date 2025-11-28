@@ -7,6 +7,7 @@ import { RecentOrders } from '@/components/dashboard/RecentOrders';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { MonthlyTrendChart } from '@/components/dashboard/MonthlyTrendChart';
 import { ProductRatioChart } from '@/components/dashboard/ProductRatioChart';
+import { CompletedOrdersStats } from '@/components/dashboard/CompletedOrdersStats';
 
 export default function DashboardPage() {
   return (
@@ -28,7 +29,12 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 차트 영역 */}
+        {/* 완료 주문 통계 영역 */}
+        <div className="mt-8">
+          <CompletedOrdersStats />
+        </div>
+
+        {/* 기존 차트 영역 */}
         <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
           {/* 월별 추이 차트 */}
           <MonthlyTrendChart />
