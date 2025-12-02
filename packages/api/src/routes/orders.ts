@@ -53,12 +53,13 @@ const STATS_CACHE_TTL = 10 * 60 * 1000; // 10분
 function getStatsCacheKey(
   scope: StatsScope,
   range: StatsRange,
+  grouping: StatsGrouping,
   customStart?: Date,
   customEnd?: Date
 ): string {
   const start = customStart ? customStart.toISOString().split('T')[0] : '';
   const end = customEnd ? customEnd.toISOString().split('T')[0] : '';
-  return `stats:${scope}:${range}:${start}:${end}`;
+  return `stats:${scope}:${range}:${grouping}:${start}:${end}`;
 }
 
 /**
@@ -326,6 +327,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       // 특정 주문을 확인 상태로 표시
       await sheetService.markSingleAsConfirmed(rowNumber);
 
+      // 통계 캐시 무효화 (주문이 완료됨으로 변경되었으므로)
+      statsCache.invalidate(/^stats:/);
+
       return {
         success: true,
         message: '주문이 확인되었습니다.',
@@ -549,7 +553,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 캐시 확인
-      const cacheKey = getStatsCacheKey(scope, range, customStart, customEnd);
+      const cacheKey = getStatsCacheKey(scope, range, grouping, customStart, customEnd);
       const cachedStats = statsCache.get(cacheKey);
 
       if (cachedStats) {
