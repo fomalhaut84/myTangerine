@@ -9,6 +9,7 @@ import { useOrderStats } from '@/hooks/use-stats';
 import { KPICard } from '@/components/stats/KPICard';
 import { LineChartStats } from '@/components/stats/LineChartStats';
 import { DonutChartStats } from '@/components/stats/DonutChartStats';
+import { BarChartStats } from '@/components/stats/BarChartStats';
 import { Card } from '@/components/common/Card';
 import type { StatsMetric, StatsRange } from '@/types/api';
 
@@ -117,6 +118,11 @@ export function CompletedOrdersStats() {
         {totalsByProduct.length > 0 && (
           <DonutChartStats data={totalsByProduct} metric={metric} />
         )}
+      </div>
+
+      {/* 월별 매출 스택 바 차트 */}
+      <div className="mt-6">
+        <BarChartStats data={series} metric={metric} />
       </div>
 
       {/* 기간 표시 */}

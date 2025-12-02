@@ -6,6 +6,7 @@ import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { createTestServer } from '../helpers/test-server.js';
 import { MockSheetService, createMockSheetRows, createMockSheetRow } from '../helpers/mock-sheet-service.js';
+import { clearStatsCache } from '../../routes/orders.js';
 
 describe('Orders API', () => {
   let server: FastifyInstance;
@@ -18,8 +19,9 @@ describe('Orders API', () => {
   });
 
   beforeEach(() => {
-    // 각 테스트 전에 mock 초기화
+    // 각 테스트 전에 mock 및 캐시 초기화
     mockSheetService.reset();
+    clearStatsCache();
   });
 
   afterAll(async () => {

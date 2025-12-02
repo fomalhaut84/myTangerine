@@ -10,7 +10,63 @@ import {
   type StatsRange,
   type StatsGrouping,
   type StatsMetric,
+  type StatsResponse,
 } from '../utils/stats.js';
+import { InMemoryCache } from '../utils/cache.js';
+
+/**
+ * 통계 데이터를 CSV 형식으로 변환
+ */
+function convertStatsToCSV(stats: StatsResponse): string {
+  const headers = [
+    'period',
+    'total5kgQty',
+    'total10kgQty',
+    'total5kgAmount',
+    'total10kgAmount',
+    'orderCount',
+    'avgOrderAmount',
+    'momGrowthPct',
+  ];
+
+  const rows = stats.series.map((item) => [
+    item.period,
+    item.total5kgQty.toString(),
+    item.total10kgQty.toString(),
+    item.total5kgAmount.toString(),
+    item.total10kgAmount.toString(),
+    item.orderCount.toString(),
+    item.avgOrderAmount.toString(),
+    item.momGrowthPct !== null ? item.momGrowthPct.toString() : '',
+  ]);
+
+  return [headers.join(','), ...rows.map((row) => row.join(','))].join('\n');
+}
+
+// 통계 캐시 (TTL: 10분)
+const statsCache = new InMemoryCache<StatsResponse>();
+const STATS_CACHE_TTL = 10 * 60 * 1000; // 10분
+
+/**
+ * 통계 캐시 키 생성
+ */
+function getStatsCacheKey(
+  scope: StatsScope,
+  range: StatsRange,
+  customStart?: Date,
+  customEnd?: Date
+): string {
+  const start = customStart ? customStart.toISOString().split('T')[0] : '';
+  const end = customEnd ? customEnd.toISOString().split('T')[0] : '';
+  return `stats:${scope}:${range}:${start}:${end}`;
+}
+
+/**
+ * 통계 캐시 클리어 (테스트용)
+ */
+export function clearStatsCache(): void {
+  statsCache.clear();
+}
 
 /**
  * 주문 라우트
@@ -202,6 +258,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     // 주문을 확인 상태로 표시 (명시적으로 행 번호 전달)
     await sheetService.markAsConfirmed(rowNumbers);
 
+    // 통계 캐시 무효화 (새 주문이 완료됨으로 변경되었으므로)
+    statsCache.invalidate(/^stats:/);
+
     return {
       success: true,
       message: `${newOrders.length}개의 주문이 확인되었습니다.`,
@@ -286,6 +345,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       metric?: StatsMetric;
       start?: string;
       end?: string;
+      format?: 'json' | 'csv';
     };
   }>(
     '/api/orders/stats',
@@ -330,6 +390,12 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
               type: 'string',
               format: 'date',
               description: '종료일 (YYYY-MM-DD, range=custom 시 필수)',
+            },
+            format: {
+              type: 'string',
+              enum: ['json', 'csv'],
+              description: '응답 형식 (json: JSON 형식, csv: CSV 파일)',
+              default: 'json',
             },
           },
         },
@@ -440,6 +506,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       const range: StatsRange = request.query.range || '12m';
       const grouping: StatsGrouping = request.query.grouping || 'monthly';
       const metric: StatsMetric = request.query.metric || 'quantity';
+      const format = request.query.format || 'json';
 
       // Custom 범위인 경우 start/end 검증
       let customStart: Date | undefined;
@@ -481,7 +548,22 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // Scope에 따라 주문 가져오기
+      // 캐시 확인
+      const cacheKey = getStatsCacheKey(scope, range, customStart, customEnd);
+      const cachedStats = statsCache.get(cacheKey);
+
+      if (cachedStats) {
+        // 캐시 히트
+        if (format === 'csv') {
+          const csv = convertStatsToCSV(cachedStats);
+          reply.header('Content-Type', 'text/csv; charset=utf-8');
+          reply.header('Content-Disposition', `attachment; filename="stats-${scope}-${range}.csv"`);
+          return csv;
+        }
+        return cachedStats;
+      }
+
+      // 캐시 미스 - 데이터 조회 및 계산
       const sheetRows = await sheetService.getOrdersByStatus(scope);
       const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
@@ -495,6 +577,18 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         customEnd,
       });
 
+      // 캐시에 저장
+      statsCache.set(cacheKey, stats, STATS_CACHE_TTL);
+
+      // CSV 형식 요청 시 CSV 문자열 반환
+      if (format === 'csv') {
+        const csv = convertStatsToCSV(stats);
+        reply.header('Content-Type', 'text/csv; charset=utf-8');
+        reply.header('Content-Disposition', `attachment; filename="stats-${scope}-${range}.csv"`);
+        return csv;
+      }
+
+      // 기본값: JSON 반환
       return stats;
     }
   );
