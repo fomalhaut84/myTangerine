@@ -162,6 +162,27 @@ describe('validateProductSelection', () => {
       expect(result.productType).toBe('5kg');
       expect(result.reason).toBe('');
     });
+
+    it('should accept "비상품"', () => {
+      const result = validateProductSelection('비상품');
+      expect(result.isValid).toBe(true);
+      expect(result.productType).toBe('비상품');
+      expect(result.reason).toBe('');
+    });
+
+    it('should accept "비상품 (18,000 / box)"', () => {
+      const result = validateProductSelection('비상품 (18,000 / box)');
+      expect(result.isValid).toBe(true);
+      expect(result.productType).toBe('비상품');
+      expect(result.reason).toBe('');
+    });
+
+    it('should accept "비상품 (17,000 / 1상자)"', () => {
+      const result = validateProductSelection('비상품 (17,000 / 1상자)');
+      expect(result.isValid).toBe(true);
+      expect(result.productType).toBe('비상품');
+      expect(result.reason).toBe('');
+    });
   });
 
   describe('invalid product types', () => {

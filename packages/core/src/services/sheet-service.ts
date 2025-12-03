@@ -220,6 +220,7 @@ export class SheetService {
           if (row._rowNumber && !this.loggedInvalidRows.has(row._rowNumber)) {
             this.loggedInvalidRows.add(row._rowNumber);
             console.warn(`[SheetService] ${productValidation.reason}: 행 ${row._rowNumber} (API 응답에 포함됨)`);
+            console.warn(`[SheetService] 실제 값: "${productSelection}" (길이: ${productSelection.length}, 코드포인트: ${Array.from(productSelection).map(c => c.charCodeAt(0)).join(',')})`);
           }
         }
 
