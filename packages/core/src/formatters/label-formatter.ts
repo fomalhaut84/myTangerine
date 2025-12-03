@@ -120,12 +120,24 @@ export class LabelFormatter {
     // 검증 에러가 있는 경우 에러 메시지 출력
     if (validationError) {
       labels.push(`[오류] ${validationError}\n\n`);
+    } else if (productType === '비상품') {
+      // 비상품은 집계만 하고 라벨에는 표시하지 않음
+      const orderYear = timestamp.getFullYear();
+      const prices = this.config.getPricesForYear(orderYear);
+      const price = prices['비상품'];
+      if (price) {
+        // 비상품이 가격이 있는 년도인 경우에만 집계
+        labels.push(`비상품 / ${quantity}박스\n\n`);
+      }
     } else if (productType === '5kg') {
       this.total5kg += quantity;
       // 주문 년도의 가격으로 금액 계산
       const orderYear = timestamp.getFullYear();
       const prices = this.config.getPricesForYear(orderYear);
-      this.total5kgAmount += prices['5kg'] * quantity;
+      const price = prices['5kg'];
+      if (price) {
+        this.total5kgAmount += price * quantity;
+      }
       labels.push(`5kg / ${quantity}박스\n\n`);
     } else if (productType === '10kg') {
       this.total10kg += quantity;
