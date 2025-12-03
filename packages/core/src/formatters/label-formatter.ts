@@ -10,6 +10,8 @@ export class LabelFormatter {
   private config: Config;
   private total5kg: number = 0;
   private total10kg: number = 0;
+  private total5kgAmount: number = 0;
+  private total10kgAmount: number = 0;
 
   constructor(config: Config) {
     this.config = config;
@@ -27,6 +29,8 @@ export class LabelFormatter {
     // 주문 처리 전 합계 초기화
     this.total5kg = 0;
     this.total10kg = 0;
+    this.total5kgAmount = 0;
+    this.total10kgAmount = 0;
 
     const formattedLabels: string[] = [];
 
@@ -108,7 +112,7 @@ export class LabelFormatter {
   private formatRecipient(order: Order): string[] {
     const labels: string[] = ['받는사람\n'];
 
-    const { recipient, productType, quantity, validationError } = order;
+    const { recipient, productType, quantity, validationError, timestamp } = order;
     labels.push(`${recipient.address} ${recipient.name} ${recipient.phone}\n`);
 
     labels.push('주문상품\n');
@@ -118,9 +122,17 @@ export class LabelFormatter {
       labels.push(`[오류] ${validationError}\n\n`);
     } else if (productType === '5kg') {
       this.total5kg += quantity;
+      // 주문 년도의 가격으로 금액 계산
+      const orderYear = timestamp.getFullYear();
+      const prices = this.config.getPricesForYear(orderYear);
+      this.total5kgAmount += prices['5kg'] * quantity;
       labels.push(`5kg / ${quantity}박스\n\n`);
     } else if (productType === '10kg') {
       this.total10kg += quantity;
+      // 주문 년도의 가격으로 금액 계산
+      const orderYear = timestamp.getFullYear();
+      const prices = this.config.getPricesForYear(orderYear);
+      this.total10kgAmount += prices['10kg'] * quantity;
       labels.push(`10kg / ${quantity}박스\n\n`);
     }
 
@@ -131,16 +143,14 @@ export class LabelFormatter {
    * 주문 요약 포맷팅
    */
   private formatSummary(): string[] {
-    const price5kg = this.total5kg * this.config.productPrices['5kg'];
-    const price10kg = this.total10kg * this.config.productPrices['10kg'];
-    const totalPrice = price5kg + price10kg;
+    const totalPrice = this.total5kgAmount + this.total10kgAmount;
 
     return [
       '='.repeat(50) + '\n',
       '주문 요약\n',
       '-'.repeat(20) + '\n',
-      `5kg 주문: ${this.total5kg}박스 (${price5kg.toLocaleString()}원)\n`,
-      `10kg 주문: ${this.total10kg}박스 (${price10kg.toLocaleString()}원)\n`,
+      `5kg 주문: ${this.total5kg}박스 (${this.total5kgAmount.toLocaleString()}원)\n`,
+      `10kg 주문: ${this.total10kg}박스 (${this.total10kgAmount.toLocaleString()}원)\n`,
       '-'.repeat(20) + '\n',
       `총 주문금액: ${totalPrice.toLocaleString()}원\n`,
     ];

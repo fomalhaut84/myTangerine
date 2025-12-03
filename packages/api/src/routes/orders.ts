@@ -6,6 +6,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { sheetRowToOrder } from '@mytangerine/core';
 import {
   calculateStats,
+  calculateOrderAmount,
   type StatsScope,
   type StatsRange,
   type StatsGrouping,
@@ -174,21 +175,23 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     // SheetRow를 Order로 변환
     const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
-    // 5kg, 10kg 수량 집계
+    // 5kg, 10kg 수량 및 금액 집계
     let total5kg = 0;
     let total10kg = 0;
+    let price5kg = 0;
+    let price10kg = 0;
 
     orders.forEach((order) => {
+      const amount = calculateOrderAmount(order, config);
       if (order.productType === '5kg') {
         total5kg += order.quantity;
+        price5kg += amount;
       } else if (order.productType === '10kg') {
         total10kg += order.quantity;
+        price10kg += amount;
       }
     });
 
-    // 가격 계산
-    const price5kg = total5kg * config.productPrices['5kg'];
-    const price10kg = total10kg * config.productPrices['10kg'];
     const totalPrice = price5kg + price10kg;
 
     return {

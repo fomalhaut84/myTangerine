@@ -4,6 +4,7 @@
 
 import { FastifyPluginAsync } from 'fastify';
 import { sheetRowToOrder, type Order } from '@mytangerine/core';
+import { calculateOrderAmount } from '../utils/stats.js';
 
 /**
  * 라벨 라우트
@@ -175,12 +176,13 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
         };
 
         orders.forEach((order) => {
+          const amount = calculateOrderAmount(order, config);
           if (order.productType === '5kg') {
             summary['5kg'].count += order.quantity;
-            summary['5kg'].amount += config.productPrices['5kg'] * order.quantity;
+            summary['5kg'].amount += amount;
           } else if (order.productType === '10kg') {
             summary['10kg'].count += order.quantity;
-            summary['10kg'].amount += config.productPrices['10kg'] * order.quantity;
+            summary['10kg'].amount += amount;
           }
         });
 

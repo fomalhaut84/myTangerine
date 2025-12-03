@@ -87,13 +87,20 @@ export interface StatsResponse {
 }
 
 /**
- * 주문 금액 계산
+ * 주문 금액 계산 (년도별 가격 적용)
  */
 export function calculateOrderAmount(order: Order, config: Config): number {
   if (!order.productType) {
     return 0;
   }
-  const price = config.productPrices[order.productType];
+
+  // 주문 년도 추출
+  const orderYear = order.timestamp.getFullYear();
+
+  // 해당 년도 가격 조회
+  const prices = config.getPricesForYear(orderYear);
+  const price = prices[order.productType];
+
   return price * order.quantity;
 }
 
