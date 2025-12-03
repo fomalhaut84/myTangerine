@@ -22,9 +22,10 @@ export function useMonthlyStats() {
 /**
  * 통합 주문 통계 조회 훅
  */
-export function useOrderStats(params?: StatsQueryParams) {
+export function useOrderStats(params?: StatsQueryParams, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.orders.stats(params),
     queryFn: () => getOrderStats(params),
+    enabled: options?.enabled !== false,
   });
 }
