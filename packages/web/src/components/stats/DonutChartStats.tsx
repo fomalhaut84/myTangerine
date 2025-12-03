@@ -4,6 +4,7 @@
 
 'use client';
 
+import { useState, useEffect } from 'react';
 import { Card } from '@/components/common/Card';
 import { PieChart, Pie, Cell, ResponsiveContainer, Legend, Tooltip } from 'recharts';
 import type { ProductTotals } from '@/types/api';
@@ -19,7 +20,16 @@ const COLORS = {
 };
 
 export function DonutChartStats({ data, metric }: DonutChartStatsProps) {
+  const [mounted, setMounted] = useState(false);
   const isQuantity = metric === 'quantity';
+
+  useEffect(() => {
+    // DOM이 완전히 준비된 후 차트 렌더링
+    const timer = setTimeout(() => {
+      setMounted(true);
+    }, 0);
+    return () => clearTimeout(timer);
+  }, []);
 
   // 데이터 변환
   const chartData = data.map((item) => ({
@@ -37,34 +47,40 @@ export function DonutChartStats({ data, metric }: DonutChartStatsProps) {
         <p className="text-sm text-gray-500">5kg vs 10kg {isQuantity ? '주문 수량' : '매출'} 비교</p>
       </div>
       <div className="h-80">
-        <ResponsiveContainer width="100%" height="100%">
-          <PieChart>
-            <Pie
-              data={chartData}
-              cx="50%"
-              cy="50%"
-              innerRadius={60}
-              outerRadius={100}
-              paddingAngle={5}
-              dataKey="value"
-              label={(entry) => {
-                const item = entry as unknown as { name: string; percentage: number };
-                return `${item.name}: ${item.percentage.toFixed(1)}%`;
-              }}
-            >
-              {chartData.map((entry) => (
-                <Cell key={entry.name} fill={COLORS[entry.name as keyof typeof COLORS]} />
-              ))}
-            </Pie>
-            <Tooltip
-              formatter={(value: number, name: string) => {
-                const formattedValue = isQuantity ? `${value}박스` : `${value.toLocaleString()}원`;
-                return [formattedValue, name];
-              }}
-            />
-            <Legend />
-          </PieChart>
-        </ResponsiveContainer>
+        {mounted ? (
+          <ResponsiveContainer width="100%" height={320}>
+            <PieChart>
+              <Pie
+                data={chartData}
+                cx="50%"
+                cy="50%"
+                innerRadius={60}
+                outerRadius={100}
+                paddingAngle={5}
+                dataKey="value"
+                label={(entry) => {
+                  const item = entry as unknown as { name: string; percentage: number };
+                  return `${item.name}: ${item.percentage.toFixed(1)}%`;
+                }}
+              >
+                {chartData.map((entry) => (
+                  <Cell key={entry.name} fill={COLORS[entry.name as keyof typeof COLORS]} />
+                ))}
+              </Pie>
+              <Tooltip
+                formatter={(value: number, name: string) => {
+                  const formattedValue = isQuantity ? `${value}박스` : `${value.toLocaleString()}원`;
+                  return [formattedValue, name];
+                }}
+              />
+              <Legend />
+            </PieChart>
+          </ResponsiveContainer>
+        ) : (
+          <div className="flex items-center justify-center h-full">
+            <div className="text-muted-foreground">차트 로딩 중...</div>
+          </div>
+        )}
       </div>
       <div className="mt-4 grid grid-cols-2 gap-4">
         {chartData.map((item) => (

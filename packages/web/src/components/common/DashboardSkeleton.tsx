@@ -2,6 +2,8 @@
  * 대시보드 스켈레톤 로더
  */
 
+'use client';
+
 import { Skeleton } from '@/components/ui/skeleton';
 import { Card } from '@/components/common/Card';
 
@@ -42,6 +44,8 @@ export function RecentOrdersSkeleton() {
   );
 }
 
+const CHART_BAR_HEIGHTS = [65, 80, 55, 70, 85, 60, 75, 90, 50, 70, 65, 80];
+
 export function ChartSkeleton({ title }: { title: string }) {
   return (
     <Card title={title}>
@@ -49,12 +53,12 @@ export function ChartSkeleton({ title }: { title: string }) {
         <div className="w-full h-full space-y-4 p-4">
           {/* 차트 영역 */}
           <div className="flex items-end justify-around h-full gap-2">
-            {Array.from({ length: 12 }).map((_, index) => (
+            {CHART_BAR_HEIGHTS.map((height, index) => (
               <Skeleton
                 key={index}
                 className="w-full"
                 style={{
-                  height: `${Math.random() * 60 + 40}%`,
+                  height: `${height}%`,
                 }}
               />
             ))}
