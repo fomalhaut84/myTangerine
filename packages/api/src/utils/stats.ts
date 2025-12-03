@@ -18,7 +18,7 @@ export type StatsRange = '6m' | '12m' | 'custom';
 /**
  * 그룹화 단위
  */
-export type StatsGrouping = 'monthly' | 'weekly';
+export type StatsGrouping = 'monthly';
 
 /**
  * 측정 지표

@@ -102,7 +102,7 @@ export interface GroupedLabelsResponse {
  */
 export type StatsScope = 'completed' | 'new' | 'all';
 export type StatsRange = '6m' | '12m' | 'custom';
-export type StatsGrouping = 'monthly' | 'weekly';
+export type StatsGrouping = 'monthly';
 export type StatsMetric = 'quantity' | 'amount';
 
 export interface StatsQueryParams {
