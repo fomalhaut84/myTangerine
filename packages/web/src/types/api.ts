@@ -15,7 +15,7 @@ export interface Order {
   status: string;
   sender: PersonInfo;
   recipient: PersonInfo;
-  productType: '5kg' | '10kg' | null;
+  productType: '비상품' | '5kg' | '10kg' | null;
   quantity: number;
   rowNumber: number;
   validationError?: string;
@@ -115,8 +115,10 @@ export interface StatsQueryParams {
 }
 
 export interface StatsSummary {
+  totalNonProductQty: number;
   total5kgQty: number;
   total10kgQty: number;
+  totalNonProductAmount: number;
   total5kgAmount: number;
   total10kgAmount: number;
   totalRevenue: number;
@@ -129,8 +131,10 @@ export interface StatsSummary {
 
 export interface MonthlyStatsSeries {
   period: string; // YYYY-MM
+  totalNonProductQty: number;
   total5kgQty: number;
   total10kgQty: number;
+  totalNonProductAmount: number;
   total5kgAmount: number;
   total10kgAmount: number;
   orderCount: number;
@@ -139,7 +143,7 @@ export interface MonthlyStatsSeries {
 }
 
 export interface ProductTotals {
-  productType: '5kg' | '10kg';
+  productType: '비상품' | '5kg' | '10kg';
   quantity: number;
   amount: number;
   quantityPct: number;

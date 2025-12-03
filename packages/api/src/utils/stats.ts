@@ -30,8 +30,10 @@ export type StatsMetric = 'quantity' | 'amount';
  */
 export interface MonthlyStats {
   period: string; // YYYY-MM 형식
+  totalNonProductQty: number;
   total5kgQty: number;
   total10kgQty: number;
+  totalNonProductAmount: number;
   total5kgAmount: number;
   total10kgAmount: number;
   orderCount: number;
@@ -54,8 +56,10 @@ export interface ProductTotals {
  * 통계 요약
  */
 export interface StatsSummary {
+  totalNonProductQty: number;
   total5kgQty: number;
   total10kgQty: number;
+  totalNonProductAmount: number;
   total5kgAmount: number;
   total10kgAmount: number;
   totalRevenue: number;
@@ -134,8 +138,10 @@ export function calculateMonthlyStats(
   config: Config,
   previousMonthRevenue: number | null
 ): MonthlyStats {
+  let totalNonProductQty = 0;
   let total5kgQty = 0;
   let total10kgQty = 0;
+  let totalNonProductAmount = 0;
   let total5kgAmount = 0;
   let total10kgAmount = 0;
   let totalRevenue = 0;
@@ -144,7 +150,10 @@ export function calculateMonthlyStats(
     const amount = calculateOrderAmount(order, config);
     totalRevenue += amount;
 
-    if (order.productType === '5kg') {
+    if (order.productType === '비상품') {
+      totalNonProductQty += order.quantity;
+      totalNonProductAmount += amount;
+    } else if (order.productType === '5kg') {
       total5kgQty += order.quantity;
       total5kgAmount += amount;
     } else if (order.productType === '10kg') {
@@ -164,8 +173,10 @@ export function calculateMonthlyStats(
 
   return {
     period: month,
+    totalNonProductQty,
     total5kgQty,
     total10kgQty,
+    totalNonProductAmount,
     total5kgAmount,
     total10kgAmount,
     orderCount,
@@ -178,15 +189,20 @@ export function calculateMonthlyStats(
  * 상품별 합계 및 비율 계산
  */
 export function calculateProductTotals(orders: Order[], config: Config): ProductTotals[] {
+  let totalNonProductQty = 0;
   let total5kgQty = 0;
   let total10kgQty = 0;
+  let totalNonProductAmount = 0;
   let total5kgAmount = 0;
   let total10kgAmount = 0;
 
   for (const order of orders) {
     const amount = calculateOrderAmount(order, config);
 
-    if (order.productType === '5kg') {
+    if (order.productType === '비상품') {
+      totalNonProductQty += order.quantity;
+      totalNonProductAmount += amount;
+    } else if (order.productType === '5kg') {
       total5kgQty += order.quantity;
       total5kgAmount += amount;
     } else if (order.productType === '10kg') {
@@ -195,10 +211,20 @@ export function calculateProductTotals(orders: Order[], config: Config): Product
     }
   }
 
-  const totalQty = total5kgQty + total10kgQty;
-  const totalRevenue = total5kgAmount + total10kgAmount;
+  const totalQty = totalNonProductQty + total5kgQty + total10kgQty;
+  const totalRevenue = totalNonProductAmount + total5kgAmount + total10kgAmount;
 
   const result: ProductTotals[] = [];
+
+  if (totalNonProductQty > 0) {
+    result.push({
+      productType: '비상품',
+      quantity: totalNonProductQty,
+      amount: totalNonProductAmount,
+      quantityPct: totalQty > 0 ? Math.round((totalNonProductQty / totalQty) * 10000) / 100 : 0,
+      revenuePct: totalRevenue > 0 ? Math.round((totalNonProductAmount / totalRevenue) * 10000) / 100 : 0,
+    });
+  }
 
   if (total5kgQty > 0) {
     result.push({
@@ -232,15 +258,20 @@ export function calculateSummary(
   startDate: Date,
   endDate: Date
 ): StatsSummary {
+  let totalNonProductQty = 0;
   let total5kgQty = 0;
   let total10kgQty = 0;
+  let totalNonProductAmount = 0;
   let total5kgAmount = 0;
   let total10kgAmount = 0;
 
   for (const order of orders) {
     const amount = calculateOrderAmount(order, config);
 
-    if (order.productType === '5kg') {
+    if (order.productType === '비상품') {
+      totalNonProductQty += order.quantity;
+      totalNonProductAmount += amount;
+    } else if (order.productType === '5kg') {
       total5kgQty += order.quantity;
       total5kgAmount += amount;
     } else if (order.productType === '10kg') {
@@ -249,12 +280,14 @@ export function calculateSummary(
     }
   }
 
-  const totalRevenue = total5kgAmount + total10kgAmount;
+  const totalRevenue = totalNonProductAmount + total5kgAmount + total10kgAmount;
   const avgOrderAmount = orders.length > 0 ? totalRevenue / orders.length : 0;
 
   return {
+    totalNonProductQty,
     total5kgQty,
     total10kgQty,
+    totalNonProductAmount,
     total5kgAmount,
     total10kgAmount,
     totalRevenue,

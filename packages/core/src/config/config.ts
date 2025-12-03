@@ -7,7 +7,8 @@ import fs from 'fs';
  * 상품 가격 정보 (단일 년도)
  */
 export interface ProductPrices {
-  '5kg': number;
+  '비상품'?: number;
+  '5kg'?: number;
   '10kg': number;
 }
 
@@ -27,6 +28,20 @@ export class Config {
 
   /** 상품 가격 (년도별) */
   public readonly productPrices: YearlyProductPrices = {
+    '2020' : {
+      '10kg': 26000,
+    },
+    '2021' : {
+      '비상품': 17000,
+      '10kg': 26000,
+    },
+    '2022' : {
+      '비상품': 18000,
+      '10kg': 28000,
+    },
+    '2023': {
+      '10kg': 30000,
+    },
     '2024': {
       '5kg': 20000,
       '10kg': 35000,
