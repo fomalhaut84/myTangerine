@@ -295,10 +295,12 @@ export function calculateDateRange(range: StatsRange, customStart?: Date, custom
   } else if (range === '6m') {
     start = new Date(end);
     start.setMonth(start.getMonth() - 6);
+    start.setHours(0, 0, 0, 0); // 자정으로 정규화
   } else {
     // 12m (기본값)
     start = new Date(end);
     start.setMonth(start.getMonth() - 12);
+    start.setHours(0, 0, 0, 0); // 자정으로 정규화
   }
 
   return { start, end };
