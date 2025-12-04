@@ -105,6 +105,11 @@ export function calculateOrderAmount(order: Order, config: Config): number {
   const prices = config.getPricesForYear(orderYear);
   const price = prices[order.productType];
 
+  // 가격이 정의되지 않은 경우 0 반환 (예: 2024년 이후 비상품)
+  if (price === undefined) {
+    return 0;
+  }
+
   return price * order.quantity;
 }
 
