@@ -125,16 +125,18 @@ export class LabelFormatter {
     if (validationError) {
       labels.push(`[오류] ${validationError}\n\n`);
     } else if (productType === '비상품') {
-      // 비상품 집계
+      // 비상품 집계 (가격이 없어도 수량은 집계)
+      this.totalNonProduct += quantity;
+
       const orderYear = timestamp.getFullYear();
       const prices = this.config.getPricesForYear(orderYear);
       const price = prices['비상품'];
       if (price) {
-        // 비상품이 가격이 있는 년도인 경우에만 집계
-        this.totalNonProduct += quantity;
+        // 비상품 가격이 있는 년도인 경우 금액 집계
         this.totalNonProductAmount += price * quantity;
-        labels.push(`비상품 / ${quantity}박스\n\n`);
       }
+
+      labels.push(`비상품 / ${quantity}박스\n\n`);
     } else if (productType === '5kg') {
       this.total5kg += quantity;
       // 주문 년도의 가격으로 금액 계산
