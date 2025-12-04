@@ -8,8 +8,10 @@ import type { Order, Sender } from '../types/order.js';
  */
 export class LabelFormatter {
   private config: Config;
+  private totalNonProduct: number = 0;
   private total5kg: number = 0;
   private total10kg: number = 0;
+  private totalNonProductAmount: number = 0;
   private total5kgAmount: number = 0;
   private total10kgAmount: number = 0;
 
@@ -27,8 +29,10 @@ export class LabelFormatter {
     }
 
     // 주문 처리 전 합계 초기화
+    this.totalNonProduct = 0;
     this.total5kg = 0;
     this.total10kg = 0;
+    this.totalNonProductAmount = 0;
     this.total5kgAmount = 0;
     this.total10kgAmount = 0;
 
@@ -121,12 +125,14 @@ export class LabelFormatter {
     if (validationError) {
       labels.push(`[오류] ${validationError}\n\n`);
     } else if (productType === '비상품') {
-      // 비상품은 집계만 하고 라벨에는 표시하지 않음
+      // 비상품 집계
       const orderYear = timestamp.getFullYear();
       const prices = this.config.getPricesForYear(orderYear);
       const price = prices['비상품'];
       if (price) {
         // 비상품이 가격이 있는 년도인 경우에만 집계
+        this.totalNonProduct += quantity;
+        this.totalNonProductAmount += price * quantity;
         labels.push(`비상품 / ${quantity}박스\n\n`);
       }
     } else if (productType === '5kg') {
@@ -155,17 +161,26 @@ export class LabelFormatter {
    * 주문 요약 포맷팅
    */
   private formatSummary(): string[] {
-    const totalPrice = this.total5kgAmount + this.total10kgAmount;
-
-    return [
+    const totalPrice = this.totalNonProductAmount + this.total5kgAmount + this.total10kgAmount;
+    const summary: string[] = [
       '='.repeat(50) + '\n',
       '주문 요약\n',
       '-'.repeat(20) + '\n',
+    ];
+
+    // 비상품이 있는 경우에만 출력
+    if (this.totalNonProduct > 0) {
+      summary.push(`비상품 주문: ${this.totalNonProduct}박스 (${this.totalNonProductAmount.toLocaleString()}원)\n`);
+    }
+
+    summary.push(
       `5kg 주문: ${this.total5kg}박스 (${this.total5kgAmount.toLocaleString()}원)\n`,
       `10kg 주문: ${this.total10kg}박스 (${this.total10kgAmount.toLocaleString()}원)\n`,
       '-'.repeat(20) + '\n',
       `총 주문금액: ${totalPrice.toLocaleString()}원\n`,
-    ];
+    );
+
+    return summary;
   }
 
   /**

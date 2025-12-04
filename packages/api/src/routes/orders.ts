@@ -21,8 +21,10 @@ import { InMemoryCache } from '../utils/cache.js';
 function convertStatsToCSV(stats: StatsResponse): string {
   const headers = [
     'period',
+    'totalNonProductQty',
     'total5kgQty',
     'total10kgQty',
+    'totalNonProductAmount',
     'total5kgAmount',
     'total10kgAmount',
     'orderCount',
@@ -32,8 +34,10 @@ function convertStatsToCSV(stats: StatsResponse): string {
 
   const rows = stats.series.map((item) => [
     item.period,
+    item.totalNonProductQty.toString(),
     item.total5kgQty.toString(),
     item.total10kgQty.toString(),
+    item.totalNonProductAmount.toString(),
     item.total5kgAmount.toString(),
     item.total10kgAmount.toString(),
     item.orderCount.toString(),
