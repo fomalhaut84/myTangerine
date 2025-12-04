@@ -49,7 +49,7 @@ export function BarChartStats({ data, metric }: BarChartStatsProps) {
         <h3 className="text-lg font-semibold text-gray-900">
           월별 매출 추이 {isQuantity ? '(수량)' : '(금액)'}
         </h3>
-        <p className="text-sm text-gray-500">5kg, 10kg 누적 {isQuantity ? '수량' : '매출'}</p>
+        <p className="text-sm text-gray-500">비상품, 5kg, 10kg 누적 {isQuantity ? '수량' : '매출'}</p>
       </div>
       <div className="h-80">
         {mounted ? (
@@ -76,8 +76,7 @@ export function BarChartStats({ data, metric }: BarChartStatsProps) {
               <Tooltip
                 formatter={(value: number, name: string) => {
                   const formattedValue = isQuantity ? `${value}박스` : `${value.toLocaleString()}원`;
-                  const label = name.includes('5kg') ? '5kg' : '10kg';
-                  return [formattedValue, label];
+                  return [formattedValue, name];
                 }}
                 labelFormatter={(label, payload) => {
                   if (payload && payload.length > 0 && payload[0].payload) {
