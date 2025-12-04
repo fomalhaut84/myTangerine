@@ -387,20 +387,25 @@ export function calculateStats(
     const monthStats = calculateMonthlyStats(month, monthOrders, config, previousMonthRevenue);
     series.push(monthStats);
 
-    // 다음 달의 증감률 계산을 위해 현재 달의 매출 저장
-    previousMonthRevenue = monthStats.total5kgAmount + monthStats.total10kgAmount;
+    // 다음 달의 증감률 계산을 위해 현재 달의 매출 저장 (비상품 포함)
+    previousMonthRevenue = monthStats.totalNonProductAmount + monthStats.total5kgAmount + monthStats.total10kgAmount;
   }
 
   // 통계 요약 (한 번의 루프로 summary와 totalsByProduct 동시 계산)
+  let totalNonProductQty = 0;
   let total5kgQty = 0;
   let total10kgQty = 0;
+  let totalNonProductAmount = 0;
   let total5kgAmount = 0;
   let total10kgAmount = 0;
 
   for (const order of filteredOrders) {
     const amount = calculateOrderAmount(order, config);
 
-    if (order.productType === '5kg') {
+    if (order.productType === '비상품') {
+      totalNonProductQty += order.quantity;
+      totalNonProductAmount += amount;
+    } else if (order.productType === '5kg') {
       total5kgQty += order.quantity;
       total5kgAmount += amount;
     } else if (order.productType === '10kg') {
@@ -409,12 +414,14 @@ export function calculateStats(
     }
   }
 
-  const totalRevenue = total5kgAmount + total10kgAmount;
+  const totalRevenue = totalNonProductAmount + total5kgAmount + total10kgAmount;
   const avgOrderAmount = filteredOrders.length > 0 ? totalRevenue / filteredOrders.length : 0;
 
   const summary: StatsSummary = {
+    totalNonProductQty,
     total5kgQty,
     total10kgQty,
+    totalNonProductAmount,
     total5kgAmount,
     total10kgAmount,
     totalRevenue,
@@ -426,8 +433,18 @@ export function calculateStats(
   };
 
   // 상품별 합계 및 비율
-  const totalQty = total5kgQty + total10kgQty;
+  const totalQty = totalNonProductQty + total5kgQty + total10kgQty;
   const totalsByProduct: ProductTotals[] = [];
+
+  if (totalNonProductQty > 0) {
+    totalsByProduct.push({
+      productType: '비상품',
+      quantity: totalNonProductQty,
+      amount: totalNonProductAmount,
+      quantityPct: totalQty > 0 ? Math.round((totalNonProductQty / totalQty) * 10000) / 100 : 0,
+      revenuePct: totalRevenue > 0 ? Math.round((totalNonProductAmount / totalRevenue) * 10000) / 100 : 0,
+    });
+  }
 
   if (total5kgQty > 0) {
     totalsByProduct.push({
