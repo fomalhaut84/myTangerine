@@ -59,12 +59,13 @@ function getStatsCacheKey(
   scope: StatsScope,
   range: StatsRange,
   grouping: StatsGrouping,
+  metric: StatsMetric,
   customStart?: Date,
   customEnd?: Date
 ): string {
   const start = customStart ? customStart.toISOString().split('T')[0] : '';
   const end = customEnd ? customEnd.toISOString().split('T')[0] : '';
-  return `stats:${scope}:${range}:${grouping}:${start}:${end}`;
+  return `stats:${scope}:${range}:${grouping}:${metric}:${start}:${end}`;
 }
 
 /**
@@ -560,7 +561,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 캐시 확인
-      const cacheKey = getStatsCacheKey(scope, range, grouping, customStart, customEnd);
+      const cacheKey = getStatsCacheKey(scope, range, grouping, metric, customStart, customEnd);
       const cachedStats = statsCache.get(cacheKey);
 
       if (cachedStats) {
