@@ -482,7 +482,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                   type: 'object',
                   required: ['productType', 'quantity', 'amount', 'quantityPct', 'revenuePct'],
                   properties: {
-                    productType: { type: 'string', enum: ['5kg', '10kg'], example: '5kg' },
+                    productType: { type: 'string', enum: ['비상품', '5kg', '10kg'], example: '5kg' },
                     quantity: { type: 'integer', example: 120 },
                     amount: { type: 'integer', example: 2400000 },
                     quantityPct: { type: 'number', example: 60.0 },

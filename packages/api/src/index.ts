@@ -241,7 +241,7 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
       recipient: { $ref: 'PersonInfo#' },
       productType: {
         type: ['string', 'null'],
-        enum: ['5kg', '10kg', null],
+        enum: ['비상품', '5kg', '10kg', null],
         description: '상품 종류 (검증 실패 시 null)',
         example: '5kg',
       },
