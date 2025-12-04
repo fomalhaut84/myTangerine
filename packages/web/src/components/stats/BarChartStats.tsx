@@ -89,6 +89,12 @@ export function BarChartStats({ data, metric }: BarChartStatsProps) {
               />
               <Legend />
               <Bar
+                dataKey={isQuantity ? 'totalNonProductQty' : 'totalNonProductAmount'}
+                stackId="a"
+                fill="#94a3b8"
+                name="비상품"
+              />
+              <Bar
                 dataKey={isQuantity ? 'total5kgQty' : 'total5kgAmount'}
                 stackId="a"
                 fill="#f97316"

@@ -15,6 +15,7 @@ interface DonutChartStatsProps {
 }
 
 const COLORS = {
+  '비상품': '#94a3b8',
   '5kg': '#f97316',
   '10kg': '#22c55e',
 };
