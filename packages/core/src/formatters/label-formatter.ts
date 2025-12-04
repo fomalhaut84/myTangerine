@@ -8,8 +8,12 @@ import type { Order, Sender } from '../types/order.js';
  */
 export class LabelFormatter {
   private config: Config;
+  private totalNonProduct: number = 0;
   private total5kg: number = 0;
   private total10kg: number = 0;
+  private totalNonProductAmount: number = 0;
+  private total5kgAmount: number = 0;
+  private total10kgAmount: number = 0;
 
   constructor(config: Config) {
     this.config = config;
@@ -25,8 +29,12 @@ export class LabelFormatter {
     }
 
     // 주문 처리 전 합계 초기화
+    this.totalNonProduct = 0;
     this.total5kg = 0;
     this.total10kg = 0;
+    this.totalNonProductAmount = 0;
+    this.total5kgAmount = 0;
+    this.total10kgAmount = 0;
 
     const formattedLabels: string[] = [];
 
@@ -108,7 +116,7 @@ export class LabelFormatter {
   private formatRecipient(order: Order): string[] {
     const labels: string[] = ['받는사람\n'];
 
-    const { recipient, productType, quantity, validationError } = order;
+    const { recipient, productType, quantity, validationError, timestamp } = order;
     labels.push(`${recipient.address} ${recipient.name} ${recipient.phone}\n`);
 
     labels.push('주문상품\n');
@@ -116,11 +124,35 @@ export class LabelFormatter {
     // 검증 에러가 있는 경우 에러 메시지 출력
     if (validationError) {
       labels.push(`[오류] ${validationError}\n\n`);
+    } else if (productType === '비상품') {
+      // 비상품 집계 (가격이 없어도 수량은 집계)
+      this.totalNonProduct += quantity;
+
+      const orderYear = timestamp.getFullYear();
+      const prices = this.config.getPricesForYear(orderYear);
+      const price = prices['비상품'];
+      if (price) {
+        // 비상품 가격이 있는 년도인 경우 금액 집계
+        this.totalNonProductAmount += price * quantity;
+      }
+
+      labels.push(`비상품 / ${quantity}박스\n\n`);
     } else if (productType === '5kg') {
       this.total5kg += quantity;
+      // 주문 년도의 가격으로 금액 계산
+      const orderYear = timestamp.getFullYear();
+      const prices = this.config.getPricesForYear(orderYear);
+      const price = prices['5kg'];
+      if (price) {
+        this.total5kgAmount += price * quantity;
+      }
       labels.push(`5kg / ${quantity}박스\n\n`);
     } else if (productType === '10kg') {
       this.total10kg += quantity;
+      // 주문 년도의 가격으로 금액 계산
+      const orderYear = timestamp.getFullYear();
+      const prices = this.config.getPricesForYear(orderYear);
+      this.total10kgAmount += prices['10kg'] * quantity;
       labels.push(`10kg / ${quantity}박스\n\n`);
     }
 
@@ -131,19 +163,26 @@ export class LabelFormatter {
    * 주문 요약 포맷팅
    */
   private formatSummary(): string[] {
-    const price5kg = this.total5kg * this.config.productPrices['5kg'];
-    const price10kg = this.total10kg * this.config.productPrices['10kg'];
-    const totalPrice = price5kg + price10kg;
-
-    return [
+    const totalPrice = this.totalNonProductAmount + this.total5kgAmount + this.total10kgAmount;
+    const summary: string[] = [
       '='.repeat(50) + '\n',
       '주문 요약\n',
       '-'.repeat(20) + '\n',
-      `5kg 주문: ${this.total5kg}박스 (${price5kg.toLocaleString()}원)\n`,
-      `10kg 주문: ${this.total10kg}박스 (${price10kg.toLocaleString()}원)\n`,
+    ];
+
+    // 비상품이 있는 경우에만 출력
+    if (this.totalNonProduct > 0) {
+      summary.push(`비상품 주문: ${this.totalNonProduct}박스 (${this.totalNonProductAmount.toLocaleString()}원)\n`);
+    }
+
+    summary.push(
+      `5kg 주문: ${this.total5kg}박스 (${this.total5kgAmount.toLocaleString()}원)\n`,
+      `10kg 주문: ${this.total10kg}박스 (${this.total10kgAmount.toLocaleString()}원)\n`,
       '-'.repeat(20) + '\n',
       `총 주문금액: ${totalPrice.toLocaleString()}원\n`,
-    ];
+    );
+
+    return summary;
   }
 
   /**

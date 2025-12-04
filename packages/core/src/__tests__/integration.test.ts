@@ -22,8 +22,22 @@ describe('Integration: SheetService + LabelFormatter', () => {
         phone: '010-6395-0618',
       },
       productPrices: {
-        '5kg': 20000,
-        '10kg': 35000,
+        '2024': {
+          '5kg': 20000,
+          '10kg': 35000,
+        },
+        '2025': {
+          '5kg': 23000,
+          '10kg': 38000,
+        },
+      },
+      getPricesForYear: (year: number) => {
+        const yearStr = year.toString();
+        if (config.productPrices[yearStr]) {
+          return config.productPrices[yearStr];
+        }
+        // Fallback to 2024
+        return config.productPrices['2024'];
       },
       requiredColumns: [],
       spreadsheetName: 'test',

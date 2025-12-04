@@ -4,11 +4,19 @@ import path from 'path';
 import fs from 'fs';
 
 /**
- * 상품 가격 정보
+ * 상품 가격 정보 (단일 년도)
  */
 export interface ProductPrices {
-  '5kg': number;
+  '비상품'?: number;
+  '5kg'?: number;
   '10kg': number;
+}
+
+/**
+ * 년도별 상품 가격 정보
+ */
+export interface YearlyProductPrices {
+  [year: string]: ProductPrices;
 }
 
 /**
@@ -18,11 +26,71 @@ export class Config {
   /** 환경 변수 */
   private readonly env: Env;
 
-  /** 상품 가격 */
-  public readonly productPrices: ProductPrices = {
-    '5kg': 20000,
-    '10kg': 35000,
+  /** 상품 가격 (년도별) */
+  public readonly productPrices: YearlyProductPrices = {
+    '2020' : {
+      '10kg': 26000,
+    },
+    '2021' : {
+      '비상품': 17000,
+      '10kg': 26000,
+    },
+    '2022' : {
+      '비상품': 18000,
+      '10kg': 28000,
+    },
+    '2023': {
+      '10kg': 30000,
+    },
+    '2024': {
+      '5kg': 20000,
+      '10kg': 35000,
+    },
+    '2025': {
+      '5kg': 23000,
+      '10kg': 38000,
+    },
   };
+
+  /**
+   * 특정 년도의 상품 가격 조회
+   * 해당 년도 가격이 없으면 가장 가까운 이전 년도 가격 반환
+   * 이전 년도가 없으면 가장 오래된 년도 가격 반환
+   */
+  public getPricesForYear(year: number): ProductPrices {
+    const yearStr = year.toString();
+
+    // 해당 년도 가격이 있으면 반환
+    if (this.productPrices[yearStr]) {
+      return this.productPrices[yearStr];
+    }
+
+    // 없으면 가장 가까운 이전 년도 가격 찾기
+    const years = Object.keys(this.productPrices)
+      .map((y) => parseInt(y, 10))
+      .filter((y) => !isNaN(y) && y <= year)
+      .sort((a, b) => b - a); // 내림차순
+
+    if (years.length > 0) {
+      return this.productPrices[years[0].toString()];
+    }
+
+    // 이전 년도가 없으면 가장 오래된 년도 가격 반환
+    const allYears = Object.keys(this.productPrices)
+      .map((y) => parseInt(y, 10))
+      .filter((y) => !isNaN(y))
+      .sort((a, b) => a - b); // 오름차순
+
+    if (allYears.length > 0) {
+      return this.productPrices[allYears[0].toString()];
+    }
+
+    // 기본값 (fallback)
+    return {
+      '5kg': 20000,
+      '10kg': 35000,
+    };
+  }
 
   /** 필수 스프레드시트 컬럼 */
   public readonly requiredColumns = [

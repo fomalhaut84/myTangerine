@@ -21,7 +21,7 @@ export interface Recipient {
 /**
  * 상품 타입
  */
-export type ProductType = '5kg' | '10kg';
+export type ProductType = '비상품' | '5kg' | '10kg';
 
 /**
  * 주문 상태 (한국어 원본 값)
@@ -242,6 +242,15 @@ export function validateProductSelection(productSelection: string): {
       isValid: false,
       productType: null,
       reason: '상품 선택이 비어있습니다',
+    };
+  }
+
+  // '비상품' 매칭
+  if (productSelection.includes('비상품')) {
+    return {
+      isValid: true,
+      productType: '비상품',
+      reason: '',
     };
   }
 
