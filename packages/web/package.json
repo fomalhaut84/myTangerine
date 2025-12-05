@@ -41,6 +41,7 @@
     "@types/recharts": "^2.0.1",
     "@vitejs/plugin-react": "^4.2.1",
     "autoprefixer": "^10.0.1",
+    "dotenv": "^16.3.0",
     "eslint": "^8",
     "eslint-config-next": "^14.1.0",
     "happy-dom": "^20.0.10",

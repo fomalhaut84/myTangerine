@@ -5,6 +5,10 @@
  */
 
 const { spawn } = require('child_process');
+const path = require('path');
+
+// .env.local 파일 로드 (Next.js와 동일하게 처리)
+require('dotenv').config({ path: path.join(__dirname, '..', '.env.local') });
 
 const port = process.env.PORT || '3000';
 
