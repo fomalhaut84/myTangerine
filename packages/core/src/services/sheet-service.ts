@@ -432,6 +432,29 @@ export class SheetService {
   }
 
   /**
+   * 열 번호를 A1 표기법 문자로 변환
+   * @param col 1-based 열 번호 (1 = A, 26 = Z, 27 = AA, ...)
+   * @returns A1 표기법 열 문자 (A, B, ..., Z, AA, AB, ...)
+   * @throws {Error} col이 1보다 작은 경우
+   */
+  private columnToLetter(col: number): string {
+    if (col < 1) {
+      throw new Error(`Invalid column number: ${col}. Column number must be >= 1`);
+    }
+
+    let letter = '';
+    let remaining = col;
+
+    while (remaining > 0) {
+      const remainder = (remaining - 1) % 26;
+      letter = String.fromCharCode(65 + remainder) + letter;
+      remaining = Math.floor((remaining - 1) / 26);
+    }
+
+    return letter;
+  }
+
+  /**
    * 특정 셀 업데이트
    */
   async updateCell(row: number, col: number, value: string): Promise<void> {
@@ -439,8 +462,8 @@ export class SheetService {
       const spreadsheetId = await this.getSpreadsheetId();
       const sheetName = await this.getFirstSheetName();
 
-      // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ...)
-      const colLetter = String.fromCharCode(64 + col);
+      // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ..., 27 -> AA, ...)
+      const colLetter = this.columnToLetter(col);
       const range = `${this.quoteSheetName(sheetName)}!${colLetter}${row}`;
 
       await this.sheets.spreadsheets.values.update({
