@@ -297,6 +297,127 @@ describe('Orders API', () => {
     });
   });
 
+  describe('GET /api/orders/:rowNumber', () => {
+    it('should return 400 error for invalid row number', async () => {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/invalid',
+      });
+
+      expect(response.statusCode).toBe(400);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(false);
+      expect(payload.error).toContain('Invalid row number');
+    });
+
+    it('should return 400 error for row number less than 2', async () => {
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/1',
+      });
+
+      expect(response.statusCode).toBe(400);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(false);
+      expect(payload.error).toContain('Invalid row number');
+    });
+
+    it('should return 400 error for row number with non-numeric suffix', async () => {
+      // "2foo"는 parseInt로는 2가 되지만 엄격한 검증에서는 거부되어야 함
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/2foo',
+      });
+
+      expect(response.statusCode).toBe(400);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(false);
+      expect(payload.error).toContain('Invalid row number');
+    });
+
+    it('should return 404 error when order not found', async () => {
+      // Mock: 주문 없음
+      mockSheetService.setMockNewOrders([]);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/999',
+      });
+
+      expect(response.statusCode).toBe(404);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(false);
+      expect(payload.error).toContain('Order not found');
+    });
+
+    it('should return order with correct structure', async () => {
+      // Mock: 1개의 주문 (rowNumber: 10)
+      const mockOrders = createMockSheetRows(1);
+      mockSheetService.setMockNewOrders(mockOrders);
+
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/10',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+
+      expect(payload.success).toBe(true);
+      expect(payload).toHaveProperty('order');
+
+      const order = payload.order;
+      expect(order).toHaveProperty('timestamp');
+      expect(order).toHaveProperty('timestampRaw');
+      expect(order).toHaveProperty('status');
+      expect(order).toHaveProperty('sender');
+      expect(order).toHaveProperty('recipient');
+      expect(order).toHaveProperty('productType');
+      expect(order).toHaveProperty('quantity');
+      expect(order).toHaveProperty('rowNumber');
+      expect(order.rowNumber).toBe(10);
+    });
+
+    it('should find order in new orders', async () => {
+      // Mock: 5개의 주문
+      const mockOrders = createMockSheetRows(5);
+      mockSheetService.setMockNewOrders(mockOrders);
+
+      // rowNumber 12에 해당하는 주문 조회 (3번째 주문, 인덱스 2)
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/12',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(true);
+      expect(payload.order.rowNumber).toBe(12);
+      expect(payload.order.recipient.name).toBe('테스트3');
+    });
+
+    it('should find order in completed orders', async () => {
+      // Mock: 완료된 주문 설정
+      const completedOrders = createMockSheetRows(3);
+      completedOrders.forEach(order => {
+        order['비고'] = '확인';
+      });
+      mockSheetService.setMockCompletedOrders(completedOrders);
+
+      // rowNumber 11에 해당하는 주문 조회
+      const response = await server.inject({
+        method: 'GET',
+        url: '/api/orders/11',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(true);
+      expect(payload.order.rowNumber).toBe(11);
+      expect(payload.order.status).toBe('확인');
+    });
+  });
+
   describe('GET /api/orders/stats', () => {
     it('should return stats with default parameters (scope=completed, range=12m)', async () => {
       // Mock: 완료된 주문 설정

@@ -278,6 +278,92 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   });
 
   /**
+   * GET /api/orders/:rowNumber
+   * 특정 주문 조회
+   */
+  fastify.get<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '특정 주문 조회',
+        description: '행 번호로 특정 주문을 조회합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'order'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              order: { $ref: 'Order#' },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { sheetService, config } = fastify.core;
+
+      // 엄격한 숫자 검증: "2foo" 같은 값을 거부
+      const rowNumber = Number(request.params.rowNumber);
+
+      if (!Number.isInteger(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 특정 주문 조회
+      const sheetRow = await sheetService.getOrderByRowNumber(rowNumber);
+
+      if (!sheetRow) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // SheetRow를 Order로 변환
+      const order = sheetRowToOrder(sheetRow, config);
+
+      return {
+        success: true,
+        order: {
+          timestamp: order.timestamp.toISOString(),
+          timestampRaw: order.timestampRaw,
+          status: order.status,
+          sender: order.sender,
+          recipient: order.recipient,
+          productType: order.productType,
+          quantity: order.quantity,
+          rowNumber: order.rowNumber,
+          validationError: order.validationError,
+        },
+      };
+    }
+  );
+
+  /**
    * POST /api/orders/:rowNumber/confirm
    * 특정 주문을 "확인" 상태로 표시
    */

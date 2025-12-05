@@ -60,6 +60,23 @@ export class MockSheetService {
   }
 
   /**
+   * 특정 행 번호로 주문 조회 (mock)
+   * @param rowNumber 스프레드시트 행 번호
+   * @returns 주문 데이터 또는 null
+   */
+  async getOrderByRowNumber(rowNumber: number): Promise<SheetRow | null> {
+    // 모든 주문(new + completed + all)에서 검색
+    const allOrders = [
+      ...this.mockNewOrders,
+      ...this.mockCompletedOrders,
+      ...this.mockAllOrders,
+    ];
+
+    const order = allOrders.find((o) => o._rowNumber === rowNumber);
+    return order || null;
+  }
+
+  /**
    * 주문 확인 처리 (mock)
    * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 모든 주문 확인
    */
@@ -76,6 +93,18 @@ export class MockSheetService {
       this.confirmedCount = this.mockNewOrders.length;
       this.mockNewOrders = []; // 확인 후 비우기
     }
+  }
+
+  /**
+   * 특정 주문 행을 "확인"으로 표시 (mock)
+   * @param rowNumber 스프레드시트 행 번호
+   */
+  async markSingleAsConfirmed(rowNumber: number): Promise<void> {
+    // 해당 행을 mockNewOrders에서 제거
+    this.mockNewOrders = this.mockNewOrders.filter(
+      (order) => order._rowNumber !== rowNumber
+    );
+    this.confirmedCount = 1;
   }
 
   /**

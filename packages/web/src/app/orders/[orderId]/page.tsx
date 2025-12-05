@@ -4,26 +4,28 @@
 
 'use client';
 
-import { useOrders, useConfirmSingleOrder } from '@/hooks/use-orders';
+import { useOrder, useConfirmSingleOrder } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
 import Link from 'next/link';
 import { useParams, useRouter } from 'next/navigation';
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 
 export default function OrderDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const orderId = params.orderId as string;
-  const { data, isLoading, error } = useOrders('all');
+  const orderId = parseInt(params.orderId as string, 10);
+
+  // orderId가 유효한 숫자가 아니면 API 호출 전에 처리
+  const isValidOrderId = Number.isFinite(orderId) && orderId >= 2;
+
+  // 단일 주문 조회로 변경 (유효한 경우에만)
+  const { data, isLoading, error } = useOrder(orderId);
   const confirmMutation = useConfirmSingleOrder();
   const [isConfirming, setIsConfirming] = useState(false);
 
-  // rowNumber로 주문 찾기
-  const order = useMemo(() => {
-    if (!data?.orders) return null;
-    return data.orders.find((o) => o.rowNumber.toString() === orderId);
-  }, [data?.orders, orderId]);
+  // API에서 직접 주문을 가져옴 (더 이상 클라이언트에서 필터링하지 않음)
+  const order = data?.order ?? null;
 
   const handleConfirm = async () => {
     if (!order) return;
@@ -70,7 +72,8 @@ export default function OrderDetailPage() {
     );
   }
 
-  if (!order) {
+  // orderId가 유효하지 않거나 주문을 찾을 수 없는 경우
+  if (!isValidOrderId || (!isLoading && !error && !order)) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-4xl mx-auto">

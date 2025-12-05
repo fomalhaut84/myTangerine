@@ -38,6 +38,11 @@ export interface OrdersResponse {
   orders: Order[];
 }
 
+export interface OrderResponse {
+  success: boolean;
+  order: Order;
+}
+
 export interface SummaryResponse {
   success: boolean;
   summary: OrderSummary;
