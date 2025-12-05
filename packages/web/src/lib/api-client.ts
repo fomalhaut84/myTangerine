@@ -6,6 +6,7 @@
 import ky from 'ky';
 import type {
   OrdersResponse,
+  OrderResponse,
   SummaryResponse,
   ConfirmResponse,
   MonthlyStatsResponse,
@@ -62,6 +63,14 @@ export const api = ky.create({
 export async function getOrders(status?: 'new' | 'completed' | 'all'): Promise<OrdersResponse> {
   const searchParams = status ? { status } : {};
   return api.get('api/orders', { searchParams }).json<OrdersResponse>();
+}
+
+/**
+ * 특정 주문 조회
+ * @param rowNumber - 스프레드시트 행 번호
+ */
+export async function getOrder(rowNumber: number): Promise<OrderResponse> {
+  return api.get(`api/orders/${rowNumber}`).json<OrderResponse>();
 }
 
 /**

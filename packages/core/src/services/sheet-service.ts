@@ -298,6 +298,88 @@ export class SheetService {
   }
 
   /**
+   * 특정 행 번호로 주문 조회
+   * @param rowNumber 스프레드시트 행 번호 (1-based, 헤더 포함)
+   * @returns 주문 데이터 또는 null (행이 없거나 필수 필드가 누락된 경우)
+   */
+  async getOrderByRowNumber(rowNumber: number): Promise<SheetRow | null> {
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+
+      // 헤더 행 가져오기
+      const headerResponse = await this.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${this.quoteSheetName(sheetName)}!1:1`,
+      });
+
+      const headers = headerResponse.data.values?.[0];
+      if (!headers) {
+        throw new Error('Could not read headers');
+      }
+
+      // 헤더 검증
+      const headerRow: Record<string, string> = {};
+      headers.forEach((header) => {
+        headerRow[header] = '';
+      });
+      this.validateRequiredColumns(headerRow as unknown as SheetRow);
+
+      // 특정 행 가져오기
+      const rowResponse = await this.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${this.quoteSheetName(sheetName)}!${rowNumber}:${rowNumber}`,
+      });
+
+      const rowData = rowResponse.data.values?.[0];
+      if (!rowData) {
+        // 행이 존재하지 않음
+        return null;
+      }
+
+      // 행 데이터를 객체로 변환
+      const row: Record<string, string | number> = {};
+      headers.forEach((header, i) => {
+        row[header] = rowData[i] || '';
+      });
+      row._rowNumber = rowNumber;
+
+      const sheetRow = row as unknown as SheetRow;
+
+      // 필수 필드 검증
+      const timestamp = sheetRow['타임스탬프'] || '';
+      const recipientName = sheetRow['받으실분 성함'] || '';
+      const recipientAddress = sheetRow['받으실분 주소 (도로명 주소로 부탁드려요)'] || '';
+      const recipientPhone = sheetRow['받으실분 연락처 (핸드폰번호)'] || '';
+
+      const hasRequiredFields = (
+        timestamp.trim() !== '' &&
+        recipientName.trim() !== '' &&
+        recipientAddress.trim() !== '' &&
+        recipientPhone.trim() !== ''
+      );
+
+      if (!hasRequiredFields) {
+        // 필수 필드 누락
+        return null;
+      }
+
+      // 상품 선택 검증
+      const productSelection = sheetRow['상품 선택'] || '';
+      const productValidation = validateProductSelection(productSelection);
+
+      if (!productValidation.isValid) {
+        sheetRow._validationError = productValidation.reason;
+      }
+
+      return sheetRow;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get order by row number: ${message}`);
+    }
+  }
+
+  /**
    * 필수 컬럼 검증
    */
   private validateRequiredColumns(sampleRow: SheetRow): void {

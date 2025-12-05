@@ -76,6 +76,9 @@ cp .env.example .env
 
 `.env` 파일 내용:
 ```env
+# API 서버 포트 (packages/api에서 사용)
+PORT=3001
+
 DEFAULT_SENDER_ADDRESS=제주도 제주시 정실3길 113 C동 301호
 DEFAULT_SENDER_NAME=안세진
 DEFAULT_SENDER_PHONE=010-6395-0618
