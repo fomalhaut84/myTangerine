@@ -540,5 +540,185 @@ describe('SheetService', () => {
 
       expect(row).toBeNull();
     });
+
+    it('should cache headers to reduce API calls', async () => {
+      const mockHeaders = [
+        '타임스탬프',
+        '비고',
+        '보내는분 성함',
+        '보내는분 주소 (도로명 주소로 부탁드려요)',
+        '보내는분 연락처 (핸드폰번호)',
+        '받으실분 성함',
+        '받으실분 주소 (도로명 주소로 부탁드려요)',
+        '받으실분 연락처 (핸드폰번호)',
+        '상품 선택',
+        '5kg 수량',
+        '10kg 수량',
+      ];
+
+      const mockRowData1 = [
+        '2025. 1. 21. 오전 10:30:00',
+        '',
+        '홍길동',
+        '서울시 강남구',
+        '010-1234-5678',
+        '김철수',
+        '서울시 송파구',
+        '010-9876-5432',
+        '5kg',
+        '2',
+        '',
+      ];
+
+      const mockRowData2 = [
+        '2025. 1. 21. 오후 2:15:00',
+        '',
+        '이영희',
+        '부산시 해운대구',
+        '010-2222-3333',
+        '박민수',
+        '부산시 연제구',
+        '010-4444-5555',
+        '10kg',
+        '',
+        '3',
+      ];
+
+      // 이 테스트 전 호출 횟수 저장
+      const callCountBefore = mockGoogleAPI.sheets.spreadsheets.values.get.mock.calls.length;
+
+      // 첫 번째 getOrderByRowNumber 호출
+      mockGoogleAPI.sheets.spreadsheets.values.get
+        .mockResolvedValueOnce({
+          data: {
+            values: [mockHeaders],
+          },
+        })
+        .mockResolvedValueOnce({
+          data: {
+            values: [mockRowData1],
+          },
+        })
+        // 두 번째 getOrderByRowNumber 호출 - 헤더는 캐시에서 가져오므로 행만 가져옴
+        .mockResolvedValueOnce({
+          data: {
+            values: [mockRowData2],
+          },
+        });
+
+      // 첫 번째 호출 (헤더 + 행)
+      const row1 = await service.getOrderByRowNumber(2);
+      expect(row1).not.toBeNull();
+      expect(row1!['받으실분 성함']).toBe('김철수');
+
+      // 두 번째 호출 (행만)
+      const row2 = await service.getOrderByRowNumber(3);
+      expect(row2).not.toBeNull();
+      expect(row2!['받으실분 성함']).toBe('박민수');
+
+      // API 호출 횟수 검증
+      const callCountAfter = mockGoogleAPI.sheets.spreadsheets.values.get.mock.calls.length;
+      const additionalCalls = callCountAfter - callCountBefore;
+
+      // 첫 번째: 헤더 (1회) + 행 (1회) = 2회
+      // 두 번째: 행만 (1회) = 1회
+      // 총 3회 추가 호출되어야 함 (헤더 캐싱 없이는 4회가 됨)
+      expect(additionalCalls).toBe(3);
+    });
+
+    it('should throw error when headers validation fails', async () => {
+      const mockHeaders = ['타임스탬프', '비고']; // 필수 컬럼 누락
+
+      mockGoogleAPI.sheets.spreadsheets.values.get
+        .mockResolvedValueOnce({
+          data: {
+            values: [mockHeaders],
+          },
+        });
+
+      await expect(service.getOrderByRowNumber(2)).rejects.toThrow('스프레드시트에 필수 컬럼이 없습니다');
+    });
+  });
+
+  describe('updateCell', () => {
+    it('should convert column numbers to A1 notation correctly (A-Z)', async () => {
+      mockGoogleAPI.sheets.spreadsheets.values.update.mockResolvedValue({});
+
+      // 1 -> A
+      await service.updateCell(10, 1, 'test1');
+      expect(mockGoogleAPI.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          range: "'감귤 주문서(응답)'!A10",
+        })
+      );
+
+      // 26 -> Z
+      await service.updateCell(10, 26, 'test26');
+      expect(mockGoogleAPI.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          range: "'감귤 주문서(응답)'!Z10",
+        })
+      );
+    });
+
+    it('should convert column numbers to A1 notation correctly (AA and beyond)', async () => {
+      mockGoogleAPI.sheets.spreadsheets.values.update.mockResolvedValue({});
+
+      // 27 -> AA
+      await service.updateCell(10, 27, 'test27');
+      expect(mockGoogleAPI.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          range: "'감귤 주문서(응답)'!AA10",
+        })
+      );
+
+      // 28 -> AB
+      await service.updateCell(10, 28, 'test28');
+      expect(mockGoogleAPI.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          range: "'감귤 주문서(응답)'!AB10",
+        })
+      );
+
+      // 52 -> AZ
+      await service.updateCell(10, 52, 'test52');
+      expect(mockGoogleAPI.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          range: "'감귤 주문서(응답)'!AZ10",
+        })
+      );
+
+      // 53 -> BA
+      await service.updateCell(10, 53, 'test53');
+      expect(mockGoogleAPI.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          range: "'감귤 주문서(응답)'!BA10",
+        })
+      );
+
+      // 702 -> ZZ
+      await service.updateCell(10, 702, 'test702');
+      expect(mockGoogleAPI.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          range: "'감귤 주문서(응답)'!ZZ10",
+        })
+      );
+
+      // 703 -> AAA
+      await service.updateCell(10, 703, 'test703');
+      expect(mockGoogleAPI.sheets.spreadsheets.values.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          range: "'감귤 주문서(응답)'!AAA10",
+        })
+      );
+    });
+
+    it('should throw error for invalid column numbers', async () => {
+      // col = 0
+      await expect(service.updateCell(10, 0, 'test')).rejects.toThrow('Invalid column number: 0');
+
+      // col < 0
+      await expect(service.updateCell(10, -1, 'test')).rejects.toThrow('Invalid column number: -1');
+    });
   });
 });

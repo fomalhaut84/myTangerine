@@ -14,6 +14,7 @@ export class SheetService {
   private auth: JWT;
   private spreadsheetId: string | null = null;
   private firstSheetName: string | null = null; // 첫 번째 워크시트 이름 캐싱
+  private headers: string[] | null = null; // 헤더 행 캐싱
   private newOrderRows: number[] = []; // 처리할 행들의 실제 인덱스 저장
   private loggedInvalidRows: Set<number> = new Set(); // 이미 로그에 출력된 행 번호 캐싱
 
@@ -98,6 +99,55 @@ export class SheetService {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to get first sheet name: ${message}`);
     }
+  }
+
+  /**
+   * 헤더 행 가져오기 (캐싱)
+   * API 호출을 줄이기 위해 한 번 가져온 헤더를 캐싱합니다.
+   */
+  private async getHeaders(): Promise<string[]> {
+    // 이미 캐시된 헤더가 있으면 반환
+    if (this.headers) {
+      return this.headers;
+    }
+
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+
+      // 헤더 행 가져오기
+      const headerResponse = await this.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${this.quoteSheetName(sheetName)}!1:1`,
+      });
+
+      const headers = headerResponse.data.values?.[0];
+      if (!headers) {
+        throw new Error('Could not read headers');
+      }
+
+      // 헤더 검증
+      const headerRow: Record<string, string> = {};
+      headers.forEach((header) => {
+        headerRow[header] = '';
+      });
+      this.validateRequiredColumns(headerRow as unknown as SheetRow);
+
+      // 캐시에 저장
+      this.headers = headers;
+      return this.headers;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get headers: ${message}`);
+    }
+  }
+
+  /**
+   * 헤더 캐시 무효화
+   * Google Sheet의 컬럼 구조가 변경되었을 때 호출하여 캐시를 초기화합니다.
+   */
+  clearHeadersCache(): void {
+    this.headers = null;
   }
 
   /**
@@ -307,23 +357,8 @@ export class SheetService {
       const spreadsheetId = await this.getSpreadsheetId();
       const sheetName = await this.getFirstSheetName();
 
-      // 헤더 행 가져오기
-      const headerResponse = await this.sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${this.quoteSheetName(sheetName)}!1:1`,
-      });
-
-      const headers = headerResponse.data.values?.[0];
-      if (!headers) {
-        throw new Error('Could not read headers');
-      }
-
-      // 헤더 검증
-      const headerRow: Record<string, string> = {};
-      headers.forEach((header) => {
-        headerRow[header] = '';
-      });
-      this.validateRequiredColumns(headerRow as unknown as SheetRow);
+      // 헤더 가져오기 (캐싱됨)
+      const headers = await this.getHeaders();
 
       // 특정 행 가져오기
       const rowResponse = await this.sheets.spreadsheets.values.get({
@@ -397,6 +432,29 @@ export class SheetService {
   }
 
   /**
+   * 열 번호를 A1 표기법 문자로 변환
+   * @param col 1-based 열 번호 (1 = A, 26 = Z, 27 = AA, ...)
+   * @returns A1 표기법 열 문자 (A, B, ..., Z, AA, AB, ...)
+   * @throws {Error} col이 1보다 작은 경우
+   */
+  private columnToLetter(col: number): string {
+    if (col < 1) {
+      throw new Error(`Invalid column number: ${col}. Column number must be >= 1`);
+    }
+
+    let letter = '';
+    let remaining = col;
+
+    while (remaining > 0) {
+      const remainder = (remaining - 1) % 26;
+      letter = String.fromCharCode(65 + remainder) + letter;
+      remaining = Math.floor((remaining - 1) / 26);
+    }
+
+    return letter;
+  }
+
+  /**
    * 특정 셀 업데이트
    */
   async updateCell(row: number, col: number, value: string): Promise<void> {
@@ -404,8 +462,8 @@ export class SheetService {
       const spreadsheetId = await this.getSpreadsheetId();
       const sheetName = await this.getFirstSheetName();
 
-      // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ...)
-      const colLetter = String.fromCharCode(64 + col);
+      // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ..., 27 -> AA, ...)
+      const colLetter = this.columnToLetter(col);
       const range = `${this.quoteSheetName(sheetName)}!${colLetter}${row}`;
 
       await this.sheets.spreadsheets.values.update({
@@ -435,19 +493,8 @@ export class SheetService {
         return; // 처리할 행이 없으면 종료
       }
 
-      const spreadsheetId = await this.getSpreadsheetId();
-      const sheetName = await this.getFirstSheetName();
-
-      // 헤더 행을 가져와서 '비고' 열 위치 찾기
-      const headerResponse = await this.sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${this.quoteSheetName(sheetName)}!1:1`,
-      });
-
-      const headers = headerResponse.data.values?.[0];
-      if (!headers) {
-        throw new Error('Could not read headers');
-      }
+      // 헤더 가져오기 (캐싱됨)
+      const headers = await this.getHeaders();
 
       const 비고ColIndex = headers.findIndex(h => h === '비고');
       if (비고ColIndex === -1) {
@@ -472,19 +519,8 @@ export class SheetService {
    */
   async markSingleAsConfirmed(rowNumber: number): Promise<void> {
     try {
-      const spreadsheetId = await this.getSpreadsheetId();
-      const sheetName = await this.getFirstSheetName();
-
-      // 헤더 행을 가져와서 '비고' 열 위치 찾기
-      const headerResponse = await this.sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${this.quoteSheetName(sheetName)}!1:1`,
-      });
-
-      const headers = headerResponse.data.values?.[0];
-      if (!headers) {
-        throw new Error('Could not read headers');
-      }
+      // 헤더 가져오기 (캐싱됨)
+      const headers = await this.getHeaders();
 
       const 비고ColIndex = headers.findIndex(h => h === '비고');
       if (비고ColIndex === -1) {
