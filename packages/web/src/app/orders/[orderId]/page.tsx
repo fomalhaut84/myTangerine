@@ -72,8 +72,27 @@ export default function OrderDetailPage() {
     );
   }
 
-  // orderId가 유효하지 않거나 주문을 찾을 수 없는 경우
-  if (!isValidOrderId || (!isLoading && !error && !order)) {
+  // orderId가 유효하지 않은 경우
+  if (!isValidOrderId) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="max-w-4xl mx-auto">
+          <Link
+            href="/orders"
+            className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block"
+          >
+            ← 주문 목록으로 돌아가기
+          </Link>
+          <div className="text-center py-12 text-gray-500">
+            주문을 찾을 수 없습니다.
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // 주문을 찾을 수 없는 경우
+  if (!order) {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-4xl mx-auto">
