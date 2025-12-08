@@ -30,9 +30,13 @@ vi.mock('googleapis', () => {
       sheets: vi.fn(() => mockSheets),
       drive: vi.fn(() => mockDrive),
       auth: {
-        JWT: vi.fn().mockImplementation(() => ({
-          setCredentials: vi.fn(),
-        })),
+        JWT: vi.fn().mockImplementation(function(this: any, options: any) {
+          this.email = options?.email;
+          this.key = options?.key;
+          this.scopes = options?.scopes;
+          this.setCredentials = vi.fn();
+          return this;
+        }),
       },
     },
   };
