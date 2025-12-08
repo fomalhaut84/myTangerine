@@ -84,7 +84,7 @@ export async function getOrdersSummary(): Promise<SummaryResponse> {
  * 주문 확인 처리
  */
 export async function confirmOrders(): Promise<ConfirmResponse> {
-  return api.post('api/orders/confirm').json<ConfirmResponse>();
+  return api.post('api/orders/confirm', { json: {} }).json<ConfirmResponse>();
 }
 
 /**
@@ -94,7 +94,7 @@ export async function confirmSingleOrder(rowNumber: number): Promise<{
   success: boolean;
   message: string;
 }> {
-  return api.post(`api/orders/${rowNumber}/confirm`).json<{
+  return api.post(`api/orders/${rowNumber}/confirm`, { json: {} }).json<{
     success: boolean;
     message: string;
   }>();
