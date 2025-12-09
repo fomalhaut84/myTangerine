@@ -23,7 +23,7 @@
   "license": "MIT",
   "dependencies": {
     "@fastify/cors": "^9.0.0",
-    "@fastify/swagger": "^8.0.0",
+    "@fastify/swagger": "^9.6.1",
     "@fastify/swagger-ui": "^4.0.0",
     "@mytangerine/core": "workspace:*",
     "dotenv": "^16.3.0",
