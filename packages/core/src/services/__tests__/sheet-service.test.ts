@@ -5,7 +5,6 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { SheetService } from '../sheet-service.js';
 import { Config } from '../../config/config.js';
-import type { SheetRow } from '../../types/order.js';
 
 // Google APIs 모킹
 vi.mock('googleapis', () => {
