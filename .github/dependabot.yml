@@ -1,0 +1,42 @@
+# ⚠️ 참고: Dependabot은 pnpm-lock.yaml을 공식적으로 지원하지 않습니다.
+# 이 프로젝트는 pnpm monorepo이므로 Dependabot의 자동 PR은 제한적일 수 있습니다.
+# pnpm을 완전히 지원하는 Renovate (https://github.com/renovatebot/renovate) 사용을 권장합니다.
+#
+# Dependabot은 보안 알림(Security Alerts)용으로만 활용하고,
+# 실제 의존성 업데이트는 Security Audit 워크플로우나 수동으로 진행하세요.
+
+version: 2
+updates:
+  # 루트 패키지 의존성
+  # monorepo 전체를 관리하는 루트 pnpm-workspace
+  - package-ecosystem: "npm"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Seoul"
+    labels:
+      - "dependencies"
+      - "security"
+    open-pull-requests-limit: 10
+    groups:
+      security-updates:
+        patterns:
+          - "*"
+        update-types:
+          - "patch"
+          - "minor"
+
+  # GitHub Actions 워크플로우 의존성
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "03:00"
+      timezone: "Asia/Seoul"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 5
