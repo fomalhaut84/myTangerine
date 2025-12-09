@@ -22,7 +22,7 @@
   "author": "fomalhaut84",
   "license": "MIT",
   "dependencies": {
-    "@fastify/cors": "^9.0.0",
+    "@fastify/cors": "^11.1.0",
     "@fastify/swagger": "^8.0.0",
     "@fastify/swagger-ui": "^4.0.0",
     "@mytangerine/core": "workspace:*",
