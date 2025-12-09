@@ -29,7 +29,7 @@
   "author": "fomalhaut84",
   "license": "MIT",
   "dependencies": {
-    "date-fns": "^3.0.0",
+    "date-fns": "^4.1.0",
     "dotenv": "^16.3.0",
     "google-auth-library": "^10.5.0",
     "googleapis": "^167.0.0",
