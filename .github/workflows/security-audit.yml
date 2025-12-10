@@ -150,43 +150,44 @@ jobs:
               auditData = `취약점 상세 정보를 파싱할 수 없습니다. 에러: ${e.message}\n아티팩트를 확인하세요.`;
             }
 
+            const dateStr = new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' });
+
             const body = `## 보안 취약점 자동 검사 결과
 
-**검사 일시**: ${new Date().toLocaleString('ko-KR', { timeZone: 'Asia/Seoul' })}
-**워크플로우**: ${context.workflow}
-**실행 번호**: #${context.runNumber}
-**브랜치**: ${context.ref}
+            **검사 일시**: ${dateStr}
+            **워크플로우**: ${context.workflow}
+            **실행 번호**: #${context.runNumber}
+            **브랜치**: ${context.ref}
 
-### 취약점 요약
+            ### 취약점 요약
 
-| 심각도 | 개수 |
-|--------|------|
-| Critical | ${critical} |
-| High | ${high} |
-| Moderate | ${moderate} |
-| **Total** | **${total}** |
+            | 심각도 | 개수 |
+            |--------|------|
+            | Critical | ${critical} |
+            | High | ${high} |
+            | Moderate | ${moderate} |
+            | **Total** | **${total}** |
 
-### 발견된 취약점 (상위 10개)
+            ### 발견된 취약점 (상위 10개)
 
-${auditData}
+            ${auditData}
 
-### 조치 방법
+            ### 조치 방법
 
-1. 로컬에서 \`pnpm audit\` 실행하여 전체 취약점 확인
-2. \`pnpm update\` 또는 \`pnpm audit fix\` 실행
-3. 수동 업데이트가 필요한 경우 package.json 직접 수정
-4. 수정 후 테스트 및 빌드 확인
-5. PR 생성 및 머지
+            1. 로컬에서 \`pnpm audit\` 실행하여 전체 취약점 확인
+            2. \`pnpm update\` 또는 \`pnpm audit fix\` 실행
+            3. 수동 업데이트가 필요한 경우 package.json 직접 수정
+            4. 수정 후 테스트 및 빌드 확인
+            5. PR 생성 및 머지
 
-### 참고 링크
+            ### 참고 링크
 
-- [워크플로우 실행 로그](${context.payload.repository.html_url}/actions/runs/${context.runId})
-- [전체 audit 결과 (아티팩트)](${context.payload.repository.html_url}/actions/runs/${context.runId}#artifacts)
-- [pnpm audit 문서](https://pnpm.io/cli/audit)
+            - [워크플로우 실행 로그](${context.payload.repository.html_url}/actions/runs/${context.runId})
+            - [전체 audit 결과 (아티팩트)](${context.payload.repository.html_url}/actions/runs/${context.runId}#artifacts)
+            - [pnpm audit 문서](https://pnpm.io/cli/audit)
 
----
-자동 생성된 이슈입니다.
-            `;
+            ---
+            자동 생성된 이슈입니다.`;
 
             // 기존 열린 보안 이슈가 있는지 확인 (security 라벨만으로 검색)
             const issues = await github.rest.issues.listForRepo({
