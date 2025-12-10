@@ -9,9 +9,10 @@ import { useRouter } from 'next/navigation';
 
 interface OrdersTableProps {
   orders: Order[];
+  searchParams?: URLSearchParams;
 }
 
-export function OrdersTable({ orders }: OrdersTableProps) {
+export function OrdersTable({ orders, searchParams }: OrdersTableProps) {
   const router = useRouter();
 
   if (orders.length === 0) {
@@ -23,7 +24,11 @@ export function OrdersTable({ orders }: OrdersTableProps) {
   }
 
   const handleRowClick = (orderId: number) => {
-    router.push(`/orders/${orderId}`);
+    const queryString = searchParams?.toString();
+    const url = queryString
+      ? `/orders/${orderId}?${queryString}`
+      : `/orders/${orderId}`;
+    router.push(url);
   };
 
   return (
