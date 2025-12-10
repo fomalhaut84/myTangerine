@@ -1,7 +1,7 @@
 # myTangerine 개발 로드맵
 
 > 마지막 업데이트: 2025-12-10
-> 현재 진행: Phase 1 - #64 완료, #65 대기
+> 현재 진행: Phase 1 완료, Phase 2 대기
 
 ## 전체 작업 순서
 
@@ -20,16 +20,18 @@ Phase 3: 상태 시스템 개편 (2-3주)
 
 ---
 
-## Phase 1: 빠른 가치 제공 (1-2주)
+## Phase 1: 빠른 가치 제공 ✅ 완료
 
 ### ✅ 완료된 작업
-- **#64: 주문 목록 검색 범위 확장 및 검색 상태 유지** (완료: 2025-12-10)
+- **#64: 주문 목록 검색 범위 확장 및 검색 상태 유지** (완료: 2025-12-10, PR #69)
+- **#65: 라벨 생성 기능 개선 - 상태별 필터링** (완료: 2025-12-10, PR #70)
+- **추가 개선: 주문 목록 버그 수정 + 라벨 정렬 기능** (완료: 2025-12-10, PR #72)
 
 ### 🔄 진행 중
 - 없음
 
 ### ⏳ 대기 중
-- #65: 라벨 생성 기능 개선 (상태별 필터링)
+- 없음
 
 ---
 
@@ -72,27 +74,79 @@ Phase 3: 상태 시스템 개편 (2-3주)
 
 ## 이슈 #65: 라벨 생성 기능 개선 (상태별 필터링)
 
-**상태**: ⏳ 대기 중
-**예상 시작**: 2025-12-11
-**예상 완료**: 2025-12-13
+**상태**: ✅ 완료
+**담당**: Claude Code
+**시작일**: 2025-12-10
+**완료일**: 2025-12-10
 **GitHub**: https://github.com/fomalhaut84/myTangerine/issues/65
+**PR**: https://github.com/fomalhaut84/myTangerine/pull/70
 
 ### 요구사항
-- [ ] API에 `status` 쿼리 파라미터 추가
-- [ ] 프론트엔드에 상태 필터 UI 추가
-- [ ] 상태: new / completed / all
+- [x] API에 `status` 쿼리 파라미터 추가
+- [x] 프론트엔드에 상태 필터 UI 추가
+- [x] 상태: new / completed / all
 
 ### 구현 체크리스트
-- [ ] API 수정 (`packages/api/src/routes/labels.ts`)
-  - [ ] `status` 쿼리 파라미터 파싱 및 검증
-  - [ ] `sheetService.getOrdersByStatus(status)` 호출
-- [ ] 프론트엔드 수정 (`packages/web/src/app/labels/page.tsx`)
-  - [ ] 상태 필터 UI 추가
-  - [ ] `useGroupedLabels` 훅에 `status` 파라미터 전달
-- [ ] 테스트
+- [x] API 수정 (`packages/api/src/routes/labels.ts`)
+  - [x] `status` 쿼리 파라미터 파싱 및 검증 (TypeScript 제네릭 타입 적용)
+  - [x] `sheetService.getOrdersByStatus(status)` 호출
+  - [x] Fastify 스키마 기반 자동 검증
+- [x] 프론트엔드 수정 (`packages/web/src/app/labels/page.tsx`)
+  - [x] 상태 필터 UI 추가 (라디오 버튼)
+  - [x] `useGroupedLabels` 훅에 `status` 파라미터 전달
+- [x] React Query 캐시 키 업데이트
+- [x] 테스트 및 빌드 확인
 
 ### 작업 노트
-- **중요**: 상태 필터를 enum 기반으로 구현 (향후 #67에서 3단계 확장 대비)
+- **TypeScript 타입 안전성**: Fastify 제네릭 타입으로 타입 추론 강화
+- **성능 개선**: `EMPTY_MESSAGES` 객체를 핸들러 외부로 이동하여 매 요청마다 객체 생성 방지
+- **코드 품질**: codex-cli 코드 리뷰 통과
+- **enum 기반 구현**: 향후 #67에서 3단계 상태 확장 대비
+
+---
+
+## 추가 개선: 주문 목록 버그 수정 + 라벨 정렬 기능
+
+**상태**: ✅ 완료
+**담당**: Claude Code
+**완료일**: 2025-12-10
+**PR**: https://github.com/fomalhaut84/myTangerine/pull/72
+
+### 버그 수정
+
+#### 주문 목록 상태 필터 버그
+**문제**: 주문 목록에서 '전체' 상태 선택 시 '신규'로 강제 변경
+
+**원인**: `packages/web/src/app/orders/OrdersPageContent.tsx:56`에서 `value === 'all'` 조건이 모든 'all' 값(status='all', productType='all')을 URL에서 삭제
+
+**해결**: productType='all'만 삭제하고 status='all'은 유효한 값으로 유지
+```typescript
+// BEFORE
+if (value === '' || value === 'all' || (key === 'page' && value === 1)) {
+  params.delete(key);
+}
+
+// AFTER
+if (value === '' || (key === 'productType' && value === 'all') || (key === 'page' && value === 1)) {
+  params.delete(key);
+}
+```
+
+### 기능 추가
+
+#### 라벨 페이지 정렬 기능
+- **정렬 기준**: 날짜순 / 보내는사람순
+- **정렬 방향**: 오름차순 / 내림차순
+- **구현 위치**: `packages/web/src/app/labels/page.tsx`
+- **날짜순 정렬**: 타임스탬프 기반 비교
+- **보내는사람순 정렬**: 한국어 이름 사전순 (`localeCompare('ko-KR')`)
+
+### 테스트 환경 개선
+
+#### vitest ESM 호환성 문제 해결
+- vitest 다운그레이드: `4.0.15` → `1.6.1`
+- vitest 설정 파일 확장자 변경: `vitest.config.ts` → `vitest.config.mts`
+- 결과: ✅ 테스트 16/16 통과, ✅ 빌드 성공
 
 ---
 
@@ -162,13 +216,14 @@ Phase 3: 상태 시스템 개편 (2-3주)
 
 ## 진행 상황 요약
 
-| Phase | 이슈 | 상태 | 진행률 | 완료일 |
-|-------|------|------|--------|--------|
-| Phase 1 | #64 | ✅ 완료 | 100% | 2025-12-10 |
-| Phase 1 | #65 | ⏳ 대기 중 | 0% | - |
-| Phase 2 | #68 | ⏳ 대기 중 | 0% | - |
-| Phase 3 | #67 | ⏳ 대기 중 | 0% | - |
-| Phase 3 | #66 | ⏳ 대기 중 | 0% | - |
+| Phase | 이슈 | 상태 | 진행률 | 완료일 | PR |
+|-------|------|------|--------|--------|-----|
+| Phase 1 | #64 | ✅ 완료 | 100% | 2025-12-10 | #69 |
+| Phase 1 | #65 | ✅ 완료 | 100% | 2025-12-10 | #70 |
+| Phase 1 | 추가 개선 | ✅ 완료 | 100% | 2025-12-10 | #72 |
+| Phase 2 | #68 | ⏳ 대기 중 | 0% | - | - |
+| Phase 3 | #67 | ⏳ 대기 중 | 0% | - | - |
+| Phase 3 | #66 | ⏳ 대기 중 | 0% | - | - |
 
 ---
 
@@ -204,4 +259,8 @@ Phase 3: 상태 시스템 개편 (2-3주)
 
 ## 변경 이력
 
-- 2025-12-10: 로드맵 생성, #64 시작 및 완료
+- 2025-12-10: 로드맵 생성
+- 2025-12-10: #64 시작 및 완료 (PR #69)
+- 2025-12-10: #65 시작 및 완료 (PR #70)
+- 2025-12-10: 추가 개선 작업 완료 (PR #72 - 주문 목록 버그 수정 + 라벨 정렬 기능)
+- 2025-12-10: **Phase 1 완료** ✅
