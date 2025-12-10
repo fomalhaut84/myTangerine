@@ -53,7 +53,9 @@ export function OrdersPageContent() {
     const params = new URLSearchParams(searchParams.toString());
 
     Object.entries(updates).forEach(([key, value]) => {
-      if (value === '' || value === 'all' || (key === 'page' && value === 1)) {
+      // 빈 값이거나, productType이 'all'이거나, page가 1인 경우 삭제
+      // 주의: status='all'은 유효한 값이므로 삭제하지 않음
+      if (value === '' || (key === 'productType' && value === 'all') || (key === 'page' && value === 1)) {
         params.delete(key);
       } else {
         params.set(key, String(value));

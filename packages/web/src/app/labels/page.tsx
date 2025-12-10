@@ -21,6 +21,8 @@ export default function LabelsPage() {
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [dateFilter, setDateFilter] = useState('');
   const [senderFilter, setSenderFilter] = useState('');
+  const [sortBy, setSortBy] = useState<'date' | 'sender'>('date');
+  const [sortOrder, setSortOrder] = useState<'asc' | 'desc'>('asc');
 
   // 상태 필터가 변경되면 선택된 그룹 초기화
   useEffect(() => {
@@ -32,11 +34,12 @@ export default function LabelsPage() {
     return `${group.date}|${group.sender.name}|${group.sender.phone}`;
   };
 
-  // 필터링된 그룹
+  // 필터링 및 정렬된 그룹
   const filteredGroups = useMemo(() => {
     if (!data?.data) return [];
 
-    return data.data.filter((group) => {
+    // 1. 필터링
+    const filtered = data.data.filter((group) => {
       const matchesDate = !dateFilter || group.date.includes(dateFilter);
       const matchesSender = !senderFilter ||
         group.sender.name.toLowerCase().includes(senderFilter.toLowerCase()) ||
@@ -44,7 +47,27 @@ export default function LabelsPage() {
 
       return matchesDate && matchesSender;
     });
-  }, [data, dateFilter, senderFilter]);
+
+    // 2. 정렬
+    const sorted = [...filtered].sort((a, b) => {
+      let compareResult = 0;
+
+      if (sortBy === 'date') {
+        // 날짜순 정렬: 타임스탬프 비교
+        const dateA = new Date(a.orders[0].timestamp).getTime();
+        const dateB = new Date(b.orders[0].timestamp).getTime();
+        compareResult = dateA - dateB;
+      } else {
+        // 보내는사람순 정렬: 이름 사전순
+        compareResult = a.sender.name.localeCompare(b.sender.name, 'ko-KR');
+      }
+
+      // 정렬 방향 적용
+      return sortOrder === 'asc' ? compareResult : -compareResult;
+    });
+
+    return sorted;
+  }, [data, dateFilter, senderFilter, sortBy, sortOrder]);
 
   // 선택된 그룹들의 텍스트 생성
   const getSelectedLabelsText = () => {
@@ -287,6 +310,59 @@ export default function LabelsPage() {
                     />
                     <span className="text-sm">전체</span>
                   </label>
+                </div>
+              </div>
+
+              {/* 정렬 옵션 */}
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  정렬
+                </label>
+                <div className="flex flex-wrap gap-4">
+                  <div className="flex gap-3">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="date"
+                        checked={sortBy === 'date'}
+                        onChange={(e) => setSortBy(e.target.value as 'date')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">날짜순</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="sender"
+                        checked={sortBy === 'sender'}
+                        onChange={(e) => setSortBy(e.target.value as 'sender')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">보내는사람순</span>
+                    </label>
+                  </div>
+                  <div className="flex gap-3">
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="asc"
+                        checked={sortOrder === 'asc'}
+                        onChange={(e) => setSortOrder(e.target.value as 'asc')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">오름차순</span>
+                    </label>
+                    <label className="flex items-center">
+                      <input
+                        type="radio"
+                        value="desc"
+                        checked={sortOrder === 'desc'}
+                        onChange={(e) => setSortOrder(e.target.value as 'desc')}
+                        className="mr-2"
+                      />
+                      <span className="text-sm">내림차순</span>
+                    </label>
+                  </div>
                 </div>
               </div>
 
