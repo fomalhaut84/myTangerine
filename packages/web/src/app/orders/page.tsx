@@ -16,7 +16,8 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import Link from 'next/link';
-import { useState, useMemo, useRef } from 'react';
+import { Suspense, useMemo, useRef, useState, useEffect } from 'react';
+import { useSearchParams, useRouter } from 'next/navigation';
 import { downloadCSV, downloadExcel, getExportFilename } from '@/lib/export-utils';
 import { toast } from 'sonner';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
@@ -26,19 +27,58 @@ type SortOrder = 'asc' | 'desc';
 type StatusFilter = 'new' | 'completed' | 'all';
 
 const ITEMS_PER_PAGE = 20;
+const SEARCH_DEBOUNCE_MS = 500;
 
-export default function OrdersPage() {
-  // 검색, 필터, 정렬 상태
-  const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
-  const [searchTerm, setSearchTerm] = useState('');
-  const [productTypeFilter, setProductTypeFilter] = useState<string>('all');
-  const [sortField, setSortField] = useState<SortField>('date');
-  const [sortOrder, setSortOrder] = useState<SortOrder>('desc');
-  const [currentPage, setCurrentPage] = useState(1);
+function OrdersPageContent() {
+  const searchParams = useSearchParams();
+  const router = useRouter();
+
+  // URL 쿼리 파라미터에서 초기값 읽기
+  const statusFilter = (searchParams.get('status') as StatusFilter) || 'new';
+  const searchTerm = searchParams.get('search') || '';
+  const productTypeFilter = searchParams.get('productType') || 'all';
+  const sortField = (searchParams.get('sortField') as SortField) || 'date';
+  const sortOrder = (searchParams.get('sortOrder') as SortOrder) || 'desc';
+  const currentPage = parseInt(searchParams.get('page') || '1', 10);
+
+  // 로컬 검색어 상태 (즉시 반응)
+  const [searchInput, setSearchInput] = useState(searchTerm);
 
   const { data, isLoading, error } = useOrders(statusFilter);
   const confirmMutation = useConfirmOrders();
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // URL 쿼리 파라미터 업데이트 헬퍼 함수
+  const updateQueryParams = (updates: Record<string, string | number>) => {
+    const params = new URLSearchParams(searchParams.toString());
+
+    Object.entries(updates).forEach(([key, value]) => {
+      if (value === '' || value === 'all' || (key === 'page' && value === 1)) {
+        params.delete(key);
+      } else {
+        params.set(key, String(value));
+      }
+    });
+
+    router.push(`/orders?${params.toString()}`, { scroll: false });
+  };
+
+  // URL 검색어와 로컬 검색어 동기화
+  useEffect(() => {
+    setSearchInput(searchTerm);
+  }, [searchTerm]);
+
+  // 검색어 디바운스
+  useEffect(() => {
+    const timer = setTimeout(() => {
+      if (searchInput !== searchTerm) {
+        updateQueryParams({ search: searchInput, page: 1 });
+      }
+    }, SEARCH_DEBOUNCE_MS);
+
+    return () => clearTimeout(timer);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput]);
 
   // 키보드 단축키
   useKeyboardShortcuts([
@@ -55,13 +95,16 @@ export default function OrdersPage() {
 
     let filtered = data.orders;
 
-    // 검색 필터 (이름, 주소, 전화번호)
+    // 검색 필터 (수취인 + 발송인 이름, 주소, 전화번호)
     if (searchTerm) {
       const term = searchTerm.toLowerCase();
       filtered = filtered.filter((order) =>
         order.recipient.name.toLowerCase().includes(term) ||
         order.recipient.address.toLowerCase().includes(term) ||
-        order.recipient.phone.includes(term)
+        order.recipient.phone.includes(term) ||
+        order.sender.name.toLowerCase().includes(term) ||
+        order.sender.address.toLowerCase().includes(term) ||
+        order.sender.phone.includes(term)
       );
     }
 
@@ -94,26 +137,28 @@ export default function OrdersPage() {
     return filteredAndSortedOrders.slice(startIndex, endIndex);
   }, [filteredAndSortedOrders, currentPage]);
 
-  // 필터 변경 시 페이지를 1로 리셋
+  // 검색어 입력 (로컬 상태 업데이트, 디바운스 후 URL 반영)
   const handleSearchChange = (value: string) => {
-    setSearchTerm(value);
-    setCurrentPage(1);
+    setSearchInput(value);
   };
 
   const handleStatusChange = (value: StatusFilter) => {
-    setStatusFilter(value);
-    setCurrentPage(1);
+    updateQueryParams({ status: value, page: 1 });
   };
 
   const handleProductTypeChange = (value: string) => {
-    setProductTypeFilter(value);
-    setCurrentPage(1);
+    updateQueryParams({ productType: value, page: 1 });
   };
 
   const handleSortChange = (field?: SortField, order?: SortOrder) => {
-    if (field) setSortField(field);
-    if (order) setSortOrder(order);
-    setCurrentPage(1);
+    const updates: Record<string, string> = { page: '1' };
+    if (field) updates.sortField = field;
+    if (order) updates.sortOrder = order;
+    updateQueryParams(updates);
+  };
+
+  const handlePageChange = (page: number) => {
+    updateQueryParams({ page });
   };
 
   const handleConfirm = async () => {
@@ -227,7 +272,7 @@ export default function OrdersPage() {
                 id="search"
                 type="text"
                 placeholder="이름, 주소, 전화번호로 검색... (/)"
-                value={searchTerm}
+                value={searchInput}
                 onChange={(e) => handleSearchChange(e.target.value)}
                 className="w-full"
               />
@@ -323,20 +368,20 @@ export default function OrdersPage() {
                 <span className="font-semibold">{filteredAndSortedOrders.length}개</span>{' '}
                 (페이지 {currentPage} / {totalPages})
               </div>
-              <OrdersTable orders={paginatedOrders} />
+              <OrdersTable orders={paginatedOrders} searchParams={searchParams} />
 
               {/* 페이지네이션 */}
               {totalPages > 1 && (
                 <div className="mt-6 flex justify-center gap-2">
                   <button
-                    onClick={() => setCurrentPage(1)}
+                    onClick={() => handlePageChange(1)}
                     disabled={currentPage === 1}
                     className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     처음
                   </button>
                   <button
-                    onClick={() => setCurrentPage(currentPage - 1)}
+                    onClick={() => handlePageChange(currentPage - 1)}
                     disabled={currentPage === 1}
                     className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
@@ -359,7 +404,7 @@ export default function OrdersPage() {
                     return (
                       <button
                         key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
+                        onClick={() => handlePageChange(pageNum)}
                         className={`px-3 py-2 rounded-lg border transition-colors ${
                           currentPage === pageNum
                             ? 'border-blue-600 bg-blue-600 text-white'
@@ -372,14 +417,14 @@ export default function OrdersPage() {
                   })}
 
                   <button
-                    onClick={() => setCurrentPage(currentPage + 1)}
+                    onClick={() => handlePageChange(currentPage + 1)}
                     disabled={currentPage === totalPages}
                     className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
                     다음
                   </button>
                   <button
-                    onClick={() => setCurrentPage(totalPages)}
+                    onClick={() => handlePageChange(totalPages)}
                     disabled={currentPage === totalPages}
                     className="px-3 py-2 rounded-lg border border-gray-300 bg-white text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                   >
@@ -396,5 +441,22 @@ export default function OrdersPage() {
         </Card>
       </div>
     </div>
+  );
+}
+
+export default function OrdersPage() {
+  return (
+    <Suspense fallback={
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="max-w-7xl mx-auto">
+          <div className="animate-pulse space-y-4">
+            <div className="h-8 bg-gray-200 rounded w-1/4"></div>
+            <div className="h-64 bg-gray-200 rounded"></div>
+          </div>
+        </div>
+      </div>
+    }>
+      <OrdersPageContent />
+    </Suspense>
   );
 }

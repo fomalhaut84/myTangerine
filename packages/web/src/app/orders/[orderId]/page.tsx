@@ -7,14 +7,20 @@
 import { useOrder, useConfirmSingleOrder } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
 import Link from 'next/link';
-import { useParams, useRouter } from 'next/navigation';
+import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
 import { toast } from 'sonner';
 
 export default function OrderDetailPage() {
   const params = useParams();
   const router = useRouter();
+  const searchParams = useSearchParams();
   const orderId = parseInt(params.orderId as string, 10);
+
+  // 돌아가기 링크에 쿼리 파라미터 유지
+  const backLink = searchParams.toString()
+    ? `/orders?${searchParams.toString()}`
+    : '/orders';
 
   // orderId가 유효한 숫자가 아니면 API 호출 전에 처리
   const isValidOrderId = Number.isFinite(orderId) && orderId >= 2;
@@ -38,8 +44,8 @@ export default function OrderDetailPage() {
     try {
       await confirmMutation.mutateAsync(order.rowNumber);
       toast.success('주문이 확인되었습니다.');
-      // 주문 목록으로 이동
-      router.push('/orders');
+      // 검색 상태를 유지하면서 주문 목록으로 이동
+      router.push(backLink);
     } catch (error) {
       toast.error('주문 확인 처리 중 오류가 발생했습니다.');
     } finally {
@@ -78,7 +84,7 @@ export default function OrderDetailPage() {
       <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-4xl mx-auto">
           <Link
-            href="/orders"
+            href={backLink}
             className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block"
           >
             ← 주문 목록으로 돌아가기
@@ -97,7 +103,7 @@ export default function OrderDetailPage() {
       <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-4xl mx-auto">
           <Link
-            href="/orders"
+            href={backLink}
             className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block"
           >
             ← 주문 목록으로 돌아가기
@@ -116,7 +122,7 @@ export default function OrderDetailPage() {
         {/* 헤더 */}
         <div className="mb-8">
           <Link
-            href="/orders"
+            href={backLink}
             className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block"
           >
             ← 주문 목록으로 돌아가기
