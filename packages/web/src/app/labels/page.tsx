@@ -10,16 +10,22 @@ import { LabelGroupCard } from '@/components/labels/LabelGroupCard';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 
 export default function LabelsPage() {
-  const { data, isLoading, error } = useGroupedLabels();
+  const [statusFilter, setStatusFilter] = useState<'new' | 'completed' | 'all'>('new');
+  const { data, isLoading, error } = useGroupedLabels(statusFilter);
   const confirmSingleMutation = useConfirmSingleOrder();
 
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [dateFilter, setDateFilter] = useState('');
   const [senderFilter, setSenderFilter] = useState('');
+
+  // 상태 필터가 변경되면 선택된 그룹 초기화
+  useEffect(() => {
+    setSelectedGroups(new Set());
+  }, [statusFilter]);
 
   // 그룹의 안정적인 고유 ID 생성
   const getGroupId = (group: { date: string; sender: { name: string; phone: string } }) => {
@@ -244,28 +250,70 @@ export default function LabelsPage() {
             </div>
 
             {/* 필터 */}
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div className="space-y-4">
+              {/* 상태 필터 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
-                  날짜 필터
+                  주문 상태
                 </label>
-                <Input
-                  type="text"
-                  placeholder="날짜로 검색..."
-                  value={dateFilter}
-                  onChange={(e) => setDateFilter(e.target.value)}
-                />
+                <div className="flex gap-4">
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      value="new"
+                      checked={statusFilter === 'new'}
+                      onChange={(e) => setStatusFilter(e.target.value as 'new')}
+                      className="mr-2"
+                    />
+                    <span className="text-sm">미확인</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      value="completed"
+                      checked={statusFilter === 'completed'}
+                      onChange={(e) => setStatusFilter(e.target.value as 'completed')}
+                      className="mr-2"
+                    />
+                    <span className="text-sm">확인됨</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      value="all"
+                      checked={statusFilter === 'all'}
+                      onChange={(e) => setStatusFilter(e.target.value as 'all')}
+                      className="mr-2"
+                    />
+                    <span className="text-sm">전체</span>
+                  </label>
+                </div>
               </div>
-              <div>
-                <label className="block text-sm font-medium text-gray-700 mb-2">
-                  발신자 필터
-                </label>
-                <Input
-                  type="text"
-                  placeholder="이름 또는 전화번호로 검색..."
-                  value={senderFilter}
-                  onChange={(e) => setSenderFilter(e.target.value)}
-                />
+
+              {/* 날짜 및 발신자 필터 */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    날짜 필터
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="날짜로 검색..."
+                    value={dateFilter}
+                    onChange={(e) => setDateFilter(e.target.value)}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    발신자 필터
+                  </label>
+                  <Input
+                    type="text"
+                    placeholder="이름 또는 전화번호로 검색..."
+                    value={senderFilter}
+                    onChange={(e) => setSenderFilter(e.target.value)}
+                  />
+                </div>
               </div>
             </div>
           </div>
@@ -288,7 +336,11 @@ export default function LabelsPage() {
           <Card>
             <div className="text-center py-12 text-gray-500">
               {data?.data.length === 0
-                ? '생성할 라벨이 없습니다.'
+                ? statusFilter === 'new'
+                  ? '미확인 주문이 없습니다.'
+                  : statusFilter === 'completed'
+                  ? '확인된 주문이 없습니다.'
+                  : '주문이 없습니다.'
                 : '필터 조건에 맞는 라벨이 없습니다.'}
             </div>
           </Card>

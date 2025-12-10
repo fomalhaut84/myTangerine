@@ -15,7 +15,7 @@ export const queryKeys = {
   },
   labels: {
     all: ['labels'] as const,
-    text: () => [...queryKeys.labels.all, 'text'] as const,
-    grouped: () => [...queryKeys.labels.all, 'grouped'] as const,
+    text: (status?: 'new' | 'completed' | 'all') => [...queryKeys.labels.all, 'text', status] as const,
+    grouped: (status?: 'new' | 'completed' | 'all') => [...queryKeys.labels.all, 'grouped', status] as const,
   },
 } as const;

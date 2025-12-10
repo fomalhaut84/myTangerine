@@ -11,19 +11,19 @@ import { queryKeys } from '@/lib/query-keys';
 /**
  * 라벨 텍스트 조회 훅
  */
-export function useLabels() {
+export function useLabels(status?: 'new' | 'completed' | 'all') {
   return useQuery({
-    queryKey: queryKeys.labels.text(),
-    queryFn: getLabels,
+    queryKey: queryKeys.labels.text(status),
+    queryFn: () => getLabels(status),
   });
 }
 
 /**
  * 그룹화된 라벨 데이터 조회 훅
  */
-export function useGroupedLabels() {
+export function useGroupedLabels(status?: 'new' | 'completed' | 'all') {
   return useQuery({
-    queryKey: queryKeys.labels.grouped(),
-    queryFn: getGroupedLabels,
+    queryKey: queryKeys.labels.grouped(status),
+    queryFn: () => getGroupedLabels(status),
   });
 }
