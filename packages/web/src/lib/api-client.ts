@@ -102,9 +102,11 @@ export async function confirmSingleOrder(rowNumber: number): Promise<{
 
 /**
  * 라벨 텍스트 조회
+ * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
  */
-export async function getLabels(): Promise<string> {
-  return api.get('api/labels').text();
+export async function getLabels(status?: 'new' | 'completed' | 'all'): Promise<string> {
+  const searchParams = status ? { status } : {};
+  return api.get('api/labels', { searchParams }).text();
 }
 
 /**
@@ -116,9 +118,11 @@ export async function getMonthlyStats(): Promise<MonthlyStatsResponse> {
 
 /**
  * 그룹화된 라벨 데이터 조회 (날짜/발신자별)
+ * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
  */
-export async function getGroupedLabels(): Promise<GroupedLabelsResponse> {
-  return api.get('api/labels/grouped').json<GroupedLabelsResponse>();
+export async function getGroupedLabels(status?: 'new' | 'completed' | 'all'): Promise<GroupedLabelsResponse> {
+  const searchParams = status ? { status } : {};
+  return api.get('api/labels/grouped', { searchParams }).json<GroupedLabelsResponse>();
 }
 
 /**
