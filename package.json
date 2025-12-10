@@ -19,7 +19,8 @@
   "license": "MIT",
   "pnpm": {
     "overrides": {
-      "glob": ">=10.5.0"
+      "glob": ">=10.5.0",
+      "esbuild": ">=0.25.0"
     }
   },
   "devDependencies": {
