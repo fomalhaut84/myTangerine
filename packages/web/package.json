@@ -29,7 +29,7 @@
     "recharts": "^3.5.0",
     "sonner": "^2.0.7",
     "tailwind-merge": "^3.4.0",
-    "xlsx": "^0.18.5"
+    "xlsx": "https://cdn.sheetjs.com/xlsx-0.20.2/xlsx-0.20.2.tgz"
   },
   "devDependencies": {
     "@tanstack/react-query-devtools": "^5.90.2",

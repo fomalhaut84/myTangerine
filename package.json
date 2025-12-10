@@ -17,6 +17,11 @@
   ],
   "author": "fomalhaut84",
   "license": "MIT",
+  "pnpm": {
+    "overrides": {
+      "glob": ">=10.5.0"
+    }
+  },
   "devDependencies": {
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^6.21.0",
