@@ -7,6 +7,15 @@ import { sheetRowToOrder, type Order } from '@mytangerine/core';
 import { calculateOrderAmount } from '../utils/stats.js';
 
 /**
+ * 상태별 빈 주문 메시지
+ */
+const EMPTY_MESSAGES = {
+  new: '새로운 주문이 없습니다.',
+  completed: '확인된 주문이 없습니다.',
+  all: '주문이 없습니다.',
+} as const;
+
+/**
  * 라벨 라우트
  */
 const labelsRoutes: FastifyPluginAsync = async (fastify) => {
@@ -14,7 +23,9 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
    * GET /api/labels
    * 포맷팅된 배송 라벨 생성
    */
-  fastify.get(
+  fastify.get<{
+    Querystring: { status?: 'new' | 'completed' | 'all' };
+  }>(
     '/api/labels',
     {
       schema: {
@@ -70,18 +81,8 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       const { sheetService, config, labelFormatter } = fastify.core;
 
       // 쿼리 파라미터에서 status 추출 (기본값: 'new')
-      const query = request.query as { status?: string };
-      const status = (query.status || 'new') as 'new' | 'completed' | 'all';
-
-      // status 유효성 검증
-      if (!['new', 'completed', 'all'].includes(status)) {
-        reply.type('application/json; charset=utf-8');
-        reply.code(400);
-        return {
-          success: false,
-          error: `Invalid status parameter: ${status}. Must be one of: new, completed, all`,
-        };
-      }
+      // Fastify 스키마가 enum 검증을 수행하므로 추가 검증 불필요
+      const status = request.query.status || 'new';
 
       // Content-Type을 text/plain으로 설정 (항상 일관된 형식)
       reply.type('text/plain; charset=utf-8');
@@ -90,12 +91,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       const sheetRows = await sheetService.getOrdersByStatus(status);
 
       if (sheetRows.length === 0) {
-        const messages = {
-          new: '새로운 주문이 없습니다.',
-          completed: '확인된 주문이 없습니다.',
-          all: '주문이 없습니다.',
-        };
-        return messages[status];
+        return EMPTY_MESSAGES[status];
       }
 
       // SheetRow를 Order로 변환
@@ -117,7 +113,9 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
    * GET /api/labels/grouped
    * 날짜/발신자별로 그룹화된 라벨 데이터 반환 (JSON)
    */
-  fastify.get(
+  fastify.get<{
+    Querystring: { status?: 'new' | 'completed' | 'all' };
+  }>(
     '/api/labels/grouped',
     {
       schema: {
@@ -199,16 +197,8 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       const { sheetService, config } = fastify.core;
 
       // 쿼리 파라미터에서 status 추출 (기본값: 'new')
-      const query = request.query as { status?: string };
-      const status = (query.status || 'new') as 'new' | 'completed' | 'all';
-
-      // status 유효성 검증
-      if (!['new', 'completed', 'all'].includes(status)) {
-        throw {
-          statusCode: 400,
-          message: `Invalid status parameter: ${status}. Must be one of: new, completed, all`,
-        };
-      }
+      // Fastify 스키마가 enum 검증을 수행하므로 추가 검증 불필요
+      const status = request.query.status || 'new';
 
       // 상태별 주문 가져오기
       const sheetRows = await sheetService.getOrdersByStatus(status);
