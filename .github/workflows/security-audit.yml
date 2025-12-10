@@ -204,13 +204,12 @@ jobs:
 
             if (existingIssue) {
               // 기존 이슈에 코멘트 추가
+              const commentBody = `### 새로운 검사 결과 (${date})\n\n${body}`;
               await github.rest.issues.createComment({
                 owner: context.repo.owner,
                 repo: context.repo.repo,
                 issue_number: existingIssue.number,
-                body: `### 새로운 검사 결과 (${date})
-
-${body}`
+                body: commentBody
               });
               console.log(`기존 이슈 #${existingIssue.number}에 코멘트 추가됨`);
             } else {
