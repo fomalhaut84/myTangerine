@@ -26,7 +26,7 @@
     "@fastify/swagger": "^8.0.0",
     "@fastify/swagger-ui": "^4.0.0",
     "@mytangerine/core": "workspace:*",
-    "dotenv": "^16.3.0",
+    "dotenv": "^17.2.3",
     "fastify": "^4.0.0",
     "fastify-plugin": "^4.0.0",
     "zod": "^3.22.0"
@@ -37,7 +37,7 @@
     "@typescript-eslint/parser": "^6.0.0",
     "@vitest/coverage-v8": "^4.0.15",
     "eslint": "^8.0.0",
-    "pino-pretty": "^11.0.0",
+    "pino-pretty": "^13.1.3",
     "tsup": "^8.0.0",
     "tsx": "^4.0.0",
     "typescript": "^5.0.0",
