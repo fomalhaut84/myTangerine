@@ -60,6 +60,12 @@ function ordersToCSV(orders: Order[]): string {
  * CSV 파일 다운로드
  */
 export function downloadCSV(orders: Order[], filename: string = 'orders.csv') {
+  // 서버 컴포넌트 안전성 가드
+  if (typeof window === 'undefined') {
+    console.warn('downloadCSV는 클라이언트 환경에서만 사용 가능합니다.');
+    return;
+  }
+
   const csvContent = ordersToCSV(orders);
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
@@ -78,6 +84,12 @@ export function downloadCSV(orders: Order[], filename: string = 'orders.csv') {
  * Excel 파일 다운로드
  */
 export async function downloadExcel(orders: Order[], filename: string = 'orders.xlsx') {
+  // 서버 컴포넌트 안전성 가드
+  if (typeof window === 'undefined') {
+    console.warn('downloadExcel은 클라이언트 환경에서만 사용 가능합니다.');
+    return;
+  }
+
   // Lazy import로 번들 사이즈 최적화 (ExcelJS는 수백 KB)
   const [{ default: ExcelJS }, { saveAs }] = await Promise.all([
     import('exceljs'),
