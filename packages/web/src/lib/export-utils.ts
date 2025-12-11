@@ -2,8 +2,6 @@
  * CSV/Excel 내보내기 유틸리티
  */
 
-import ExcelJS from 'exceljs';
-import { saveAs } from 'file-saver';
 import type { Order } from '@/types/api';
 
 /**
@@ -80,6 +78,12 @@ export function downloadCSV(orders: Order[], filename: string = 'orders.csv') {
  * Excel 파일 다운로드
  */
 export async function downloadExcel(orders: Order[], filename: string = 'orders.xlsx') {
+  // Lazy import로 번들 사이즈 최적화 (ExcelJS는 수백 KB)
+  const [{ default: ExcelJS }, { saveAs }] = await Promise.all([
+    import('exceljs'),
+    import('file-saver'),
+  ]);
+
   // 워크북 생성
   const workbook = new ExcelJS.Workbook();
   const worksheet = workbook.addWorksheet('주문 목록');

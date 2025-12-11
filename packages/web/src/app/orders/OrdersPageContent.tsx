@@ -218,9 +218,14 @@ export function OrdersPageContent() {
       return;
     }
 
-    const filename = getExportFilename('주문목록', 'xlsx');
-    await downloadExcel(filteredAndSortedOrders, filename);
-    toast.success(`${filteredAndSortedOrders.length}개의 주문을 Excel로 다운로드했습니다.`);
+    try {
+      const filename = getExportFilename('주문목록', 'xlsx');
+      await downloadExcel(filteredAndSortedOrders, filename);
+      toast.success(`${filteredAndSortedOrders.length}개의 주문을 Excel로 다운로드했습니다.`);
+    } catch (error) {
+      console.error('Excel 다운로드 실패:', error);
+      toast.error('Excel 파일 다운로드에 실패했습니다.');
+    }
   };
 
   return (
