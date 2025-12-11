@@ -1,0 +1,82 @@
+// packages/core/prisma/schema.prisma
+//
+// Issue #68 Phase 2.1: Google Sheets í PostgreSQL Xt¨‹ ‹§\
+// Prisma §§» X
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ¸8 Lt (SheetRow@ 1:1 ‰Q)
+model Order {
+  id        Int      @id @default(autoincrement())
+
+  // Google Sheets –¯ â î
+  sheetRowNumber  Int      @unique @map("sheet_row_number")
+
+  // ¿Ñ§Ï (–¯ 8êÙ + Ò Date)
+  timestamp       DateTime
+  timestampRaw    String   @map("timestamp_raw")
+
+  // °x Ù
+  senderName      String   @map("sender_name")
+  senderAddress   String   @map("sender_address")
+  senderPhone     String   @map("sender_phone")
+
+  // Ëx Ù
+  recipientName    String  @map("recipient_name")
+  recipientAddress String  @map("recipient_address")
+  recipientPhone   String  @map("recipient_phone")
+
+  // ¡à  …
+  productSelection String  @map("product_selection") // –¯ 8êÙ
+  productType      String? @map("product_type")      // Ò : 'D¡à' | '5kg' | '10kg'
+  quantity5kg      String  @default("") @map("quantity_5kg")
+  quantity10kg     String  @default("") @map("quantity_10kg")
+  quantity         Int     @default(1)  // îú …
+
+  // ¡‹ (¨î Ë 8êÙ, Phase 3– order_status Lt\ U•)
+  status           String  @default("")  // '' or 'Ux'
+
+  // Äù –Ï
+  validationError  String? @map("validation_error")
+
+  // Òl T¿pt0
+  syncStatus       String   @default("pending") @map("sync_status") // 'pending' | 'success' | 'failed'
+  syncedAt         DateTime? @map("synced_at")
+  syncErrorMessage String?   @map("sync_error_message")
+  syncAttemptCount Int       @default(0) @map("sync_attempt_count")
+
+  // ¿Ñ§Ï
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  @@index([status, updatedAt])
+  @@index([timestamp])
+  @@index([syncStatus, syncAttemptCount])
+  @@map("orders")
+}
+
+// Òl \¯ (8 î  ®»0¡)
+model SyncLog {
+  id               Int       @id @default(autoincrement())
+  sheetRowNumber   Int       @map("sheet_row_number")
+
+  status           String    // 'pending' | 'success' | 'failed' | 'retry'
+  attemptCount     Int       @default(1) @map("attempt_count")
+  errorMessage     String?   @map("error_message")
+  errorStack       String?   @map("error_stack")
+
+  startedAt        DateTime  @default(now()) @map("started_at")
+  finishedAt       DateTime? @map("finished_at")
+
+  @@index([sheetRowNumber, status])
+  @@index([startedAt])
+  @@map("sync_logs")
+}
