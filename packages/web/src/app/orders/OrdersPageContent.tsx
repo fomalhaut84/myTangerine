@@ -212,15 +212,23 @@ export function OrdersPageContent() {
     toast.success(`${filteredAndSortedOrders.length}개의 주문을 CSV로 다운로드했습니다.`);
   };
 
-  const handleDownloadExcel = () => {
+  const handleDownloadExcel = async () => {
     if (filteredAndSortedOrders.length === 0) {
       toast.error('다운로드할 주문이 없습니다.');
       return;
     }
 
-    const filename = getExportFilename('주문목록', 'xlsx');
-    downloadExcel(filteredAndSortedOrders, filename);
-    toast.success(`${filteredAndSortedOrders.length}개의 주문을 Excel로 다운로드했습니다.`);
+    // 로딩 표시 (lazy import 시간 포함)
+    const toastId = toast.loading('Excel 파일을 생성하는 중입니다...');
+
+    try {
+      const filename = getExportFilename('주문목록', 'xlsx');
+      await downloadExcel(filteredAndSortedOrders, filename);
+      toast.success(`${filteredAndSortedOrders.length}개의 주문을 Excel로 다운로드했습니다.`, { id: toastId });
+    } catch (error) {
+      console.error('Excel 다운로드 실패:', error);
+      toast.error('Excel 파일 다운로드에 실패했습니다.', { id: toastId });
+    }
   };
 
   return (

@@ -2,7 +2,6 @@
  * CSV/Excel 내보내기 유틸리티
  */
 
-import * as XLSX from 'xlsx';
 import type { Order } from '@/types/api';
 
 /**
@@ -61,6 +60,12 @@ function ordersToCSV(orders: Order[]): string {
  * CSV 파일 다운로드
  */
 export function downloadCSV(orders: Order[], filename: string = 'orders.csv') {
+  // 서버 컴포넌트 안전성 가드
+  if (typeof window === 'undefined') {
+    console.warn('downloadCSV는 클라이언트 환경에서만 사용 가능합니다.');
+    return;
+  }
+
   const csvContent = ordersToCSV(orders);
   const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
   const link = document.createElement('a');
@@ -78,63 +83,63 @@ export function downloadCSV(orders: Order[], filename: string = 'orders.csv') {
 /**
  * Excel 파일 다운로드
  */
-export function downloadExcel(orders: Order[], filename: string = 'orders.xlsx') {
-  // 워크시트 데이터 생성
-  const data = [
-    // 헤더
-    [
-      '주문번호',
-      '주문일시',
-      '상태',
-      '보내는 사람',
-      '보내는 사람 전화번호',
-      '보내는 사람 주소',
-      '받는 사람',
-      '받는 사람 전화번호',
-      '받는 사람 주소',
-      '상품',
-      '수량',
-    ],
-    // 데이터 행
-    ...orders.map((order) => [
-      order.rowNumber,
-      order.timestamp,
-      order.status || '미확인',
-      order.sender.name,
-      order.sender.phone,
-      order.sender.address,
-      order.recipient.name,
-      order.recipient.phone,
-      order.recipient.address,
-      order.validationError ? `[오류] ${order.validationError}` : (order.productType || '알 수 없음'),
-      order.quantity,
-    ]),
-  ];
+export async function downloadExcel(orders: Order[], filename: string = 'orders.xlsx') {
+  // 서버 컴포넌트 안전성 가드
+  if (typeof window === 'undefined') {
+    console.warn('downloadExcel은 클라이언트 환경에서만 사용 가능합니다.');
+    return;
+  }
 
-  // 워크시트 생성
-  const worksheet = XLSX.utils.aoa_to_sheet(data);
-
-  // 열 너비 설정
-  worksheet['!cols'] = [
-    { wch: 10 },  // 주문번호
-    { wch: 20 },  // 주문일시
-    { wch: 10 },  // 상태
-    { wch: 15 },  // 보내는 사람
-    { wch: 15 },  // 보내는 사람 전화번호
-    { wch: 30 },  // 보내는 사람 주소
-    { wch: 15 },  // 받는 사람
-    { wch: 15 },  // 받는 사람 전화번호
-    { wch: 30 },  // 받는 사람 주소
-    { wch: 10 },  // 상품
-    { wch: 10 },  // 수량
-  ];
+  // Lazy import로 번들 사이즈 최적화 (ExcelJS는 수백 KB)
+  const [{ default: ExcelJS }, { saveAs }] = await Promise.all([
+    import('exceljs'),
+    import('file-saver'),
+  ]);
 
   // 워크북 생성
-  const workbook = XLSX.utils.book_new();
-  XLSX.utils.book_append_sheet(workbook, worksheet, '주문 목록');
+  const workbook = new ExcelJS.Workbook();
+  const worksheet = workbook.addWorksheet('주문 목록');
 
-  // 파일 다운로드
-  XLSX.writeFile(workbook, filename);
+  // 열 정의 (헤더 + 너비)
+  worksheet.columns = [
+    { header: '주문번호', key: 'rowNumber', width: 10 },
+    { header: '주문일시', key: 'timestamp', width: 20 },
+    { header: '상태', key: 'status', width: 10 },
+    { header: '보내는 사람', key: 'senderName', width: 15 },
+    { header: '보내는 사람 전화번호', key: 'senderPhone', width: 15 },
+    { header: '보내는 사람 주소', key: 'senderAddress', width: 30 },
+    { header: '받는 사람', key: 'recipientName', width: 15 },
+    { header: '받는 사람 전화번호', key: 'recipientPhone', width: 15 },
+    { header: '받는 사람 주소', key: 'recipientAddress', width: 30 },
+    { header: '상품', key: 'productType', width: 10 },
+    { header: '수량', key: 'quantity', width: 10 },
+  ];
+
+  // 데이터 행 추가
+  orders.forEach((order) => {
+    worksheet.addRow({
+      rowNumber: order.rowNumber,
+      timestamp: order.timestamp,
+      status: order.status || '미확인',
+      senderName: order.sender.name,
+      senderPhone: order.sender.phone,
+      senderAddress: order.sender.address,
+      recipientName: order.recipient.name,
+      recipientPhone: order.recipient.phone,
+      recipientAddress: order.recipient.address,
+      productType: order.validationError ? `[오류] ${order.validationError}` : (order.productType || '알 수 없음'),
+      quantity: order.quantity,
+    });
+  });
+
+  // 버퍼로 내보내기
+  const buffer = await workbook.xlsx.writeBuffer();
+
+  // Blob 생성 및 다운로드
+  const blob = new Blob([buffer], {
+    type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  });
+  saveAs(blob, filename);
 }
 
 /**
