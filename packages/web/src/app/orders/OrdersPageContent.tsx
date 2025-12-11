@@ -212,14 +212,14 @@ export function OrdersPageContent() {
     toast.success(`${filteredAndSortedOrders.length}개의 주문을 CSV로 다운로드했습니다.`);
   };
 
-  const handleDownloadExcel = () => {
+  const handleDownloadExcel = async () => {
     if (filteredAndSortedOrders.length === 0) {
       toast.error('다운로드할 주문이 없습니다.');
       return;
     }
 
     const filename = getExportFilename('주문목록', 'xlsx');
-    downloadExcel(filteredAndSortedOrders, filename);
+    await downloadExcel(filteredAndSortedOrders, filename);
     toast.success(`${filteredAndSortedOrders.length}개의 주문을 Excel로 다운로드했습니다.`);
   };
 
