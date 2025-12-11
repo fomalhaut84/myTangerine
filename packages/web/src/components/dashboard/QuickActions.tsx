@@ -12,7 +12,7 @@ import { useState, useEffect, useRef } from 'react';
 export function QuickActions() {
   const confirmMutation = useConfirmOrders();
   const [message, setMessage] = useState<string | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout>();
+  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     return () => {
