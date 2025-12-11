@@ -1,7 +1,7 @@
 // packages/core/prisma/schema.prisma
 //
-// Issue #68 Phase 2.1: Google Sheets � PostgreSQL Xt�� ܤ\
-// Prisma ��� X
+// Issue #68 Phase 2.1: Google Sheets → PostgreSQL 하이브리드 시스템
+// Prisma 스키마 정의
 
 generator client {
   provider = "prisma-client-js"
@@ -13,60 +13,64 @@ datasource db {
   url      = env("DATABASE_URL")
 }
 
-// �8 Lt (SheetRow@ 1:1 �Q)
+// 주문 테이블 (SheetRow와 1:1 매핑)
 model Order {
   id        Int      @id @default(autoincrement())
 
-  // Google Sheets �� � �
-  sheetRowNumber  Int      @unique @map("sheet_row_number")
+  // Google Sheets 원본 행 추적 (nullable: DB에서 직접 생성된 주문 대응)
+  sheetRowNumber  Int?     @unique @map("sheet_row_number")
 
-  // ���� (�� 8�� + � Date)
+  // 타임스탬프 (원본 문자열 + 파싱된 Date)
   timestamp       DateTime
   timestampRaw    String   @map("timestamp_raw")
 
-  // �x �
+  // 발송인 정보
   senderName      String   @map("sender_name")
   senderAddress   String   @map("sender_address")
   senderPhone     String   @map("sender_phone")
 
-  // �x �
+  // 수취인 정보
   recipientName    String  @map("recipient_name")
   recipientAddress String  @map("recipient_address")
   recipientPhone   String  @map("recipient_phone")
 
-  // ��  �
-  productSelection String  @map("product_selection") // �� 8��
-  productType      String? @map("product_type")      // � : 'D��' | '5kg' | '10kg'
+  // 상품 및 수량
+  productSelection String  @map("product_selection") // 원본 문자열
+  productType      String? @map("product_type")      // 파싱된 값: '비상품' | '5kg' | '10kg'
   quantity5kg      String  @default("") @map("quantity_5kg")
   quantity10kg     String  @default("") @map("quantity_10kg")
-  quantity         Int     @default(1)  // �� �
+  quantity         Int     @default(1)  // 추출된 수량
 
-  // �� (�� � 8��, Phase 3� order_status Lt\ U�)
-  status           String  @default("")  // '' or 'Ux'
+  // 상태 (현재는 단순 문자열, Phase 3에서 order_status 테이블로 확장)
+  status           String  @default("")  // '' or '확인'
 
-  // �� ��
+  // 검증 에러
   validationError  String? @map("validation_error")
 
-  // �l T�pt0
+  // 싱크 메타데이터
   syncStatus       String   @default("pending") @map("sync_status") // 'pending' | 'success' | 'failed'
   syncedAt         DateTime? @map("synced_at")
   syncErrorMessage String?   @map("sync_error_message")
   syncAttemptCount Int       @default(0) @map("sync_attempt_count")
 
-  // ����
+  // 타임스탬프
   createdAt        DateTime  @default(now()) @map("created_at")
   updatedAt        DateTime  @updatedAt @map("updated_at")
 
-  @@index([status, updatedAt])
-  @@index([timestamp])
+  // 관계
+  syncLogs         SyncLog[]
+
+  @@index([status, timestamp])  // 실제 쿼리 패턴에 맞춤 (status로 필터 + timestamp로 정렬)
   @@index([syncStatus, syncAttemptCount])
   @@map("orders")
 }
 
-// �l \� (8 �  ��0�)
+// 싱크 로그 (문제 추적 및 모니터링)
 model SyncLog {
   id               Int       @id @default(autoincrement())
-  sheetRowNumber   Int       @map("sheet_row_number")
+  orderId          Int?      @map("order_id")  // Order FK (referential integrity)
+  order            Order?    @relation(fields: [orderId], references: [id])
+  sheetRowNumber   Int?      @map("sheet_row_number")  // 진단용 (nullable)
 
   status           String    // 'pending' | 'success' | 'failed' | 'retry'
   attemptCount     Int       @default(1) @map("attempt_count")
@@ -76,6 +80,7 @@ model SyncLog {
   startedAt        DateTime  @default(now()) @map("started_at")
   finishedAt       DateTime? @map("finished_at")
 
+  @@index([orderId, status])
   @@index([sheetRowNumber, status])
   @@index([startedAt])
   @@map("sync_logs")

@@ -7,7 +7,7 @@
  * Issue #68 Phase 2.1: Google Sheets → PostgreSQL 하이브리드 시스템
  */
 
-import type { PrismaClient, Order as PrismaOrder } from '@prisma/client';
+import { PrismaClient, type Order as PrismaOrder } from '@prisma/client';
 import type { SheetRow } from '../types/order.js';
 import { parseKoreanTimestamp, validateProductSelection, extractQuantity } from '../types/order.js';
 import type { Config } from '../config/config.js';
@@ -19,15 +19,19 @@ import type { Config } from '../config/config.js';
 export class DatabaseService {
   private prisma: PrismaClient;
   private config: Config;
+  private ownsPrisma: boolean;
 
   constructor(config: Config, prisma?: PrismaClient) {
     this.config = config;
-    // 테스트에서 주입 가능하도록 옵션 처리
-    if (!prisma) {
-      // @ts-ignore - Prisma Client는 런타임에서만 사용 가능
-      throw new Error('PrismaClient must be provided to DatabaseService');
+
+    // PrismaClient 자체 생성 또는 주입 (테스트 용이성)
+    if (prisma) {
+      this.prisma = prisma;
+      this.ownsPrisma = false;
+    } else {
+      this.prisma = new PrismaClient();
+      this.ownsPrisma = true;
     }
-    this.prisma = prisma;
   }
 
   /**
@@ -47,7 +51,7 @@ export class DatabaseService {
       '상품 선택': order.productSelection,
       '5kg 수량': order.quantity5kg,
       '10kg 수량': order.quantity10kg,
-      _rowNumber: order.sheetRowNumber,
+      _rowNumber: order.sheetRowNumber || undefined,
       _validationError: order.validationError || undefined,
     };
   }
@@ -57,6 +61,14 @@ export class DatabaseService {
    * 주의: 이 메서드는 DB insert용 데이터만 생성, 실제 insert는 호출자가 수행
    */
   sheetRowToPrismaOrderData(row: SheetRow) {
+    // sheetRowNumber 검증 - Phase 2.1에서는 필수
+    if (!row._rowNumber) {
+      throw new Error(
+        'sheetRowNumber (_rowNumber) is required for sync operations. ' +
+        'Direct DB inserts without sheet row numbers are not yet supported in Phase 2.1.'
+      );
+    }
+
     const timestamp = parseKoreanTimestamp(row['타임스탬프']);
     const quantity = extractQuantity(row);
 
@@ -65,7 +77,7 @@ export class DatabaseService {
     const validation = validateProductSelection(productSelection);
 
     return {
-      sheetRowNumber: row._rowNumber || 0,
+      sheetRowNumber: row._rowNumber,
       timestamp,
       timestampRaw: row['타임스탬프'],
       senderName: row['보내는분 성함'],
@@ -81,9 +93,7 @@ export class DatabaseService {
       quantity,
       status: row['비고'] || '',
       validationError: validation.isValid ? null : validation.reason,
-      syncStatus: 'success',
-      syncedAt: new Date(),
-      syncAttemptCount: 0,
+      // syncStatus는 호출자(SyncEngine)에서 설정
     };
   }
 
@@ -92,27 +102,32 @@ export class DatabaseService {
    * SheetService.getOrdersByStatus()와 동일한 인터페이스
    */
   async getOrdersByStatus(status: 'new' | 'completed' | 'all' = 'new'): Promise<SheetRow[]> {
-    let where = {};
+    try {
+      let where = {};
 
-    switch (status) {
-      case 'completed':
-        where = { status: '확인' };
-        break;
-      case 'new':
-        where = { status: { not: '확인' } };
-        break;
-      case 'all':
-      default:
-        where = {};
-        break;
+      switch (status) {
+        case 'completed':
+          where = { status: '확인' };
+          break;
+        case 'new':
+          where = { status: { not: '확인' } };
+          break;
+        case 'all':
+        default:
+          where = {};
+          break;
+      }
+
+      const orders = await this.prisma.order.findMany({
+        where,
+        orderBy: { timestamp: 'desc' },
+      });
+
+      return orders.map((order) => this.prismaOrderToSheetRow(order));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get orders by status '${status}': ${message}`);
     }
-
-    const orders = await this.prisma.order.findMany({
-      where,
-      orderBy: { timestamp: 'desc' },
-    });
-
-    return orders.map((order) => this.prismaOrderToSheetRow(order));
   }
 
   /**
@@ -133,15 +148,20 @@ export class DatabaseService {
    * 특정 행 번호로 주문 조회
    */
   async getOrderByRowNumber(rowNumber: number): Promise<SheetRow | null> {
-    const order = await this.prisma.order.findUnique({
-      where: { sheetRowNumber: rowNumber },
-    });
+    try {
+      const order = await this.prisma.order.findUnique({
+        where: { sheetRowNumber: rowNumber },
+      });
 
-    if (!order) {
-      return null;
+      if (!order) {
+        return null;
+      }
+
+      return this.prismaOrderToSheetRow(order);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get order by row number ${rowNumber}: ${message}`);
     }
-
-    return this.prismaOrderToSheetRow(order);
   }
 
   /**
@@ -149,54 +169,130 @@ export class DatabaseService {
    * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 모든 신규 주문 확인
    */
   async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
-    if (rowNumbers && rowNumbers.length > 0) {
-      // 특정 행만 확인
+    try {
+      if (rowNumbers && rowNumbers.length > 0) {
+        // 특정 행만 확인
+        await this.prisma.order.updateMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+          },
+          data: {
+            status: '확인',
+            updatedAt: new Date(),
+          },
+        });
+      } else {
+        // 모든 미확인 주문 확인 (하위 호환성)
+        await this.prisma.order.updateMany({
+          where: {
+            status: { not: '확인' },
+          },
+          data: {
+            status: '확인',
+            updatedAt: new Date(),
+          },
+        });
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const context = rowNumbers ? `rows ${rowNumbers.join(', ')}` : 'all new orders';
+      throw new Error(`Failed to mark as confirmed (${context}): ${message}`);
+    }
+  }
+
+  /**
+   * 단일 주문 확인 처리 (SheetService 호환)
+   * @param rowNumber - 확인 처리할 행 번호
+   */
+  async markSingleAsConfirmed(rowNumber: number): Promise<void> {
+    return this.markAsConfirmed([rowNumber]);
+  }
+
+  /**
+   * 특정 셀 업데이트 (SheetService 호환)
+   * @param rowNumber - 행 번호
+   * @param columnName - 컬럼명 (한글 또는 영문 매핑)
+   * @param value - 업데이트할 값
+   */
+  async updateCell(rowNumber: number, columnName: string, value: string): Promise<void> {
+    try {
+      // 컬럼명 매핑 (한글 → DB 필드)
+      const columnMap: Record<string, string> = {
+        '비고': 'status',
+        'DB_SYNC_STATUS': 'syncStatus',
+        'DB_SYNC_AT': 'syncedAt',
+        'DB_SYNC_ID': 'id',
+      };
+
+      const dbField = columnMap[columnName] || columnName;
+
+      // 동적 업데이트 (타입 안전성 제한적)
       await this.prisma.order.updateMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-        },
+        where: { sheetRowNumber: rowNumber },
         data: {
-          status: '확인',
+          [dbField]: value,
           updatedAt: new Date(),
-        },
+        } as any,
       });
-    } else {
-      // 모든 미확인 주문 확인 (하위 호환성)
-      await this.prisma.order.updateMany({
-        where: {
-          status: { not: '확인' },
-        },
-        data: {
-          status: '확인',
-          updatedAt: new Date(),
-        },
-      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(
+        `Failed to update cell (row: ${rowNumber}, column: ${columnName}): ${message}`
+      );
     }
   }
 
   /**
    * 주문 생성 또는 업데이트 (싱크 서비스용)
    * sheetRowNumber를 기준으로 upsert 수행
+   *
+   * 주의: syncStatus, syncAttemptCount는 호출자(SyncEngine)가 관리
    */
-  async upsertOrder(row: SheetRow): Promise<PrismaOrder> {
-    const data = this.sheetRowToPrismaOrderData(row);
+  async upsertOrder(row: SheetRow, syncMeta?: {
+    syncStatus: 'pending' | 'success' | 'failed';
+    syncAttemptCount?: number;
+    syncErrorMessage?: string;
+  }): Promise<PrismaOrder> {
+    try {
+      const data = this.sheetRowToPrismaOrderData(row);
 
-    const result = await this.prisma.order.upsert({
-      where: { sheetRowNumber: data.sheetRowNumber },
-      create: data,
-      update: {
-        ...data,
-        syncAttemptCount: { increment: 1 },
-      },
-    });
+      // syncMeta가 제공되면 사용, 아니면 기본값
+      const syncData = syncMeta || {
+        syncStatus: 'success',
+        syncAttemptCount: 1,
+        syncedAt: new Date(),
+      };
 
-    return result;
+      const result = await this.prisma.order.upsert({
+        where: { sheetRowNumber: data.sheetRowNumber },
+        create: {
+          ...data,
+          ...syncData,
+          syncedAt: new Date(),
+        },
+        update: {
+          ...data,
+          ...syncData,
+          syncedAt: new Date(),
+          // syncAttemptCount는 증가하지 않고 syncMeta에서 제공된 값 사용
+        },
+      });
+
+      return result;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      const rowNum = row._rowNumber || 'unknown';
+      throw new Error(`Failed to upsert order (row: ${rowNum}): ${message}`);
+    }
   }
 
   /**
    * 연결 종료 (앱 종료 시)
+   * 자체 생성한 PrismaClient만 종료
    */
   async disconnect(): Promise<void> {
-    await this.prisma.$disconnect();
+    if (this.ownsPrisma) {
+      await this.prisma.$disconnect();
+    }
   }
 }

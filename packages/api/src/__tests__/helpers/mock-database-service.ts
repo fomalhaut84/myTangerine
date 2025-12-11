@@ -4,6 +4,7 @@
  */
 
 import type { SheetRow } from '@mytangerine/core';
+import type { Order as PrismaOrder } from '@prisma/client';
 
 /**
  * Mock DatabaseService 클래스
@@ -12,7 +13,6 @@ import type { SheetRow } from '@mytangerine/core';
 export class MockDatabaseService {
   private mockNewOrders: SheetRow[] = [];
   private mockCompletedOrders: SheetRow[] = [];
-  private mockAllOrders: SheetRow[] = [];
   private confirmedCount = 0;
 
   /**
@@ -30,13 +30,6 @@ export class MockDatabaseService {
   }
 
   /**
-   * Mock 데이터 설정 (전체 주문)
-   */
-  setMockAllOrders(orders: SheetRow[]): void {
-    this.mockAllOrders = orders;
-  }
-
-  /**
    * Status별 주문 조회 (mock)
    * @param status - 'new', 'completed', 'all'
    */
@@ -44,10 +37,6 @@ export class MockDatabaseService {
     if (status === 'completed') {
       return this.mockCompletedOrders;
     } else if (status === 'all') {
-      // mockAllOrders가 설정되어 있으면 그것을 사용, 아니면 new + completed 합산
-      if (this.mockAllOrders.length > 0) {
-        return this.mockAllOrders;
-      }
       return [...this.mockNewOrders, ...this.mockCompletedOrders];
     } else {
       return this.mockNewOrders;
@@ -74,13 +63,7 @@ export class MockDatabaseService {
    * @returns 주문 데이터 또는 null
    */
   async getOrderByRowNumber(rowNumber: number): Promise<SheetRow | null> {
-    // 모든 주문(new + completed + all)에서 검색
-    const allOrders = [
-      ...this.mockNewOrders,
-      ...this.mockCompletedOrders,
-      ...this.mockAllOrders,
-    ];
-
+    const allOrders = [...this.mockNewOrders, ...this.mockCompletedOrders];
     const order = allOrders.find((o) => o._rowNumber === rowNumber);
     return order || null;
   }
@@ -93,14 +76,58 @@ export class MockDatabaseService {
     if (rowNumbers) {
       // 명시적으로 전달된 행 번호만 확인
       this.confirmedCount = rowNumbers.length;
-      // 해당 행들을 mockNewOrders에서 제거
+
+      // 해당 행들을 mockNewOrders에서 mockCompletedOrders로 이동
+      const toConfirm = this.mockNewOrders.filter((order) =>
+        rowNumbers.includes(order._rowNumber || 0)
+      );
+
+      toConfirm.forEach((order) => {
+        order['비고'] = '확인';
+        this.mockCompletedOrders.push(order);
+      });
+
       this.mockNewOrders = this.mockNewOrders.filter(
         (order) => !rowNumbers.includes(order._rowNumber || 0)
       );
     } else {
       // 하위 호환성: 모든 주문 확인
       this.confirmedCount = this.mockNewOrders.length;
+
+      // 모든 신규 주문을 완료로 이동
+      this.mockNewOrders.forEach((order) => {
+        order['비고'] = '확인';
+        this.mockCompletedOrders.push(order);
+      });
+
       this.mockNewOrders = []; // 확인 후 비우기
+    }
+  }
+
+  /**
+   * 단일 주문 확인 처리 (mock)
+   * @param rowNumber - 확인 처리할 행 번호
+   */
+  async markSingleAsConfirmed(rowNumber: number): Promise<void> {
+    return this.markAsConfirmed([rowNumber]);
+  }
+
+  /**
+   * 특정 셀 업데이트 (mock)
+   * @param rowNumber - 행 번호
+   * @param columnName - 컬럼명
+   * @param value - 업데이트할 값
+   */
+  async updateCell(rowNumber: number, columnName: string, value: string): Promise<void> {
+    const allOrders = [...this.mockNewOrders, ...this.mockCompletedOrders];
+    const order = allOrders.find((o) => o._rowNumber === rowNumber);
+
+    if (order) {
+      // 컬럼명 매핑
+      if (columnName === '비고') {
+        order['비고'] = value;
+      }
+      // 추가 매핑 필요 시 여기에 추가
     }
   }
 
@@ -108,24 +135,34 @@ export class MockDatabaseService {
    * 주문 생성 또는 업데이트 (mock)
    * 실제 DatabaseService의 upsertOrder와 동일한 시그니처
    */
-  async upsertOrder(row: SheetRow): Promise<void> {
+  async upsertOrder(
+    row: SheetRow,
+    syncMeta?: {
+      syncStatus: 'pending' | 'success' | 'failed';
+      syncAttemptCount?: number;
+      syncErrorMessage?: string;
+    }
+  ): Promise<Partial<PrismaOrder>> {
     const rowNumber = row._rowNumber || 0;
 
     // 기존 주문 찾기
-    const allOrders = [
-      ...this.mockNewOrders,
-      ...this.mockCompletedOrders,
-      ...this.mockAllOrders,
-    ];
-
+    const allOrders = [...this.mockNewOrders, ...this.mockCompletedOrders];
     const existingIndex = allOrders.findIndex((o) => o._rowNumber === rowNumber);
 
     if (existingIndex >= 0) {
       // 업데이트: 기존 데이터를 새 데이터로 교체
       if (row['비고'] === '확인') {
         // 완료된 주문으로 이동
-        this.mockCompletedOrders.push(row);
-        this.mockNewOrders = this.mockNewOrders.filter((o) => o._rowNumber !== rowNumber);
+        const newIdx = this.mockNewOrders.findIndex((o) => o._rowNumber === rowNumber);
+        if (newIdx >= 0) {
+          this.mockNewOrders.splice(newIdx, 1);
+        }
+        const completedIdx = this.mockCompletedOrders.findIndex((o) => o._rowNumber === rowNumber);
+        if (completedIdx >= 0) {
+          this.mockCompletedOrders[completedIdx] = row;
+        } else {
+          this.mockCompletedOrders.push(row);
+        }
       } else {
         // 신규 주문 업데이트
         const idx = this.mockNewOrders.findIndex((o) => o._rowNumber === rowNumber);
@@ -143,6 +180,17 @@ export class MockDatabaseService {
         this.mockNewOrders.push(row);
       }
     }
+
+    // PrismaOrder 형태로 반환 (최소 필수 필드)
+    return {
+      id: rowNumber,
+      sheetRowNumber: rowNumber,
+      timestampRaw: row['타임스탬프'],
+      senderName: row['보내는분 성함'],
+      status: row['비고'],
+      syncStatus: syncMeta?.syncStatus || 'success',
+      syncAttemptCount: syncMeta?.syncAttemptCount || 1,
+    } as Partial<PrismaOrder>;
   }
 
   /**
@@ -165,7 +213,6 @@ export class MockDatabaseService {
   reset(): void {
     this.mockNewOrders = [];
     this.mockCompletedOrders = [];
-    this.mockAllOrders = [];
     this.confirmedCount = 0;
   }
 }
