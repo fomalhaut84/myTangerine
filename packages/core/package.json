@@ -13,7 +13,8 @@
     }
   },
   "scripts": {
-    "build": "tsup && tsc --emitDeclarationOnly --outDir dist --skipLibCheck",
+    "build": "tsup",
+    "build:types": "tsc --emitDeclarationOnly --outDir dist --skipLibCheck",
     "dev": "tsup --watch",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
