@@ -78,6 +78,12 @@ Phase 3: 상태 시스템 개편 (2-3주)
   - `order.quantity` 필드 사용으로 수량 문제 해결
   - `sheetRowToOrder(row, config)` 호출로 디폴트 정보 표시
 
+### P0/P1 보안 및 동시성 개선
+- **API Key 보호**: Next.js API Route Proxy(`packages/web/src/app/api/sync/route.ts`)를 추가해 `API_SECRET_KEY`를 서버 전용으로 유지하고 `requireApiKey` 미들웨어를 fail-closed로 전환했습니다. 클라이언트는 proxy를 통해서만 sync를 호출해 비밀 키 노출을 차단합니다.
+- **분산 락 시스템**: `@mytangerine/core`에 `DistributedLockService`를 도입해 API와 Sync Service가 동일한 Prisma `DistributedLock` 테이블을 공유합니다. 락 TTL을 20분으로 늘려 장시간 싱크도 안전하며 graceful shutdown 시 진행 중 작업이 완료될 때까지 대기합니다.
+- **타임아웃 정렬**: Lock TTL, SyncEngine 실행 시간, Next.js proxy timeout을 모두 20분으로 정렬했습니다. Fastify 라우트별 timeout 미지원 사실을 주석으로 남겨 운영 리스크를 명시했습니다.
+- **타입 안정성**: `withDistributedLock` 헬퍼가 null-safe하게 개선되어 락 획득 실패/만료 상황을 타입 수준에서 처리합니다. PollingScheduler는 promise 추적을 추가해 수동 싱크와 예약 싱크 모두 graceful shutdown 범위에 포함됩니다.
+
 ---
 
 ## 이슈 #64: 주문 목록 검색 범위 확장 및 검색 상태 유지
@@ -326,5 +332,6 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 - 2025-12-10: **Phase 1 완료** ✅
 - 2025-11-25: **Phase 2.1 시작** (PostgreSQL 마이그레이션)
 - 2025-12-12: #98 시작 및 완료 (PR #101 - PDF 내보내기)
+- 2025-12-12: P0/P1 보안 · 동시성 개선 (PR #101 - API Key 보호, 분산 락)
 - 2025-12-12: **Phase 2.1 완료** ✅ (Sync Service 구현)
 - 2025-12-12: docs/sync-service.md 문서 추가

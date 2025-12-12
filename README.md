@@ -16,6 +16,7 @@ myTangerine은 구글 스프레드시트에 접수된 감귤 주문을 자동으
 - 📱 **전화번호 자동 포맷팅**: 010-XXXX-XXXX 형식으로 자동 변환
 - 📦 **주문 요약 및 통계**: 5kg/10kg 박스별 수량 및 금액 집계, 월별 통계
 - 📥 **데이터 내보내기**: CSV/Excel/PDF 다운로드 (한글 폰트 지원)
+- 🛡️ **보안/동시 실행 제어**: 서버 전용 API 키 + Next.js Proxy + DB 기반 분산 락(20분 TTL)로 sync 충돌과 비밀 노출 방지
 - 📊 **차트 및 분석**: 월별 매출 추이, 상품별 분석
 - ✅ **주문 확인 처리**: 개별/일괄 주문 확인
 - 🎨 **다크모드 지원**: 시스템 테마 자동 감지
@@ -391,21 +392,27 @@ Google Forms → Google Sheets (원본 보관)
 - **요약 정보**: 5kg/10kg 수량 및 금액 자동 계산
 - **PDF 내보내기**: 선택된 항목만 한글 PDF로 생성 (NanumGothicCoding 폰트)
 
-### 4. 전화번호 자동 포맷팅
+### 4. 보안 및 동시 실행 제어
+- Next.js API Route Proxy(`packages/web/src/app/api/sync/route.ts`)가 sync 호출을 서버 사이드에서 서명하고 브라우저에는 `API_SECRET_KEY`를 노출하지 않습니다.
+- `requireApiKey` 미들웨어는 fail-closed 동작으로 잘못된 키에 즉시 401을 반환하며, `API_SECRET_KEY`는 `.env`에서 서버 전용으로 관리됩니다.
+- `DistributedLockService`가 Prisma `DistributedLock` 모델을 사용해 Sync Service, API, 수동 트리거 간 단일 실행을 보장합니다. TTL과 Next.js proxy timeout은 20분으로 통일해 장시간 작업도 안전하게 처리합니다.
+- PollingScheduler가 진행 중 promise를 추적해 수동 싱크와 예약 싱크 모두 graceful shutdown 범위에 포함하고, 락은 작업이 완료될 때 해제됩니다.
+
+### 5. 전화번호 자동 포맷팅
 - 10자리 숫자 → 11자리로 자동 변환 (010 접두사 추가)
 - 11자리 010 번호 → 010-XXXX-XXXX 형식으로 변환
 
-### 5. 발송인 정보 대체
+### 6. 발송인 정보 대체
 - 주문서에 발송인 정보가 없거나 불완전한 경우
 - `.env`에 설정된 `DEFAULT_SENDER` 정보를 자동으로 사용
 
-### 6. 키보드 단축키
+### 7. 키보드 단축키
 - `Alt + D`: 대시보드로 이동
 - `Alt + O`: 주문 관리로 이동
 - `Alt + L`: 라벨 관리로 이동
 - `/`: 검색 입력란 포커스 (주문 페이지)
 
-### 7. PWA 기능
+### 8. PWA 기능
 - 오프라인 모드 지원
 - 홈 화면에 앱 설치 가능
 - Service Worker를 통한 캐싱
