@@ -35,9 +35,6 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
-
-      - name: Generate Prisma Client
-        run: pnpm --filter @mytangerine/core prisma:generate
         env:
           DATABASE_URL: postgresql://user:password@localhost:5432/test
 
