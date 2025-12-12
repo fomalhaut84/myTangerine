@@ -42,6 +42,9 @@ function getApiBaseUrl(): string {
 
 const apiBaseUrl = getApiBaseUrl();
 
+// API Base URL을 다른 모듈에서 사용할 수 있도록 export
+export { apiBaseUrl };
+
 export const api = ky.create({
   prefixUrl: apiBaseUrl,
   headers: {
@@ -130,4 +133,37 @@ export async function getGroupedLabels(status?: 'new' | 'completed' | 'all'): Pr
  */
 export async function getOrderStats(params?: StatsQueryParams): Promise<StatsResponse> {
   return api.get('api/orders/stats', { searchParams: params as Record<string, string> }).json<StatsResponse>();
+}
+
+/**
+ * 수동 데이터 동기화 (Google Sheets → PostgreSQL)
+ * Next.js API route를 통해 프록시 (보안을 위해 서버 사이드에서만 API 키 사용)
+ */
+export async function syncData(): Promise<{
+  success: boolean;
+  message: string;
+  result: {
+    total: number;
+    success: number;
+    failed: number;
+    skipped: number;
+    errors: Array<{ rowNumber: number; error: string }>;
+  };
+}> {
+  // Next.js API route를 통해 프록시
+  const response = await fetch('/api/sync', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({}),
+    // 15분 타임아웃은 서버 사이드에서 처리
+  });
+
+  if (!response.ok) {
+    const error = await response.json();
+    throw new Error(error.message || 'Sync failed');
+  }
+
+  return response.json();
 }

@@ -216,6 +216,59 @@ export default function LabelsPage() {
     }
   };
 
+  const handleDownloadPDF = async () => {
+    if (selectedGroups.size === 0) {
+      toast.error('선택된 라벨이 없습니다.');
+      return;
+    }
+
+    const toastId = toast.loading('PDF 파일을 생성하는 중입니다...');
+
+    try {
+      // 선택된 그룹의 모든 주문 추출
+      const selectedData = filteredGroups.filter((group) =>
+        selectedGroups.has(getGroupId(group))
+      );
+      const selectedOrders = selectedData.flatMap(group => group.orders);
+
+      // API 엔드포인트 URL 구성
+      const params = new URLSearchParams();
+      params.append('limit', selectedOrders.length.toString());
+
+      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'}/api/orders/report?${params.toString()}`;
+
+      // PDF 다운로드
+      const response = await fetch(apiUrl);
+
+      if (!response.ok) {
+        throw new Error('PDF 생성에 실패했습니다.');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+
+      // 파일명 생성 (응답 헤더에서 가져오거나 기본값 사용)
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const filename = filenameMatch ? filenameMatch[1] : `labels-${dateStr}.pdf`;
+
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+
+      toast.success(`${selectedOrders.length}개의 주문을 PDF로 다운로드했습니다.`, { id: toastId });
+    } catch (error) {
+      console.error('PDF 다운로드 실패:', error);
+      toast.error('PDF 파일 다운로드에 실패했습니다.', { id: toastId });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -269,6 +322,14 @@ export default function LabelsPage() {
                 className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
               >
                 {confirmSingleMutation.isPending ? '처리 중...' : `확인 (${selectedGroups.size})`}
+              </button>
+
+              <button
+                onClick={handleDownloadPDF}
+                disabled={selectedGroups.size === 0}
+                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              >
+                PDF ({selectedGroups.size})
               </button>
             </div>
 

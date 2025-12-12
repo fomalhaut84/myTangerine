@@ -9,12 +9,13 @@ myTangerine은 구글 스프레드시트에 접수된 감귤 주문을 자동으
 ## 주요 기능
 
 - 📊 **구글 스프레드시트 연동**: 실시간으로 새로운 주문 데이터 조회
+- 🗄️ **PostgreSQL 통합**: Sync Service를 통한 자동 동기화 (Phase 2.1)
 - 🌐 **웹 UI**: Next.js 기반 현대적인 대시보드 및 주문 관리 인터페이스
 - 🔌 **REST API**: Fastify 기반 고성능 API 서버
 - 🏷️ **배송 라벨 관리**: 날짜/발송인별 그룹화, 필터링, 다중 선택
 - 📱 **전화번호 자동 포맷팅**: 010-XXXX-XXXX 형식으로 자동 변환
 - 📦 **주문 요약 및 통계**: 5kg/10kg 박스별 수량 및 금액 집계, 월별 통계
-- 📥 **CSV/Excel 다운로드**: 주문 데이터 내보내기
+- 📥 **데이터 내보내기**: CSV/Excel/PDF 다운로드 (한글 폰트 지원)
 - 📊 **차트 및 분석**: 월별 매출 추이, 상품별 분석
 - ✅ **주문 확인 처리**: 개별/일괄 주문 확인
 - 🎨 **다크모드 지원**: 시스템 테마 자동 감지
@@ -34,6 +35,8 @@ myTangerine은 구글 스프레드시트에 접수된 감귤 주문을 자동으
 - **Fastify** (REST API 서버)
 - **TypeScript**
 - **Google Sheets API** (데이터 소스)
+- **PostgreSQL** + **Prisma** (데이터베이스)
+- **Sync Service** (Google Sheets → PostgreSQL 동기화)
 - **Zod** (스키마 검증)
 
 ### 모노레포
@@ -222,10 +225,11 @@ myTangerine/
 │   ├── core/                    # 핵심 비즈니스 로직
 │   │   ├── src/
 │   │   │   ├── config/          # 설정 관리
-│   │   │   ├── services/        # Google Sheets 서비스
-│   │   │   ├── formatters/      # 라벨 포맷팅
+│   │   │   ├── services/        # SheetService, DatabaseService
+│   │   │   ├── formatters/      # 라벨/PDF 포맷팅
 │   │   │   ├── types/           # TypeScript 타입 정의
 │   │   │   └── index.ts
+│   │   ├── prisma/              # Prisma 스키마
 │   │   ├── __tests__/           # 테스트
 │   │   ├── package.json
 │   │   └── tsup.config.ts
@@ -236,8 +240,20 @@ myTangerine/
 │   │   │   │   ├── orders.ts    # 주문 관련 API
 │   │   │   │   └── labels.ts    # 라벨 관련 API
 │   │   │   ├── plugins/         # Fastify 플러그인
-│   │   │   ├── core.ts          # Core 서비스 주입
+│   │   │   │   ├── core.ts      # Core 서비스 주입
+│   │   │   │   └── prisma.ts    # Prisma 플러그인
+│   │   │   ├── utils/           # PDF 생성 등
 │   │   │   └── index.ts         # 서버 진입점
+│   │   ├── assets/fonts/        # PDF용 한글 폰트
+│   │   ├── package.json
+│   │   └── tsup.config.ts
+│   │
+│   ├── sync-service/            # 동기화 서비스 (Phase 2.1)
+│   │   ├── src/
+│   │   │   ├── services/        # SyncEngine
+│   │   │   ├── schedulers/      # PollingScheduler
+│   │   │   ├── utils/           # Logger
+│   │   │   └── index.ts         # 메인 진입점
 │   │   ├── package.json
 │   │   └── tsup.config.ts
 │   │
@@ -272,17 +288,24 @@ myTangerine/
 
 ## 아키텍처 및 데이터 흐름
 
-### 전체 흐름
+### 전체 흐름 (Phase 2.1 하이브리드 아키텍처)
 
 ```
-웹 브라우저 (Next.js)
-    ↓ HTTP Request
-REST API 서버 (Fastify)
-    ↓ 서비스 호출
-Core 비즈니스 로직
-    ↓ Google Sheets API
-구글 스프레드시트 ("감귤 주문서(응답)")
+Google Forms → Google Sheets (원본 보관)
+                    ↓
+              Sync Service (폴링, 1분 간격)
+                    ↓
+              PostgreSQL (단일 소스)
+                    ↓
+웹 브라우저 ← REST API ← Core 비즈니스 로직
 ```
+
+**Phase 2.1 특징**:
+- **읽기**: 애플리케이션은 PostgreSQL에서만 데이터 조회 (성능 향상)
+- **쓰기**: Sync Service가 Google Sheets → PostgreSQL 단방향 동기화
+- **원본**: Google Sheets는 원본 보관 및 감사 로그 역할
+
+> **참고**: Sync Service에 대한 자세한 내용은 [docs/sync-service.md](docs/sync-service.md)를 참고하세요.
 
 ### 주문 조회 흐름
 
@@ -332,6 +355,7 @@ Core 비즈니스 로직
 - `GET /api/orders` - 미확인 주문 목록 조회
 - `GET /api/orders/summary` - 주문 요약 통계
 - `GET /api/orders/stats/monthly` - 월별 주문 통계
+- `GET /api/orders/report` - PDF 형식 주문 목록 다운로드 (필터링/정렬 지원)
 - `POST /api/orders/confirm` - 전체 주문 확인 처리
 - `POST /api/orders/:rowNumber/confirm` - 개별 주문 확인 처리
 
@@ -350,20 +374,22 @@ Core 비즈니스 로직
 - 빠른 액션 (주문 관리, 라벨 생성)
 
 ### 2. 주문 관리
-- 검색: 이름, 전화번호, 주소로 검색
-- 필터링: 상품 타입별 (전체/5kg/10kg)
+- 검색: 발송인/수취인 이름, 전화번호, 주소로 검색
+- 필터링: 상태별, 상품 타입별 (전체/5kg/10kg)
 - 정렬: 날짜순/이름순
 - 페이지네이션: 20건씩 표시
-- CSV/Excel 다운로드
+- 데이터 내보내기: CSV/Excel/PDF 다운로드
 - 개별/일괄 주문 확인 처리
 
 ### 3. 라벨 관리
 - **그리드 뷰**: 날짜/발송인별 그룹 카드 표시
-- **필터링**: 날짜 및 발송인으로 검색
+- **필터링**: 상태별, 날짜, 발송인으로 검색
+- **정렬**: 날짜순/발송인순 (오름차순/내림차순)
 - **다중 선택**: 원하는 그룹만 선택
-- **일괄 처리**: 선택된 그룹만 복사/출력/확인
+- **일괄 처리**: 선택된 그룹만 복사/출력/확인/PDF
 - **접기/펼치기**: 각 그룹의 상세 주문 내역 토글
 - **요약 정보**: 5kg/10kg 수량 및 금액 자동 계산
+- **PDF 내보내기**: 선택된 항목만 한글 PDF로 생성 (NanumGothicCoding 폰트)
 
 ### 4. 전화번호 자동 포맷팅
 - 10자리 숫자 → 11자리로 자동 변환 (010 접두사 추가)

@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -14,6 +14,7 @@ import {
   type StatsResponse,
 } from '../utils/stats.js';
 import { InMemoryCache } from '../utils/cache.js';
+import { generatePdfBuffer } from '../utils/pdf-generator.js';
 
 /**
  * 통계 데이터를 CSV 형식으로 변환
@@ -276,6 +277,183 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       confirmedCount: newOrders.length,
     };
   });
+
+  /**
+   * GET /api/orders/report
+   * 주문 목록 PDF 내보내기
+   * Issue #98: 주문 목록 PDF 내보내기
+   */
+  fastify.get(
+    '/api/orders/report',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'PDF 형식으로 주문 목록 다운로드',
+        description: '필터링된 주문 목록을 PDF 파일로 생성하여 다운로드합니다.',
+        querystring: {
+          type: 'object',
+          properties: {
+            status: {
+              type: 'string',
+              description: '주문 상태 필터 (예: 확인, 미확인)',
+            },
+            from: {
+              type: 'string',
+              format: 'date',
+              description: '시작 날짜 (YYYY-MM-DD)',
+            },
+            to: {
+              type: 'string',
+              format: 'date',
+              description: '종료 날짜 (YYYY-MM-DD)',
+            },
+            sort: {
+              type: 'string',
+              enum: ['timestamp', 'status'],
+              default: 'timestamp',
+              description: '정렬 기준',
+            },
+            order: {
+              type: 'string',
+              enum: ['asc', 'desc'],
+              default: 'desc',
+              description: '정렬 순서',
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 1000,
+              default: 100,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'string',
+            description: 'PDF 파일 (application/pdf)',
+          },
+          500: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { status, from, to, sort, order, limit, offset } = request.query as {
+        status?: string;
+        from?: string;
+        to?: string;
+        sort?: 'timestamp' | 'status';
+        order?: 'asc' | 'desc';
+        limit?: number;
+        offset?: number;
+      };
+
+      try {
+        // SheetService에서 모든 주문 가져오기
+        const allRows = await fastify.core.sheetService.getAllRows();
+        let orders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
+
+        // 필터링: status
+        if (status) {
+          orders = orders.filter((order) => order.status === status);
+        }
+
+        // 필터링: from/to (날짜 범위)
+        if (from || to) {
+          const fromDate = from ? new Date(from) : new Date(0);
+          const toDate = to ? new Date(to) : new Date();
+          toDate.setHours(23, 59, 59, 999); // 종료일 포함
+
+          orders = orders.filter((order) => {
+            const orderDate = new Date(order.timestamp);
+            return orderDate >= fromDate && orderDate <= toDate;
+          });
+        }
+
+        // 정렬
+        const sortField = sort || 'timestamp';
+        const sortOrder = order || 'desc';
+
+        orders.sort((a, b) => {
+          let aVal: any;
+          let bVal: any;
+
+          if (sortField === 'timestamp') {
+            aVal = new Date(a.timestamp).getTime();
+            bVal = new Date(b.timestamp).getTime();
+          } else if (sortField === 'status') {
+            aVal = a.status;
+            bVal = b.status;
+          } else {
+            aVal = 0;
+            bVal = 0;
+          }
+
+          if (sortOrder === 'asc') {
+            return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+          } else {
+            return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+          }
+        });
+
+        // 페이지네이션
+        const limitVal = limit || 100;
+        const offsetVal = offset || 0;
+        const paginatedOrders = orders.slice(offsetVal, offsetVal + limitVal);
+
+        // PDF 데이터 변환
+        const pdfRows = mapOrdersToPdfRows(paginatedOrders);
+
+        // 필터 설명 생성
+        const filterParts: string[] = [];
+        if (status) filterParts.push(`상태: ${status}`);
+        if (from) filterParts.push(`시작: ${from}`);
+        if (to) filterParts.push(`종료: ${to}`);
+        const filterDescription =
+          filterParts.length > 0 ? `필터: ${filterParts.join(', ')}` : undefined;
+
+        // PDF 생성
+        const pdfBuffer = await generatePdfBuffer(pdfRows, {
+          title: '주문 목록 보고서',
+          includeTimestamp: true,
+          filterDescription,
+          pageOrientation: 'landscape',
+          pageSize: 'A4',
+        });
+
+        // 파일명 생성 (YYYYMMDD 형식)
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const filename = `orders-report-${dateStr}.pdf`;
+
+        // 응답 헤더 설정
+        reply.header('Content-Type', 'application/pdf');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        reply.header('X-Order-Count', paginatedOrders.length.toString());
+        reply.header('X-Generated-At', now.toISOString());
+
+        return reply.send(pdfBuffer);
+      } catch (error) {
+        fastify.log.error(error, 'PDF 생성 중 오류 발생');
+        return reply.status(500).send({
+          error: 'PDF_GENERATION_ERROR',
+          message: error instanceof Error ? error.message : 'PDF 생성 실패',
+        });
+      }
+    }
+  );
 
   /**
    * GET /api/orders/:rowNumber
