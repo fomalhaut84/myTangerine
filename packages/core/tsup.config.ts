@@ -10,4 +10,5 @@ export default defineConfig({
   minify: false,
   treeshake: true,
   outDir: 'dist',
+  external: ['@prisma/client'],
 });
