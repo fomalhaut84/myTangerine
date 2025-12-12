@@ -7,10 +7,13 @@
  * Issue #68 Phase 2.1: Google Sheets → PostgreSQL 하이브리드 시스템
  */
 
-import { PrismaClient, type Order as PrismaOrder } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
 import type { SheetRow } from '../types/order.js';
 import { parseKoreanTimestamp, validateProductSelection, extractQuantity } from '../types/order.js';
 import type { Config } from '../config/config.js';
+
+// Prisma Order 타입 정의 (runtime에서 자동 추론됨)
+type PrismaOrder = Awaited<ReturnType<PrismaClient['order']['findUnique']>> & object;
 
 /**
  * PostgreSQL 기반 데이터베이스 서비스
@@ -18,11 +21,10 @@ import type { Config } from '../config/config.js';
  */
 export class DatabaseService {
   private prisma: PrismaClient;
-  private config: Config;
   private ownsPrisma: boolean;
 
-  constructor(config: Config, prisma?: PrismaClient) {
-    this.config = config;
+  constructor(_config: Config, prisma?: PrismaClient) {
+    // config는 미래 확장용으로 보관
 
     // PrismaClient 자체 생성 또는 주입 (테스트 용이성)
     if (prisma) {
@@ -123,7 +125,7 @@ export class DatabaseService {
         orderBy: { timestamp: 'desc' },
       });
 
-      return orders.map((order) => this.prismaOrderToSheetRow(order));
+      return orders.map((order: PrismaOrder) => this.prismaOrderToSheetRow(order));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to get orders by status '${status}': ${message}`);
