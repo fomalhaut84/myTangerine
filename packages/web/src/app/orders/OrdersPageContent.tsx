@@ -231,62 +231,6 @@ export function OrdersPageContent() {
     }
   };
 
-  const handleDownloadPDF = async () => {
-    if (filteredAndSortedOrders.length === 0) {
-      toast.error('다운로드할 주문이 없습니다.');
-      return;
-    }
-
-    const toastId = toast.loading('PDF 파일을 생성하는 중입니다...');
-
-    try {
-      // API 엔드포인트 URL 구성
-      const params = new URLSearchParams();
-
-      // 상태 필터
-      if (statusFilter && statusFilter !== 'all') {
-        params.append('status', statusFilter === 'new' ? '' : '확인');
-      }
-
-      // 정렬
-      params.append('sort', sortField === 'date' ? 'timestamp' : sortField);
-      params.append('order', sortOrder);
-
-      // 전체 필터링된 주문 다운로드 (페이지네이션 무시)
-      params.append('limit', filteredAndSortedOrders.length.toString());
-
-      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'}/api/orders/report?${params.toString()}`;
-
-      // PDF 다운로드
-      const response = await fetch(apiUrl);
-
-      if (!response.ok) {
-        throw new Error('PDF 생성에 실패했습니다.');
-      }
-
-      const blob = await response.blob();
-      const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-
-      // 파일명 생성 (응답 헤더에서 가져오거나 기본값 사용)
-      const contentDisposition = response.headers.get('Content-Disposition');
-      const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
-      const filename = filenameMatch ? filenameMatch[1] : getExportFilename('주문목록', 'pdf');
-
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
-
-      toast.success(`${filteredAndSortedOrders.length}개의 주문을 PDF로 다운로드했습니다.`, { id: toastId });
-    } catch (error) {
-      console.error('PDF 다운로드 실패:', error);
-      toast.error('PDF 파일 다운로드에 실패했습니다.', { id: toastId });
-    }
-  };
-
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -327,18 +271,6 @@ export function OrdersPageContent() {
               className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
             >
               Excel 다운로드
-            </button>
-
-            <button
-              onClick={handleDownloadPDF}
-              disabled={
-                !data?.orders ||
-                data.orders.length === 0 ||
-                filteredAndSortedOrders.length === 0
-              }
-              className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-            >
-              PDF 다운로드
             </button>
 
             <Link

@@ -363,7 +363,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         // SheetService에서 모든 주문 가져오기
         const allRows = await fastify.core.sheetService.getAllRows();
-        let orders = allRows.map((row) => sheetRowToOrder(row));
+        let orders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 필터링: status
         if (status) {

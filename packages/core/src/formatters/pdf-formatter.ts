@@ -14,18 +14,16 @@ import type { PdfTableRow } from '../types/pdf.js';
  * @returns PDF 테이블 행 데이터
  */
 export function mapOrderToPdfRow(order: Order, index: number): PdfTableRow {
-  // 수량 계산 (5kg + 10kg)
-  const quantity = (order.quantity5kg || 0) + (order.quantity10kg || 0);
+  // 수량은 Order 객체에 이미 계산되어 있음
+  const quantity = order.quantity;
 
-  // 품목명 결정
+  // 품목명 결정 (productType 또는 validationError 사용)
   let productType = '-';
-  if (order.quantity5kg > 0 && order.quantity10kg > 0) {
-    productType = '5kg/10kg';
-  } else if (order.quantity5kg > 0) {
-    productType = '5kg';
-  } else if (order.quantity10kg > 0) {
-    productType = '10kg';
+  if (order.validationError) {
+    // 검증 에러가 있으면 에러 메시지 표시
+    productType = `[오류] ${order.validationError}`;
   } else if (order.productType) {
+    // 정상적인 상품 타입
     productType = order.productType;
   }
 
