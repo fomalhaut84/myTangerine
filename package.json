@@ -7,7 +7,12 @@
     "build": "pnpm -r build",
     "test": "pnpm -r test",
     "lint": "pnpm -r lint",
-    "clean": "pnpm -r clean"
+    "clean": "pnpm -r clean",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "prisma:deploy": "prisma migrate deploy"
   },
   "keywords": [
     "order-management",
@@ -27,10 +32,12 @@
     }
   },
   "devDependencies": {
+    "@prisma/client": "^6.0.0",
     "@typescript-eslint/eslint-plugin": "^7.0.0",
     "@typescript-eslint/parser": "^6.21.0",
     "eslint": "^8.57.1",
     "prettier": "^3.0.0",
+    "prisma": "^6.0.0",
     "typescript": "^5.0.0"
   }
 }
