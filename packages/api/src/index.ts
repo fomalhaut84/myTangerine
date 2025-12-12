@@ -12,6 +12,7 @@ import prismaPlugin from './plugins/prisma.js';
 import corePlugin from './plugins/core.js';
 import ordersRoutes from './routes/orders.js';
 import labelsRoutes from './routes/labels.js';
+import syncRoutes from './routes/sync.js';
 import { errorHandler } from './middleware/error-handler.js';
 
 /**
@@ -66,6 +67,7 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
       tags: [
         { name: 'orders', description: '주문 관리 API' },
         { name: 'labels', description: '배송 라벨 생성 API' },
+        { name: 'sync', description: '데이터 동기화 API' },
       ],
       components: {
         schemas: {
@@ -345,6 +347,7 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
   // API 라우트 등록
   await server.register(ordersRoutes);
   await server.register(labelsRoutes);
+  await server.register(syncRoutes);
 
   return server;
 }

@@ -293,6 +293,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         querystring: {
           type: 'object',
           properties: {
+            rowNumbers: {
+              type: 'string',
+              description: '선택된 행 번호들 (쉼표로 구분, 예: "2,3,5")',
+            },
             status: {
               type: 'string',
               description: '주문 상태 필터 (예: 확인, 미확인)',
@@ -350,7 +354,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { status, from, to, sort, order, limit, offset } = request.query as {
+      const { rowNumbers, status, from, to, sort, order, limit, offset } = request.query as {
+        rowNumbers?: string;
         status?: string;
         from?: string;
         to?: string;
@@ -365,53 +370,93 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         const allRows = await fastify.core.sheetService.getAllRows();
         let orders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
-        // 필터링: status
-        if (status) {
-          orders = orders.filter((order) => order.status === status);
-        }
+        // rowNumbers 파라미터가 있으면 해당 행만 선택
+        if (rowNumbers) {
+          const tokens = rowNumbers.split(',').map((n) => n.trim());
 
-        // 필터링: from/to (날짜 범위)
-        if (from || to) {
-          const fromDate = from ? new Date(from) : new Date(0);
-          const toDate = to ? new Date(to) : new Date();
-          toDate.setHours(23, 59, 59, 999); // 종료일 포함
+          // 검증: 각 토큰이 정수인지 확인 (정규식으로 엄격하게 검증)
+          const isValidInteger = /^\d+$/;
+          const invalidTokens = tokens.filter((token) => !isValidInteger.test(token));
 
-          orders = orders.filter((order) => {
-            const orderDate = new Date(order.timestamp);
-            return orderDate >= fromDate && orderDate <= toDate;
+          if (invalidTokens.length > 0) {
+            return reply.code(400).send({
+              error: 'Invalid row numbers',
+              message: `rowNumbers must be comma-separated positive integers. Invalid: ${invalidTokens.join(', ')}`,
+            });
+          }
+
+          const rowNumbersArray = tokens.map((n) => parseInt(n, 10));
+
+          // 검증: 1000건 제한
+          if (rowNumbersArray.length > 1000) {
+            return reply.code(400).send({
+              error: 'Too many rows',
+              message: 'Cannot select more than 1000 rows at once',
+            });
+          }
+
+          // rowNumber로 필터링
+          const rowNumbersSet = new Set(rowNumbersArray);
+          orders = orders.filter((order) => rowNumbersSet.has(order.rowNumber ?? -1));
+
+          // 사용자가 지정한 순서대로 정렬
+          orders.sort((a, b) => {
+            const aIndex = rowNumbersArray.indexOf(a.rowNumber!);
+            const bIndex = rowNumbersArray.indexOf(b.rowNumber!);
+            return aIndex - bIndex;
           });
+        } else {
+          // rowNumbers가 없으면 기존 로직 사용
+          // 필터링: status
+          if (status) {
+            orders = orders.filter((order) => order.status === status);
+          }
+
+          // 필터링: from/to (날짜 범위)
+          if (from || to) {
+            const fromDate = from ? new Date(from) : new Date(0);
+            const toDate = to ? new Date(to) : new Date();
+            toDate.setHours(23, 59, 59, 999); // 종료일 포함
+
+            orders = orders.filter((order) => {
+              const orderDate = new Date(order.timestamp);
+              return orderDate >= fromDate && orderDate <= toDate;
+            });
+          }
+
+          // 정렬
+          const sortField = sort || 'timestamp';
+          const sortOrder = order || 'desc';
+
+          orders.sort((a, b) => {
+            let aVal: any;
+            let bVal: any;
+
+            if (sortField === 'timestamp') {
+              aVal = new Date(a.timestamp).getTime();
+              bVal = new Date(b.timestamp).getTime();
+            } else if (sortField === 'status') {
+              aVal = a.status;
+              bVal = b.status;
+            } else {
+              aVal = 0;
+              bVal = 0;
+            }
+
+            if (sortOrder === 'asc') {
+              return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+            } else {
+              return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+            }
+          });
+
+          // 페이지네이션
+          const limitVal = limit || 100;
+          const offsetVal = offset || 0;
+          orders = orders.slice(offsetVal, offsetVal + limitVal);
         }
 
-        // 정렬
-        const sortField = sort || 'timestamp';
-        const sortOrder = order || 'desc';
-
-        orders.sort((a, b) => {
-          let aVal: any;
-          let bVal: any;
-
-          if (sortField === 'timestamp') {
-            aVal = new Date(a.timestamp).getTime();
-            bVal = new Date(b.timestamp).getTime();
-          } else if (sortField === 'status') {
-            aVal = a.status;
-            bVal = b.status;
-          } else {
-            aVal = 0;
-            bVal = 0;
-          }
-
-          if (sortOrder === 'asc') {
-            return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-          } else {
-            return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
-          }
-        });
-
-        // 페이지네이션
-        const limitVal = limit || 100;
-        const offsetVal = offset || 0;
-        const paginatedOrders = orders.slice(offsetVal, offsetVal + limitVal);
+        const paginatedOrders = orders;
 
         // PDF 데이터 변환
         const pdfRows = mapOrdersToPdfRows(paginatedOrders);
@@ -426,7 +471,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
 
         // PDF 생성
         const pdfBuffer = await generatePdfBuffer(pdfRows, {
-          title: '주문 목록 보고서',
+          title: '형미 주문 목록',
           includeTimestamp: true,
           filterDescription,
           pageOrientation: 'landscape',

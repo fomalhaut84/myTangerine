@@ -456,14 +456,30 @@ export class SheetService {
 
   /**
    * 특정 셀 업데이트
+   * @param row - 행 번호
+   * @param colOrName - 컬럼 번호(1-based) 또는 컬럼 이름
+   * @param value - 업데이트할 값
    */
-  async updateCell(row: number, col: number, value: string): Promise<void> {
+  async updateCell(row: number, colOrName: number | string, value: string): Promise<void> {
     try {
       const spreadsheetId = await this.getSpreadsheetId();
       const sheetName = await this.getFirstSheetName();
 
-      // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ..., 27 -> AA, ...)
-      const colLetter = this.columnToLetter(col);
+      let colLetter: string;
+
+      if (typeof colOrName === 'number') {
+        // 열 번호를 A1 표기법으로 변환 (1 -> A, 2 -> B, ..., 27 -> AA, ...)
+        colLetter = this.columnToLetter(colOrName);
+      } else {
+        // 컬럼 이름을 컬럼 번호로 변환
+        const headers = await this.getHeaders();
+        const colIndex = headers.findIndex(h => h === colOrName);
+        if (colIndex === -1) {
+          throw new Error(`Column '${colOrName}' not found in headers`);
+        }
+        colLetter = this.columnToLetter(colIndex + 1); // 1-based
+      }
+
       const range = `${this.quoteSheetName(sheetName)}!${colLetter}${row}`;
 
       await this.sheets.spreadsheets.values.update({
@@ -477,6 +493,44 @@ export class SheetService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to update cell: ${message}`);
+    }
+  }
+
+  /**
+   * 한 행의 여러 컬럼을 한 번에 업데이트 (배치 업데이트)
+   * @param row - 행 번호 (1-based, 헤더 제외)
+   * @param updates - 업데이트할 컬럼명과 값의 매핑 (예: { 'DB_SYNC_STATUS': 'success', 'DB_SYNC_AT': '2025-12-12 14:30:45' })
+   */
+  async updateRowCells(row: number, updates: Record<string, string>): Promise<void> {
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+      const headers = await this.getHeaders();
+
+      // 각 컬럼명을 컬럼 레터로 변환하여 범위 생성
+      const data: Array<{ range: string; values: string[][] }> = [];
+
+      for (const [columnName, value] of Object.entries(updates)) {
+        const colIndex = headers.findIndex(h => h === columnName);
+        if (colIndex === -1) {
+          throw new Error(`Column '${columnName}' not found in headers`);
+        }
+        const colLetter = this.columnToLetter(colIndex + 1); // 1-based
+        const range = `${this.quoteSheetName(sheetName)}!${colLetter}${row}`;
+        data.push({ range, values: [[value]] });
+      }
+
+      // 배치 업데이트 실행
+      await this.sheets.spreadsheets.values.batchUpdate({
+        spreadsheetId,
+        requestBody: {
+          valueInputOption: 'RAW',
+          data,
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update row cells: ${message}`);
     }
   }
 
