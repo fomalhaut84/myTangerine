@@ -60,9 +60,6 @@ export class PollingScheduler {
     });
 
     logger.info('Polling scheduler started');
-
-    // Graceful shutdown 핸들러
-    this.setupShutdownHandlers();
   }
 
   /**
@@ -129,25 +126,9 @@ export class PollingScheduler {
   }
 
   /**
-   * Graceful shutdown 핸들러 설정
+   * 현재 실행 중인지 확인
    */
-  private setupShutdownHandlers(): void {
-    const shutdown = async (signal: string) => {
-      logger.info({ signal }, 'Received shutdown signal');
-
-      // 실행 중인 싱크가 있으면 완료될 때까지 대기
-      if (this.isRunning) {
-        logger.info('Waiting for current sync to complete...');
-        while (this.isRunning) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-      }
-
-      this.stop();
-      process.exit(0);
-    };
-
-    process.on('SIGINT', () => shutdown('SIGINT'));
-    process.on('SIGTERM', () => shutdown('SIGTERM'));
+  get isSyncRunning(): boolean {
+    return this.isRunning;
   }
 }

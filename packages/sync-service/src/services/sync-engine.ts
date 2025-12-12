@@ -33,68 +33,97 @@ export class SyncEngine {
    * @param rowNumber - 행 번호
    * @param status - 'success' | 'fail'
    * @param orderId - DB의 order ID (선택)
+   * @throws 업데이트 실패 시 에러 throw (호출자가 처리)
    */
   private async updateSheetSyncStatus(
     rowNumber: number,
     status: 'success' | 'fail',
     orderId?: number
   ): Promise<void> {
-    try {
-      // DB_SYNC_STATUS 업데이트
-      await this.sheetService.updateCell(rowNumber, 'DB_SYNC_STATUS', status);
+    // DB_SYNC_STATUS 업데이트
+    await this.sheetService.updateCell(rowNumber, 'DB_SYNC_STATUS', status);
 
-      // DB_SYNC_AT 업데이트 (ISO 8601 형식)
-      const syncTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
-      await this.sheetService.updateCell(rowNumber, 'DB_SYNC_AT', syncTime);
+    // DB_SYNC_AT 업데이트 (ISO 8601 형식)
+    const syncTime = new Date().toISOString().replace('T', ' ').substring(0, 19);
+    await this.sheetService.updateCell(rowNumber, 'DB_SYNC_AT', syncTime);
 
-      // DB_SYNC_ID 업데이트 (성공 시만)
-      if (orderId !== undefined) {
-        await this.sheetService.updateCell(rowNumber, 'DB_SYNC_ID', String(orderId));
-      }
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.warn(
-        { rowNumber, error: message },
-        'Failed to update sheet sync status (non-critical)'
-      );
-      // Sheets 업데이트 실패는 비치명적 - DB 싱크는 성공했으므로 계속 진행
+    // DB_SYNC_ID 업데이트 (성공 시만, 실패 시는 지움)
+    if (status === 'success' && orderId !== undefined) {
+      await this.sheetService.updateCell(rowNumber, 'DB_SYNC_ID', String(orderId));
+    } else if (status === 'fail') {
+      // 실패 시 기존 DB_SYNC_ID 제거
+      await this.sheetService.updateCell(rowNumber, 'DB_SYNC_ID', '');
     }
   }
 
   /**
    * 단일 행 동기화
    * @param row - SheetRow 데이터
-   * @returns 성공 여부 및 order ID
+   * @returns 성공 여부, order ID, 에러 메시지
    */
-  private async syncRow(row: SheetRow): Promise<{ success: boolean; orderId?: number }> {
+  private async syncRow(row: SheetRow): Promise<{
+    success: boolean;
+    orderId?: number;
+    error?: string;
+  }> {
     const rowNumber = row._rowNumber;
 
     if (!rowNumber) {
       logger.warn({ row }, 'Row has no _rowNumber, skipping');
-      return { success: false };
+      return { success: false, error: 'Missing _rowNumber' };
     }
 
     try {
+      // 기존 주문 조회 (syncAttemptCount 확인용)
+      const existingOrder = await this.databaseService.getOrderByRowNumber(rowNumber);
+      const attemptCount = existingOrder ? (existingOrder['_syncAttemptCount'] || 0) + 1 : 1;
+
       // DB에 upsert
       const order = await this.databaseService.upsertOrder(row, {
         syncStatus: 'success',
-        syncAttemptCount: 1,
+        syncAttemptCount: attemptCount,
       });
 
-      logger.debug({ rowNumber, orderId: order.id }, 'Row synced successfully');
+      logger.debug({ rowNumber, orderId: order.id, attemptCount }, 'DB upsert successful');
 
-      // Sheets 싱크 필드 업데이트
-      await this.updateSheetSyncStatus(rowNumber, 'success', order.id);
+      try {
+        // Sheets 싱크 필드 업데이트
+        await this.updateSheetSyncStatus(rowNumber, 'success', order.id);
+        logger.debug({ rowNumber }, 'Sheets sync status updated');
 
-      return { success: true, orderId: order.id };
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error({ rowNumber, error: message }, 'Failed to sync row');
+        return { success: true, orderId: order.id };
+      } catch (sheetError) {
+        // DB upsert 성공, Sheets 업데이트 실패
+        const sheetMessage = sheetError instanceof Error ? sheetError.message : String(sheetError);
+        logger.error(
+          { rowNumber, orderId: order.id, error: sheetMessage },
+          'DB upsert succeeded but Sheets update failed'
+        );
 
-      // DB upsert 실패 시 Sheets에 fail 상태 기록
-      await this.updateSheetSyncStatus(rowNumber, 'fail');
+        return {
+          success: false,
+          orderId: order.id,
+          error: `Sheets update failed: ${sheetMessage}`,
+        };
+      }
+    } catch (dbError) {
+      // DB upsert 실패
+      const dbMessage = dbError instanceof Error ? dbError.message : String(dbError);
+      logger.error({ rowNumber, error: dbMessage }, 'DB upsert failed');
 
-      return { success: false };
+      try {
+        // Sheets에 fail 상태 기록
+        await this.updateSheetSyncStatus(rowNumber, 'fail');
+      } catch (sheetError) {
+        // Sheets 업데이트도 실패
+        const sheetMessage = sheetError instanceof Error ? sheetError.message : String(sheetError);
+        logger.error(
+          { rowNumber, error: sheetMessage },
+          'Failed to update Sheets with fail status'
+        );
+      }
+
+      return { success: false, error: `DB upsert failed: ${dbMessage}` };
     }
   }
 
@@ -129,16 +158,16 @@ export class SyncEngine {
           continue;
         }
 
-        // DB_SYNC_STATUS 확인 (증분 모드: 이미 싱크된 행은 스킵)
-        const syncStatus = row['DB_SYNC_STATUS'] || '';
-        if (syncStatus === 'success') {
-          logger.debug({ rowNumber }, 'Row already synced, skipping');
+        // DB_SYNC_STATUS 확인 (증분 모드: 싱크 상태가 있는 행은 스킵)
+        const syncStatus = row['DB_SYNC_STATUS'];
+        if (syncStatus) {
+          logger.debug({ rowNumber, syncStatus }, 'Row already has sync status, skipping');
           result.skipped++;
           continue;
         }
 
         // 행 동기화
-        const { success } = await this.syncRow(row);
+        const { success, error } = await this.syncRow(row);
 
         if (success) {
           result.success++;
@@ -146,7 +175,7 @@ export class SyncEngine {
           result.failed++;
           result.errors.push({
             rowNumber,
-            error: 'Sync failed (see logs)',
+            error: error || 'Unknown error',
           });
         }
       }
@@ -195,7 +224,7 @@ export class SyncEngine {
           continue;
         }
 
-        const { success } = await this.syncRow(row);
+        const { success, error } = await this.syncRow(row);
 
         if (success) {
           result.success++;
@@ -203,7 +232,7 @@ export class SyncEngine {
           result.failed++;
           result.errors.push({
             rowNumber,
-            error: 'Sync failed (see logs)',
+            error: error || 'Unknown error',
           });
         }
       }

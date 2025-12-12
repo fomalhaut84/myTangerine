@@ -327,7 +327,8 @@ FROM orders
 ORDER BY synced_at DESC
 LIMIT 10;
 
-# 싱크 로그 확인
+# sync_logs 테이블 확인
+# 주의: Phase 2.1에서는 sync_logs에 기록하지 않음 (Phase 2.2+에서 추가 예정)
 SELECT * FROM sync_logs ORDER BY started_at DESC LIMIT 10;
 ```
 

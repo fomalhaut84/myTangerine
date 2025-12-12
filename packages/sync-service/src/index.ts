@@ -47,14 +47,43 @@ async function main() {
 
     scheduler.start();
 
+    // Graceful shutdown 핸들러
+    const shutdown = async (signal: string) => {
+      logger.info({ signal }, 'Received shutdown signal');
+
+      // 스케줄러 중지
+      scheduler.stop();
+
+      // 실행 중인 싱크가 있으면 완료될 때까지 대기
+      if (scheduler.isSyncRunning) {
+        logger.info('Waiting for current sync to complete...');
+        while (scheduler.isSyncRunning) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        logger.info('Current sync completed');
+      }
+
+      // DatabaseService 연결 해제
+      await databaseService.disconnect();
+      logger.info('DatabaseService disconnected');
+
+      logger.info('Graceful shutdown completed');
+      process.exit(0);
+    };
+
+    process.on('SIGINT', () => shutdown('SIGINT'));
+    process.on('SIGTERM', () => shutdown('SIGTERM'));
+
     // 프로세스가 종료되지 않도록 유지
-    process.on('uncaughtException', (error) => {
+    process.on('uncaughtException', async (error) => {
       logger.error({ error: error.message, stack: error.stack }, 'Uncaught exception');
+      await databaseService.disconnect();
       process.exit(1);
     });
 
-    process.on('unhandledRejection', (reason) => {
+    process.on('unhandledRejection', async (reason) => {
       logger.error({ reason }, 'Unhandled rejection');
+      await databaseService.disconnect();
       process.exit(1);
     });
 
