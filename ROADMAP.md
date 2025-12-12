@@ -1,7 +1,7 @@
 # myTangerine 개발 로드맵
 
-> 마지막 업데이트: 2025-12-10
-> 현재 진행: Phase 1 완료, Phase 2 대기
+> 마지막 업데이트: 2025-12-12
+> 현재 진행: Phase 1 완료, Phase 2.1 진행 중, PDF 내보내기 기능 추가
 
 ## 전체 작업 순서
 
@@ -26,12 +26,57 @@ Phase 3: 상태 시스템 개편 (2-3주)
 - **#64: 주문 목록 검색 범위 확장 및 검색 상태 유지** (완료: 2025-12-10, PR #69)
 - **#65: 라벨 생성 기능 개선 - 상태별 필터링** (완료: 2025-12-10, PR #70)
 - **추가 개선: 주문 목록 버그 수정 + 라벨 정렬 기능** (완료: 2025-12-10, PR #72)
+- **#98: 주문 목록 PDF 내보내기 기능** (완료: 2025-12-12, PR #101)
 
 ### 🔄 진행 중
 - 없음
 
 ### ⏳ 대기 중
 - 없음
+
+---
+
+## 이슈 #98: 주문 목록 PDF 내보내기 기능
+
+**상태**: ✅ 완료
+**담당**: Claude Code
+**시작일**: 2025-12-11
+**완료일**: 2025-12-12
+**GitHub**: https://github.com/fomalhaut84/myTangerine/issues/98
+**PR**: https://github.com/fomalhaut84/myTangerine/pull/101
+
+### 요구사항
+- [x] pdfmake 라이브러리 설치 및 한글 폰트 지원
+- [x] PDF 데이터 변환 로직 구현
+- [x] API 엔드포인트 구현 (`GET /api/orders/report`)
+- [x] 라벨 페이지에 PDF 다운로드 기능 추가
+- [x] 선택된 항목만 PDF로 생성
+- [x] 버그 수정 (수량 0 표시, 디폴트 보내는 사람 정보)
+
+### 구현 체크리스트
+- [x] Week 1-2: 백엔드 구현
+  - [x] pdfmake 설치 및 설정
+  - [x] 한글 폰트 (NanumGothicCoding) 추가
+  - [x] PDF 타입 정의 (`PdfTableRow`, `PdfOptions`)
+  - [x] PDF 데이터 변환 (`pdf-formatter.ts`)
+  - [x] PDF 생성 유틸리티 (`pdf-generator.ts`)
+  - [x] API 엔드포인트 구현
+- [x] Week 3: 프론트엔드 통합
+  - [x] 라벨 페이지에 PDF 버튼 추가
+  - [x] 선택된 항목만 처리하도록 구현
+  - [x] 버튼 순서 조정 (복사 → 출력 → 확인 → PDF)
+  - [x] 주문 목록 페이지에서 PDF 기능 제거
+- [x] 버그 수정
+  - [x] 수량이 0으로 표시되는 문제 해결
+  - [x] 디폴트 보내는 사람 정보 미표시 문제 해결
+
+### 작업 노트
+- **PDF 레이아웃**: A4 Landscape, 자동 페이지네이션
+- **한글 폰트**: NanumGothicCoding TTF 사용
+- **API 엔드포인트**: 필터링, 정렬, 페이지네이션 지원
+- **버그 수정**:
+  - `order.quantity` 필드 사용으로 수량 문제 해결
+  - `sheetRowToOrder(row, config)` 호출로 디폴트 정보 표시
 
 ---
 
@@ -152,18 +197,30 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 
 ## Phase 2: 아키텍처 전환 (6-10주)
 
-**상태**: ⏳ 대기 중
-**예상 시작**: Phase 1 완료 후 (또는 병렬 진행)
+**상태**: 🔄 진행 중 (Phase 2.1)
+**시작일**: 2025-11-25
 
 ### 이슈 #68: Google Sheets → PostgreSQL
 
 **GitHub**: https://github.com/fomalhaut84/myTangerine/issues/68
+**계획 문서**: [Phase 2.1 구현 계획](/.claude/plans/jiggly-jingling-adleman.md)
 
-#### Phase 2.1: 인프라 준비 (2-3주)
-- [ ] PostgreSQL 16 인프라 프로비저닝
-- [ ] Prisma 스키마 설계
-- [ ] 싱크 서비스 폴링 버전 구현
-- [ ] 개발/스테이징 환경 구축
+#### Phase 2.1: 인프라 준비 ✅ 완료 (2025-12-12)
+- [x] PostgreSQL 16 인프라 프로비저닝
+- [x] Prisma 스키마 설계 및 마이그레이션
+- [x] 싱크 서비스 폴링 버전 구현
+  - [x] SyncEngine (증분/전체 싱크)
+  - [x] PollingScheduler (node-cron 기반)
+  - [x] Graceful shutdown 처리
+  - [x] Sheets 싱크 필드 업데이트 (DB_SYNC_STATUS, DB_SYNC_AT, DB_SYNC_ID)
+- [x] DatabaseService 구현
+  - [x] Prisma Client 기반 CRUD
+  - [x] upsertOrder() 메서드
+  - [x] 기존 SheetService와 동일한 인터페이스
+- [x] 문서화
+  - [x] [Sync Service 가이드](../docs/sync-service.md) 작성
+
+**참고**: 상세 내용은 [docs/sync-service.md](../docs/sync-service.md) 참조
 
 #### Phase 2.2: 초기 데이터 적재 (1주)
 - [ ] 전체 동기화 실행
@@ -221,7 +278,10 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 | Phase 1 | #64 | ✅ 완료 | 100% | 2025-12-10 | #69 |
 | Phase 1 | #65 | ✅ 완료 | 100% | 2025-12-10 | #70 |
 | Phase 1 | 추가 개선 | ✅ 완료 | 100% | 2025-12-10 | #72 |
-| Phase 2 | #68 | ⏳ 대기 중 | 0% | - | - |
+| 추가 기능 | #98 | ✅ 완료 | 100% | 2025-12-12 | #101 |
+| Phase 2.1 | #68 | ✅ 완료 | 100% | 2025-12-12 | - |
+| Phase 2.2 | #68 | ⏳ 대기 중 | 0% | - | - |
+| Phase 2.3 | #68 | ⏳ 대기 중 | 0% | - | - |
 | Phase 3 | #67 | ⏳ 대기 중 | 0% | - | - |
 | Phase 3 | #66 | ⏳ 대기 중 | 0% | - | - |
 
@@ -264,3 +324,7 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 - 2025-12-10: #65 시작 및 완료 (PR #70)
 - 2025-12-10: 추가 개선 작업 완료 (PR #72 - 주문 목록 버그 수정 + 라벨 정렬 기능)
 - 2025-12-10: **Phase 1 완료** ✅
+- 2025-11-25: **Phase 2.1 시작** (PostgreSQL 마이그레이션)
+- 2025-12-12: #98 시작 및 완료 (PR #101 - PDF 내보내기)
+- 2025-12-12: **Phase 2.1 완료** ✅ (Sync Service 구현)
+- 2025-12-12: docs/sync-service.md 문서 추가
