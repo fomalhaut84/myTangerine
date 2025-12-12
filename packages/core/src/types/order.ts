@@ -71,6 +71,9 @@ export interface SheetRow {
 
   /** 검증 에러 메시지 (검증 실패 시) */
   _validationError?: string;
+
+  /** DB 싱크 시도 횟수 (Phase 2.1+, DB에서 가져온 경우만) */
+  _syncAttemptCount?: number;
 }
 
 /**

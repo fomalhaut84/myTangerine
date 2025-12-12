@@ -14,6 +14,7 @@ export class MockDatabaseService {
   private mockNewOrders: SheetRow[] = [];
   private mockCompletedOrders: SheetRow[] = [];
   private confirmedCount = 0;
+  private syncAttemptCounts = new Map<number, number>(); // rowNumber -> attemptCount
 
   /**
    * Mock 데이터 설정 (신규 주문)
@@ -65,7 +66,14 @@ export class MockDatabaseService {
   async getOrderByRowNumber(rowNumber: number): Promise<SheetRow | null> {
     const allOrders = [...this.mockNewOrders, ...this.mockCompletedOrders];
     const order = allOrders.find((o) => o._rowNumber === rowNumber);
-    return order || null;
+    if (order) {
+      // syncAttemptCount 포함
+      return {
+        ...order,
+        _syncAttemptCount: this.syncAttemptCounts.get(rowNumber) || 0,
+      };
+    }
+    return null;
   }
 
   /**
@@ -144,6 +152,10 @@ export class MockDatabaseService {
     }
   ): Promise<Partial<PrismaOrder>> {
     const rowNumber = row._rowNumber || 0;
+    const attemptCount = syncMeta?.syncAttemptCount || 1;
+
+    // syncAttemptCount Map 업데이트
+    this.syncAttemptCounts.set(rowNumber, attemptCount);
 
     // 기존 주문 찾기
     const allOrders = [...this.mockNewOrders, ...this.mockCompletedOrders];
@@ -189,7 +201,7 @@ export class MockDatabaseService {
       senderName: row['보내는분 성함'],
       status: row['비고'],
       syncStatus: syncMeta?.syncStatus || 'success',
-      syncAttemptCount: syncMeta?.syncAttemptCount || 1,
+      syncAttemptCount: attemptCount,
     } as Partial<PrismaOrder>;
   }
 
@@ -214,5 +226,6 @@ export class MockDatabaseService {
     this.mockNewOrders = [];
     this.mockCompletedOrders = [];
     this.confirmedCount = 0;
+    this.syncAttemptCounts.clear();
   }
 }

@@ -55,6 +55,7 @@ export class DatabaseService {
       '10kg 수량': order.quantity10kg,
       _rowNumber: order.sheetRowNumber || undefined,
       _validationError: order.validationError || undefined,
+      _syncAttemptCount: order.syncAttemptCount,
     };
   }
 
