@@ -13,6 +13,7 @@ export { findProjectRoot } from './utils/find-root.js';
 
 // Services
 export { SheetService } from './services/sheet-service.js';
+export { DatabaseService } from './services/database-service.js';
 
 // Formatters
 export { LabelFormatter } from './formatters/label-formatter.js';

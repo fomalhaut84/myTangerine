@@ -8,6 +8,7 @@ import cors from '@fastify/cors';
 import swagger from '@fastify/swagger';
 import swaggerUi from '@fastify/swagger-ui';
 import { loadEnv, loadPackageMetadata, type Env } from './config.js';
+import prismaPlugin from './plugins/prisma.js';
 import corePlugin from './plugins/core.js';
 import ordersRoutes from './routes/orders.js';
 import labelsRoutes from './routes/labels.js';
@@ -317,6 +318,9 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
       },
     },
   });
+
+  // Prisma 플러그인 등록 (DatabaseService에서 사용)
+  await server.register(prismaPlugin);
 
   // Core 플러그인 등록 (@mytangerine/core 연동)
   await server.register(corePlugin);
