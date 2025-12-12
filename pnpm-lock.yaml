@@ -45,6 +45,9 @@ importers:
       '@fastify/swagger-ui':
         specifier: ^4.0.0
         version: 4.2.0
+      '@fontsource/noto-sans-kr':
+        specifier: ^5.2.8
+        version: 5.2.8
       '@mytangerine/core':
         specifier: workspace:*
         version: link:../core
@@ -1475,6 +1478,9 @@ packages:
 
   '@foliojs-fork/restructure@2.0.2':
     resolution: {integrity: sha512-59SgoZ3EXbkfSX7b63tsou/SDGzwUEK6MuB5sKqgVK1/XE0fxmpsOb9DQI8LXW3KfGnAjImCGhhEb7uPPAUVNA==}
+
+  '@fontsource/noto-sans-kr@5.2.8':
+    resolution: {integrity: sha512-2Nbu2Iy1YGUkHbOTF8mMchipbg8g4ZBTpUzHwg09/dz/9b7r5o5h2PF6hnbismsBp8GzpsBA66OlQJw3GZehuw==}
 
   '@humanfs/core@0.19.1':
     resolution: {integrity: sha512-5DyQ4+1JEUzejeK1JGICcideyfUbGixgS9jNgex5nqkW+cY7WZhxBigmieN5Qnw9ZosSNVC9KQKyb+GUaGyKUA==}
@@ -7476,6 +7482,8 @@ snapshots:
       png-js: 1.0.0
 
   '@foliojs-fork/restructure@2.0.2': {}
+
+  '@fontsource/noto-sans-kr@5.2.8': {}
 
   '@humanfs/core@0.19.1': {}
 

@@ -17,11 +17,11 @@ const __dirname = dirname(__filename);
  * 폰트 정의
  */
 const fonts: TFontDictionary = {
-  NotoSansKR: {
-    normal: join(__dirname, '../../assets/fonts/NotoSansKR-Regular.ttf'),
-    bold: join(__dirname, '../../assets/fonts/NotoSansKR-Bold.ttf'),
-    italics: join(__dirname, '../../assets/fonts/NotoSansKR-Regular.ttf'),
-    bolditalics: join(__dirname, '../../assets/fonts/NotoSansKR-Bold.ttf'),
+  NanumGothicCoding: {
+    normal: join(__dirname, '../../assets/fonts/NanumGothicCoding-Regular.ttf'),
+    bold: join(__dirname, '../../assets/fonts/NanumGothicCoding-Bold.ttf'),
+    italics: join(__dirname, '../../assets/fonts/NanumGothicCoding-Regular.ttf'),
+    bolditalics: join(__dirname, '../../assets/fonts/NanumGothicCoding-Bold.ttf'),
   },
 };
 
@@ -93,7 +93,7 @@ export function createPdfDocumentDefinition(
     pageOrientation,
     pageMargins: [15, 20, 15, 20], // 좌, 상, 우, 하
     defaultStyle: {
-      font: 'NotoSansKR',
+      font: 'NanumGothicCoding',
     },
     content: [
       ...documentHeader,
