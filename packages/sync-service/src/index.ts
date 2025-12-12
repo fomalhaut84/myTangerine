@@ -35,12 +35,12 @@ async function main() {
     const databaseService = new DatabaseService(config);
     logger.info('DatabaseService initialized');
 
-    // SyncEngine 초기화
-    const syncEngine = new SyncEngine(sheetService, databaseService);
+    // SyncEngine 초기화 (logger 전달)
+    const syncEngine = new SyncEngine(sheetService, databaseService, logger);
     logger.info('SyncEngine initialized');
 
     // PollingScheduler 초기화 및 시작
-    const scheduler = new PollingScheduler(syncEngine, {
+    const scheduler = new PollingScheduler(syncEngine, databaseService.prisma, {
       interval: syncInterval,
       enabled: syncEnabled,
     });
@@ -51,17 +51,11 @@ async function main() {
     const shutdown = async (signal: string) => {
       logger.info({ signal }, 'Received shutdown signal');
 
-      // 스케줄러 중지
+      // 스케줄러 중지 (새로운 동기화 예약 중단)
       scheduler.stop();
 
-      // 실행 중인 싱크가 있으면 완료될 때까지 대기
-      if (scheduler.isSyncRunning) {
-        logger.info('Waiting for current sync to complete...');
-        while (scheduler.isSyncRunning) {
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-        logger.info('Current sync completed');
-      }
+      // 실행 중인 동기화 작업 완료 대기 (최대 20분)
+      await scheduler.waitForCurrentSync();
 
       // DatabaseService 연결 해제
       await databaseService.disconnect();

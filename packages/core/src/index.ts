@@ -15,6 +15,12 @@ export { findProjectRoot } from './utils/find-root.js';
 // Services
 export { SheetService } from './services/sheet-service.js';
 export { DatabaseService } from './services/database-service.js';
+export { SyncEngine, type SyncResult, type Logger } from './services/sync-engine.js';
+export {
+  DistributedLockService,
+  withDistributedLock,
+  type DistributedLockOptions,
+} from './services/distributed-lock.js';
 
 // Formatters
 export { LabelFormatter } from './formatters/label-formatter.js';

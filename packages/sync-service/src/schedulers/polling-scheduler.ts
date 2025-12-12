@@ -7,6 +7,8 @@
 
 import cron from 'node-cron';
 import type { SyncEngine } from '../services/sync-engine.js';
+import { withDistributedLock } from '@mytangerine/core';
+import type { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger.js';
 
 /**
@@ -24,12 +26,17 @@ export interface PollingSchedulerConfig {
  */
 export class PollingScheduler {
   private task: cron.ScheduledTask | null = null;
-  private isRunning = false;
+  private processId: string;
+  private currentSyncPromise: Promise<void> | null = null;
 
   constructor(
     private syncEngine: SyncEngine,
+    private prisma: PrismaClient,
     private config: PollingSchedulerConfig
-  ) {}
+  ) {
+    // Process ID 생성 (sync-service + PID + timestamp)
+    this.processId = `sync-service-${process.pid}-${Date.now()}`;
+  }
 
   /**
    * 스케줄러 시작
@@ -55,8 +62,13 @@ export class PollingScheduler {
       'Starting polling scheduler...'
     );
 
-    this.task = cron.schedule(this.config.interval, async () => {
-      await this.runSync();
+    this.task = cron.schedule(this.config.interval, () => {
+      // 동시에 여러 sync가 실행되지 않도록 promise 추적
+      if (!this.currentSyncPromise) {
+        this.currentSyncPromise = this.runSync().finally(() => {
+          this.currentSyncPromise = null;
+        });
+      }
     });
 
     logger.info('Polling scheduler started');
@@ -78,19 +90,35 @@ export class PollingScheduler {
   }
 
   /**
+   * 현재 실행 중인 동기화 작업 대기
+   * Graceful shutdown에 사용
+   */
+  async waitForCurrentSync(): Promise<void> {
+    if (this.currentSyncPromise) {
+      logger.info('Waiting for current sync to complete...');
+      await this.currentSyncPromise;
+      logger.info('Current sync completed');
+    }
+  }
+
+  /**
    * 동기화 실행 (내부용)
+   * DB 기반 분산 락으로 API와 충돌 방지
    */
   private async runSync(): Promise<void> {
-    if (this.isRunning) {
-      logger.warn('Sync already in progress, skipping this cycle');
-      return;
-    }
-
-    this.isRunning = true;
-
     try {
       logger.info('Starting scheduled sync...');
-      const result = await this.syncEngine.incrementalSync();
+
+      // DB 기반 분산 락으로 API 수동 동기화와 충돌 방지
+      const result = await withDistributedLock(
+        this.prisma,
+        'sync',
+        this.processId,
+        async () => {
+          return await this.syncEngine.incrementalSync();
+        },
+        { ttlMs: 20 * 60 * 1000 } // 20분 TTL
+      );
 
       logger.info(
         {
@@ -111,9 +139,13 @@ export class PollingScheduler {
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      logger.error({ error: message }, 'Scheduled sync failed');
-    } finally {
-      this.isRunning = false;
+
+      // 락 획득 실패는 WARNING (API가 실행 중일 수 있음)
+      if (message.includes('Lock') && message.includes('already acquired')) {
+        logger.warn({ error: message }, 'Sync already in progress (manual or another scheduler), skipping this cycle');
+      } else {
+        logger.error({ error: message }, 'Scheduled sync failed');
+      }
     }
   }
 
@@ -122,13 +154,19 @@ export class PollingScheduler {
    */
   async syncNow(): Promise<void> {
     logger.info('Manual sync triggered');
-    await this.runSync();
+
+    // 현재 실행 중인 sync가 있으면 대기
+    if (this.currentSyncPromise) {
+      logger.info('Another sync is in progress, waiting...');
+      await this.currentSyncPromise;
+    }
+
+    // Promise 추적하면서 실행
+    this.currentSyncPromise = this.runSync().finally(() => {
+      this.currentSyncPromise = null;
+    });
+
+    await this.currentSyncPromise;
   }
 
-  /**
-   * 현재 실행 중인지 확인
-   */
-  get isSyncRunning(): boolean {
-    return this.isRunning;
-  }
 }
