@@ -52,6 +52,8 @@ jobs:
 
       - name: Test (core)
         run: pnpm --filter @mytangerine/core test
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/test
 
       - name: Lint (api)
         run: pnpm --filter @mytangerine/api lint
@@ -59,9 +61,13 @@ jobs:
 
       - name: Build (api)
         run: pnpm --filter @mytangerine/api build
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/test
 
       - name: Test (api)
         run: pnpm --filter @mytangerine/api test
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/test
 
       - name: Upload coverage
         uses: codecov/codecov-action@v5
