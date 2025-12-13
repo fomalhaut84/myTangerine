@@ -2,7 +2,7 @@
  * 주문 통계 계산 유틸리티
  */
 
-import type { Order, ProductType } from '@mytangerine/core';
+import type { Order, ProductType, OrderType } from '@mytangerine/core';
 import type { Config } from '@mytangerine/core';
 
 /**
@@ -24,6 +24,15 @@ export type StatsGrouping = 'monthly';
  * 측정 지표
  */
 export type StatsMetric = 'quantity' | 'amount';
+
+/**
+ * 주문 유형 필터
+ * - 'all': 전체 주문
+ * - 'customer': 고객 주문만 (판매)
+ * - 'gift': 선물 주문만
+ * OrderType에서 파생하여 타입 일관성 유지
+ */
+export type OrderTypeFilter = OrderType | 'all';
 
 /**
  * 월별 통계 데이터
@@ -56,6 +65,7 @@ export interface ProductTotals {
  * 통계 요약
  */
 export interface StatsSummary {
+  orderCount: number;
   totalNonProductQty: number;
   total5kgQty: number;
   total10kgQty: number;
@@ -71,6 +81,18 @@ export interface StatsSummary {
 }
 
 /**
+ * 섹션별 통계 (전체/판매/선물)
+ */
+export interface StatsSections {
+  /** 전체 주문 통계 */
+  overall: StatsSummary;
+  /** 판매 주문 통계 (고객 주문만, 매출 계산에 사용) */
+  sales: StatsSummary;
+  /** 선물 주문 통계 (매출에서 제외) */
+  gifts: StatsSummary;
+}
+
+/**
  * 통계 응답 데이터
  */
 export interface StatsResponse {
@@ -80,8 +102,12 @@ export interface StatsResponse {
     range: StatsRange;
     grouping: StatsGrouping;
     metric: StatsMetric;
+    orderType: OrderTypeFilter;
   };
+  /** 현재 필터에 해당하는 요약 (하위 호환성) */
   summary: StatsSummary;
+  /** 섹션별 통계 (전체/판매/선물) */
+  sections: StatsSections;
   series: MonthlyStats[];
   totalsByProduct: ProductTotals[];
   meta: {
@@ -355,6 +381,87 @@ export function filterOrdersByDateRange(orders: Order[], start: Date, end: Date)
 }
 
 /**
+ * 주문유형별 필터링
+ */
+export function filterOrdersByOrderType(orders: Order[], orderType: OrderTypeFilter): Order[] {
+  if (orderType === 'all') {
+    return orders;
+  }
+  return orders.filter(order => order.orderType === orderType);
+}
+
+/**
+ * 주문 목록에서 요약 통계 계산
+ * @param excludeGiftRevenue - true인 경우 gift 주문의 매출을 제외 (overall 섹션용)
+ * @param zeroRevenue - true인 경우 모든 매출을 0으로 반환 (gift 섹션용)
+ */
+function calculateSummaryFromOrders(
+  orders: Order[],
+  config: Config,
+  startDate: Date,
+  endDate: Date,
+  options?: { excludeGiftRevenue?: boolean; zeroRevenue?: boolean }
+): StatsSummary {
+  const { excludeGiftRevenue = false, zeroRevenue = false } = options || {};
+
+  let totalNonProductQty = 0;
+  let total5kgQty = 0;
+  let total10kgQty = 0;
+  let totalNonProductAmount = 0;
+  let total5kgAmount = 0;
+  let total10kgAmount = 0;
+
+  for (const order of orders) {
+    // 수량은 항상 집계
+    if (order.productType === '비상품') {
+      totalNonProductQty += order.quantity;
+    } else if (order.productType === '5kg') {
+      total5kgQty += order.quantity;
+    } else if (order.productType === '10kg') {
+      total10kgQty += order.quantity;
+    }
+
+    // 매출 계산: gift 주문 제외 옵션 또는 전체 매출 0 옵션 적용
+    if (!zeroRevenue) {
+      const shouldIncludeRevenue = !excludeGiftRevenue || order.orderType !== 'gift';
+      if (shouldIncludeRevenue) {
+        const amount = calculateOrderAmount(order, config);
+        if (order.productType === '비상품') {
+          totalNonProductAmount += amount;
+        } else if (order.productType === '5kg') {
+          total5kgAmount += amount;
+        } else if (order.productType === '10kg') {
+          total10kgAmount += amount;
+        }
+      }
+    }
+  }
+
+  const totalRevenue = totalNonProductAmount + total5kgAmount + total10kgAmount;
+  // 평균 주문 금액은 매출이 포함된 주문 기준으로 계산
+  const revenueOrderCount = excludeGiftRevenue
+    ? orders.filter(o => o.orderType !== 'gift').length
+    : orders.length;
+  const avgOrderAmount = revenueOrderCount > 0 ? totalRevenue / revenueOrderCount : 0;
+
+  return {
+    orderCount: orders.length,
+    totalNonProductQty,
+    total5kgQty,
+    total10kgQty,
+    totalNonProductAmount,
+    total5kgAmount,
+    total10kgAmount,
+    totalRevenue,
+    avgOrderAmount: Math.round(avgOrderAmount),
+    dateRange: {
+      start: formatLocalDate(startDate),
+      end: formatLocalDate(endDate),
+    },
+  };
+}
+
+/**
  * 전체 통계 계산
  */
 export function calculateStats(
@@ -365,19 +472,37 @@ export function calculateStats(
     range: StatsRange;
     grouping: StatsGrouping;
     metric: StatsMetric;
+    orderType?: OrderTypeFilter;
     customStart?: Date;
     customEnd?: Date;
   }
 ): StatsResponse {
-  const { scope, range, grouping, metric, customStart, customEnd } = options;
+  const { scope, range, grouping, metric, orderType = 'all', customStart, customEnd } = options;
 
   // 날짜 범위 계산
   const { start, end } = calculateDateRange(range, customStart, customEnd);
 
   // 날짜 범위 내의 주문 필터링
-  const filteredOrders = filterOrdersByDateRange(orders, start, end);
+  const dateFilteredOrders = filterOrdersByDateRange(orders, start, end);
 
-  // 월별 그룹화
+  // 섹션별 통계 계산 (전체/판매/선물)
+  const overallOrders = dateFilteredOrders;
+  const salesOrders = filterOrdersByOrderType(dateFilteredOrders, 'customer');
+  const giftOrders = filterOrdersByOrderType(dateFilteredOrders, 'gift');
+
+  const sections: StatsSections = {
+    // overall: 전체 수량, 매출은 판매(customer)만 포함
+    overall: calculateSummaryFromOrders(overallOrders, config, start, end, { excludeGiftRevenue: true }),
+    // sales: 판매 주문만 (수량 + 매출)
+    sales: calculateSummaryFromOrders(salesOrders, config, start, end),
+    // gifts: 선물 주문만 (수량만, 매출은 0)
+    gifts: calculateSummaryFromOrders(giftOrders, config, start, end, { zeroRevenue: true }),
+  };
+
+  // 현재 필터에 해당하는 주문 선택
+  const filteredOrders = filterOrdersByOrderType(dateFilteredOrders, orderType);
+
+  // 월별 그룹화 (필터된 주문 기준)
   const groupedByMonth = groupByMonth(filteredOrders);
 
   // 월별 정렬 (오래된 순)
@@ -396,80 +521,16 @@ export function calculateStats(
     previousMonthRevenue = monthStats.totalNonProductAmount + monthStats.total5kgAmount + monthStats.total10kgAmount;
   }
 
-  // 통계 요약 (한 번의 루프로 summary와 totalsByProduct 동시 계산)
-  let totalNonProductQty = 0;
-  let total5kgQty = 0;
-  let total10kgQty = 0;
-  let totalNonProductAmount = 0;
-  let total5kgAmount = 0;
-  let total10kgAmount = 0;
+  // 현재 필터에 해당하는 요약 (매출 처리 옵션 적용)
+  const summaryOptions = orderType === 'gift'
+    ? { zeroRevenue: true }
+    : orderType === 'all'
+      ? { excludeGiftRevenue: true }
+      : {};
+  const summary = calculateSummaryFromOrders(filteredOrders, config, start, end, summaryOptions);
 
-  for (const order of filteredOrders) {
-    const amount = calculateOrderAmount(order, config);
-
-    if (order.productType === '비상품') {
-      totalNonProductQty += order.quantity;
-      totalNonProductAmount += amount;
-    } else if (order.productType === '5kg') {
-      total5kgQty += order.quantity;
-      total5kgAmount += amount;
-    } else if (order.productType === '10kg') {
-      total10kgQty += order.quantity;
-      total10kgAmount += amount;
-    }
-  }
-
-  const totalRevenue = totalNonProductAmount + total5kgAmount + total10kgAmount;
-  const avgOrderAmount = filteredOrders.length > 0 ? totalRevenue / filteredOrders.length : 0;
-
-  const summary: StatsSummary = {
-    totalNonProductQty,
-    total5kgQty,
-    total10kgQty,
-    totalNonProductAmount,
-    total5kgAmount,
-    total10kgAmount,
-    totalRevenue,
-    avgOrderAmount: Math.round(avgOrderAmount),
-    dateRange: {
-      start: formatLocalDate(start),
-      end: formatLocalDate(end),
-    },
-  };
-
-  // 상품별 합계 및 비율
-  const totalQty = totalNonProductQty + total5kgQty + total10kgQty;
-  const totalsByProduct: ProductTotals[] = [];
-
-  if (totalNonProductQty > 0) {
-    totalsByProduct.push({
-      productType: '비상품',
-      quantity: totalNonProductQty,
-      amount: totalNonProductAmount,
-      quantityPct: totalQty > 0 ? Math.round((totalNonProductQty / totalQty) * 10000) / 100 : 0,
-      revenuePct: totalRevenue > 0 ? Math.round((totalNonProductAmount / totalRevenue) * 10000) / 100 : 0,
-    });
-  }
-
-  if (total5kgQty > 0) {
-    totalsByProduct.push({
-      productType: '5kg',
-      quantity: total5kgQty,
-      amount: total5kgAmount,
-      quantityPct: totalQty > 0 ? Math.round((total5kgQty / totalQty) * 10000) / 100 : 0,
-      revenuePct: totalRevenue > 0 ? Math.round((total5kgAmount / totalRevenue) * 10000) / 100 : 0,
-    });
-  }
-
-  if (total10kgQty > 0) {
-    totalsByProduct.push({
-      productType: '10kg',
-      quantity: total10kgQty,
-      amount: total10kgAmount,
-      quantityPct: totalQty > 0 ? Math.round((total10kgQty / totalQty) * 10000) / 100 : 0,
-      revenuePct: totalRevenue > 0 ? Math.round((total10kgAmount / totalRevenue) * 10000) / 100 : 0,
-    });
-  }
+  // 상품별 합계 및 비율 (필터된 주문 기준)
+  const totalsByProduct = calculateProductTotals(filteredOrders, config);
 
   return {
     success: true,
@@ -478,8 +539,10 @@ export function calculateStats(
       range,
       grouping,
       metric,
+      orderType,
     },
     summary,
+    sections,
     series,
     totalsByProduct,
     meta: {
