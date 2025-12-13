@@ -7,7 +7,8 @@ import { NextRequest, NextResponse } from 'next/server';
 
 export async function POST(request: NextRequest) {
   try {
-    const apiBaseUrl = process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
+    // 서버 내부 통신용 URL (NEXT_PUBLIC_ 아님 - 브라우저에 노출 안됨)
+    const apiInternalUrl = process.env.API_INTERNAL_URL || process.env.NEXT_PUBLIC_API_BASE_URL || 'http://localhost:3001';
     const apiSecretKey = process.env.API_SECRET_KEY;
 
     if (!apiSecretKey) {
@@ -22,8 +23,8 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // API 서버로 프록시
-    const response = await fetch(`${apiBaseUrl}/api/sync`, {
+    // API 서버로 프록시 (내부 URL 사용)
+    const response = await fetch(`${apiInternalUrl}/api/sync`, {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
