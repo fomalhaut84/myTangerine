@@ -1,13 +1,13 @@
 /**
  * 대시보드 페이지
+ * 신규 주문과 완료 주문을 명확하게 분리하여 표시
  */
 
 import { SummaryCard } from '@/components/dashboard/SummaryCard';
 import { RecentOrders } from '@/components/dashboard/RecentOrders';
 import { QuickActions } from '@/components/dashboard/QuickActions';
-import { MonthlyTrendChart } from '@/components/dashboard/MonthlyTrendChart';
-import { ProductRatioChart } from '@/components/dashboard/ProductRatioChart';
-import { CompletedOrdersStats } from '@/components/dashboard/CompletedOrdersStats';
+import { NewOrdersPanel } from '@/components/dashboard/NewOrdersPanel';
+import { OrderStatsPanel } from '@/components/dashboard/OrderStatsPanel';
 
 export default function DashboardPage() {
   return (
@@ -17,35 +17,44 @@ export default function DashboardPage() {
           대시보드
         </h1>
 
+        {/* 상단: 신규 주문 요약 + 최근 주문 */}
         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          {/* 왼쪽: 주문 요약 */}
-          <div className="lg:col-span-1">
+          <div className="lg:col-span-1 space-y-6">
             <SummaryCard />
+            <QuickActions />
           </div>
-
-          {/* 중앙: 최근 주문 */}
           <div className="lg:col-span-2">
             <RecentOrders />
           </div>
         </div>
 
-        {/* 완료 주문 통계 영역 */}
-        <div className="mt-8">
-          <CompletedOrdersStats />
+        {/* 중앙: 신규 주문 현황 + 완료 주문 통계 (2열) */}
+        <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+          {/* 신규 주문 현황 */}
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <NewOrdersPanel />
+          </div>
+
+          {/* 완료 주문 통계 (컴팩트 모드) */}
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <OrderStatsPanel
+              title="완료 주문 통계"
+              scope="completed"
+              showCharts={false}
+              showGiftStats={true}
+              compact={true}
+            />
+          </div>
         </div>
 
-        {/* 기존 차트 영역 */}
-        <div className="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* 월별 추이 차트 */}
-          <MonthlyTrendChart />
-
-          {/* 상품 비율 차트 */}
-          <ProductRatioChart />
-        </div>
-
-        {/* 하단: 빠른 작업 */}
-        <div className="mt-6 max-w-md">
-          <QuickActions />
+        {/* 하단: 완료 주문 상세 통계 (차트 포함) */}
+        <div className="mt-8 bg-white rounded-xl shadow-sm p-6">
+          <OrderStatsPanel
+            title="완료 주문 상세 분석"
+            scope="completed"
+            showCharts={true}
+            showGiftStats={true}
+          />
         </div>
       </div>
     </div>
