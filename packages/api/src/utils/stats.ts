@@ -162,39 +162,57 @@ export function groupByMonth(orders: Order[]): Map<string, Order[]> {
 
 /**
  * 월별 통계 계산
+ * @param options.excludeGiftRevenue - true인 경우 gift 주문의 매출을 제외
+ * @param options.zeroRevenue - true인 경우 모든 매출을 0으로 반환
  */
 export function calculateMonthlyStats(
   month: string,
   orders: Order[],
   config: Config,
-  previousMonthRevenue: number | null
+  previousMonthRevenue: number | null,
+  options?: { excludeGiftRevenue?: boolean; zeroRevenue?: boolean }
 ): MonthlyStats {
+  const { excludeGiftRevenue = false, zeroRevenue = false } = options || {};
+
   let totalNonProductQty = 0;
   let total5kgQty = 0;
   let total10kgQty = 0;
   let totalNonProductAmount = 0;
   let total5kgAmount = 0;
   let total10kgAmount = 0;
-  let totalRevenue = 0;
 
   for (const order of orders) {
-    const amount = calculateOrderAmount(order, config);
-    totalRevenue += amount;
-
+    // 수량은 항상 집계
     if (order.productType === '비상품') {
       totalNonProductQty += order.quantity;
-      totalNonProductAmount += amount;
     } else if (order.productType === '5kg') {
       total5kgQty += order.quantity;
-      total5kgAmount += amount;
     } else if (order.productType === '10kg') {
       total10kgQty += order.quantity;
-      total10kgAmount += amount;
+    }
+
+    // 매출 계산: gift 주문 제외 옵션 또는 전체 매출 0 옵션 적용
+    if (!zeroRevenue) {
+      const shouldIncludeRevenue = !excludeGiftRevenue || order.orderType !== 'gift';
+      if (shouldIncludeRevenue) {
+        const amount = calculateOrderAmount(order, config);
+        if (order.productType === '비상품') {
+          totalNonProductAmount += amount;
+        } else if (order.productType === '5kg') {
+          total5kgAmount += amount;
+        } else if (order.productType === '10kg') {
+          total10kgAmount += amount;
+        }
+      }
     }
   }
 
-  const orderCount = orders.length;
-  const avgOrderAmount = orderCount > 0 ? totalRevenue / orderCount : 0;
+  const totalRevenue = totalNonProductAmount + total5kgAmount + total10kgAmount;
+  // 평균 주문 금액은 매출이 포함된 주문 기준으로 계산
+  const revenueOrderCount = excludeGiftRevenue
+    ? orders.filter(o => o.orderType !== 'gift').length
+    : orders.length;
+  const avgOrderAmount = revenueOrderCount > 0 ? totalRevenue / revenueOrderCount : 0;
 
   // 전월 대비 증감률 계산
   let momGrowthPct: number | null = null;
@@ -210,7 +228,7 @@ export function calculateMonthlyStats(
     totalNonProductAmount,
     total5kgAmount,
     total10kgAmount,
-    orderCount,
+    orderCount: orders.length,
     avgOrderAmount: Math.round(avgOrderAmount),
     momGrowthPct: momGrowthPct !== null ? Math.round(momGrowthPct * 100) / 100 : null,
   };
@@ -218,8 +236,16 @@ export function calculateMonthlyStats(
 
 /**
  * 상품별 합계 및 비율 계산
+ * @param options.excludeGiftRevenue - true인 경우 gift 주문의 매출을 제외
+ * @param options.zeroRevenue - true인 경우 모든 매출을 0으로 반환
  */
-export function calculateProductTotals(orders: Order[], config: Config): ProductTotals[] {
+export function calculateProductTotals(
+  orders: Order[],
+  config: Config,
+  options?: { excludeGiftRevenue?: boolean; zeroRevenue?: boolean }
+): ProductTotals[] {
+  const { excludeGiftRevenue = false, zeroRevenue = false } = options || {};
+
   let totalNonProductQty = 0;
   let total5kgQty = 0;
   let total10kgQty = 0;
@@ -228,17 +254,28 @@ export function calculateProductTotals(orders: Order[], config: Config): Product
   let total10kgAmount = 0;
 
   for (const order of orders) {
-    const amount = calculateOrderAmount(order, config);
-
+    // 수량은 항상 집계
     if (order.productType === '비상품') {
       totalNonProductQty += order.quantity;
-      totalNonProductAmount += amount;
     } else if (order.productType === '5kg') {
       total5kgQty += order.quantity;
-      total5kgAmount += amount;
     } else if (order.productType === '10kg') {
       total10kgQty += order.quantity;
-      total10kgAmount += amount;
+    }
+
+    // 매출 계산: gift 주문 제외 옵션 또는 전체 매출 0 옵션 적용
+    if (!zeroRevenue) {
+      const shouldIncludeRevenue = !excludeGiftRevenue || order.orderType !== 'gift';
+      if (shouldIncludeRevenue) {
+        const amount = calculateOrderAmount(order, config);
+        if (order.productType === '비상품') {
+          totalNonProductAmount += amount;
+        } else if (order.productType === '5kg') {
+          total5kgAmount += amount;
+        } else if (order.productType === '10kg') {
+          total10kgAmount += amount;
+        }
+      }
     }
   }
 
@@ -502,19 +539,26 @@ export function calculateStats(
   // 현재 필터에 해당하는 주문 선택
   const filteredOrders = filterOrdersByOrderType(dateFilteredOrders, orderType);
 
+  // 매출 처리 옵션 결정 (summary, series, totalsByProduct 모두에 적용)
+  const revenueOptions = orderType === 'gift'
+    ? { zeroRevenue: true }
+    : orderType === 'all'
+      ? { excludeGiftRevenue: true }
+      : {};
+
   // 월별 그룹화 (필터된 주문 기준)
   const groupedByMonth = groupByMonth(filteredOrders);
 
   // 월별 정렬 (오래된 순)
   const sortedMonths = Array.from(groupedByMonth.keys()).sort();
 
-  // 월별 통계 계산
+  // 월별 통계 계산 (매출 옵션 적용)
   const series: MonthlyStats[] = [];
   let previousMonthRevenue: number | null = null;
 
   for (const month of sortedMonths) {
     const monthOrders = groupedByMonth.get(month)!;
-    const monthStats = calculateMonthlyStats(month, monthOrders, config, previousMonthRevenue);
+    const monthStats = calculateMonthlyStats(month, monthOrders, config, previousMonthRevenue, revenueOptions);
     series.push(monthStats);
 
     // 다음 달의 증감률 계산을 위해 현재 달의 매출 저장 (비상품 포함)
@@ -522,15 +566,10 @@ export function calculateStats(
   }
 
   // 현재 필터에 해당하는 요약 (매출 처리 옵션 적용)
-  const summaryOptions = orderType === 'gift'
-    ? { zeroRevenue: true }
-    : orderType === 'all'
-      ? { excludeGiftRevenue: true }
-      : {};
-  const summary = calculateSummaryFromOrders(filteredOrders, config, start, end, summaryOptions);
+  const summary = calculateSummaryFromOrders(filteredOrders, config, start, end, revenueOptions);
 
-  // 상품별 합계 및 비율 (필터된 주문 기준)
-  const totalsByProduct = calculateProductTotals(filteredOrders, config);
+  // 상품별 합계 및 비율 (필터된 주문 기준, 매출 옵션 적용)
+  const totalsByProduct = calculateProductTotals(filteredOrders, config, revenueOptions);
 
   return {
     success: true,
