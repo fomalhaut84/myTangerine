@@ -509,7 +509,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         // PDF 데이터 변환 및 생성
         const pdfRows = mapOrdersToPdfRows(paginatedOrders);
         const pdfBuffer = await generatePdfBuffer(pdfRows, {
-          title: '형미 주문 목록',
+          title: '현애순(딸) 주문목록',
           includeTimestamp: true,
           filterDescription,
           pageOrientation: 'landscape',
@@ -650,7 +650,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         // PDF 데이터 변환 및 생성
         const pdfRows = mapOrdersToPdfRows(paginatedOrders);
         const pdfBuffer = await generatePdfBuffer(pdfRows, {
-          title: '형미 주문 목록',
+          title: '현애순(딸) 주문목록',
           includeTimestamp: true,
           filterDescription,
           pageOrientation: 'landscape',
