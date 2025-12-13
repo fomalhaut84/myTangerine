@@ -352,6 +352,7 @@ export function calculateSummary(
   const avgOrderAmount = orders.length > 0 ? totalRevenue / orders.length : 0;
 
   return {
+    orderCount: orders.length,
     totalNonProductQty,
     total5kgQty,
     total10kgQty,
