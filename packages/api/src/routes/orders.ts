@@ -77,6 +77,109 @@ export function clearStatsCache(): void {
 }
 
 /**
+ * PDF 리포트 생성 파라미터 타입
+ */
+interface PdfReportParams {
+  rowNumbers?: number[];
+  status?: string;
+  from?: string;
+  to?: string;
+  sort?: 'timestamp' | 'status';
+  order?: 'asc' | 'desc';
+  limit?: number;
+  offset?: number;
+}
+
+/**
+ * PDF 리포트용 주문 데이터 처리 (GET/POST 공통 로직)
+ * Issue #104: 코드 중복 제거
+ */
+function processOrdersForPdfReport(
+  orders: ReturnType<typeof sheetRowToOrder>[],
+  params: PdfReportParams
+): { orders: ReturnType<typeof sheetRowToOrder>[]; filterDescription?: string } {
+  const { rowNumbers, status, from, to, sort, order, limit, offset } = params;
+
+  let filteredOrders = orders;
+
+  // rowNumbers 파라미터가 있으면 해당 행만 선택
+  if (rowNumbers && rowNumbers.length > 0) {
+    // rowNumber로 필터링
+    const rowNumbersSet = new Set(rowNumbers);
+    filteredOrders = filteredOrders.filter((order) => rowNumbersSet.has(order.rowNumber ?? -1));
+
+    // O(n) 성능을 위해 Map으로 인덱스 조회 (P2 수정)
+    const rowNumberIndexMap = new Map(rowNumbers.map((num, index) => [num, index]));
+
+    // 사용자가 지정한 순서대로 정렬
+    filteredOrders.sort((a, b) => {
+      const aIndex = rowNumberIndexMap.get(a.rowNumber!) ?? Number.MAX_SAFE_INTEGER;
+      const bIndex = rowNumberIndexMap.get(b.rowNumber!) ?? Number.MAX_SAFE_INTEGER;
+      return aIndex - bIndex;
+    });
+  } else {
+    // rowNumbers가 없으면 기존 로직 사용
+    // 필터링: status
+    if (status) {
+      filteredOrders = filteredOrders.filter((order) => order.status === status);
+    }
+
+    // 필터링: from/to (날짜 범위)
+    if (from || to) {
+      const fromDate = from ? new Date(from) : new Date(0);
+      const toDate = to ? new Date(to) : new Date();
+      toDate.setHours(23, 59, 59, 999); // 종료일 포함
+
+      filteredOrders = filteredOrders.filter((order) => {
+        const orderDate = new Date(order.timestamp);
+        return orderDate >= fromDate && orderDate <= toDate;
+      });
+    }
+
+    // 정렬
+    const sortField = sort || 'timestamp';
+    const sortOrder = order || 'desc';
+
+    filteredOrders.sort((a, b) => {
+      let aVal: string | number;
+      let bVal: string | number;
+
+      if (sortField === 'timestamp') {
+        aVal = new Date(a.timestamp).getTime();
+        bVal = new Date(b.timestamp).getTime();
+      } else if (sortField === 'status') {
+        aVal = a.status;
+        bVal = b.status;
+      } else {
+        aVal = 0;
+        bVal = 0;
+      }
+
+      if (sortOrder === 'asc') {
+        return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
+      } else {
+        return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
+      }
+    });
+
+    // 페이지네이션
+    const limitVal = limit || 100;
+    const offsetVal = offset || 0;
+    filteredOrders = filteredOrders.slice(offsetVal, offsetVal + limitVal);
+  }
+
+  // 필터 설명 생성
+  const filterParts: string[] = [];
+  if (status) filterParts.push(`상태: ${status}`);
+  if (from) filterParts.push(`시작: ${from}`);
+  if (to) filterParts.push(`종료: ${to}`);
+  const filterDescription =
+    filterParts.length > 0 ? `필터: ${filterParts.join(', ')}` : undefined;
+
+  return { orders: filteredOrders, filterDescription };
+}
+
+/**
  * 주문 라우트
  */
 const ordersRoutes: FastifyPluginAsync = async (fastify) => {
@@ -354,7 +457,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { rowNumbers, status, from, to, sort, order, limit, offset } = request.query as {
+      const { rowNumbers: rowNumbersStr, status, from, to, sort, order, limit, offset } = request.query as {
         rowNumbers?: string;
         status?: string;
         from?: string;
@@ -366,13 +469,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       };
 
       try {
-        // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
-        let orders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
-
-        // rowNumbers 파라미터가 있으면 해당 행만 선택
-        if (rowNumbers) {
-          const tokens = rowNumbers.split(',').map((n) => n.trim());
+        // rowNumbers 문자열 파싱 및 검증
+        let rowNumbers: number[] | undefined;
+        if (rowNumbersStr) {
+          const tokens = rowNumbersStr.split(',').map((n) => n.trim());
 
           // 검증: 각 토큰이 정수인지 확인 (정규식으로 엄격하게 검증)
           const isValidInteger = /^\d+$/;
@@ -385,91 +485,170 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             });
           }
 
-          const rowNumbersArray = tokens.map((n) => parseInt(n, 10));
+          rowNumbers = tokens.map((n) => parseInt(n, 10));
 
           // 검증: 1000건 제한
-          if (rowNumbersArray.length > 1000) {
+          if (rowNumbers.length > 1000) {
             return reply.code(400).send({
               error: 'Too many rows',
               message: 'Cannot select more than 1000 rows at once',
             });
           }
-
-          // rowNumber로 필터링
-          const rowNumbersSet = new Set(rowNumbersArray);
-          orders = orders.filter((order) => rowNumbersSet.has(order.rowNumber ?? -1));
-
-          // 사용자가 지정한 순서대로 정렬
-          orders.sort((a, b) => {
-            const aIndex = rowNumbersArray.indexOf(a.rowNumber!);
-            const bIndex = rowNumbersArray.indexOf(b.rowNumber!);
-            return aIndex - bIndex;
-          });
-        } else {
-          // rowNumbers가 없으면 기존 로직 사용
-          // 필터링: status
-          if (status) {
-            orders = orders.filter((order) => order.status === status);
-          }
-
-          // 필터링: from/to (날짜 범위)
-          if (from || to) {
-            const fromDate = from ? new Date(from) : new Date(0);
-            const toDate = to ? new Date(to) : new Date();
-            toDate.setHours(23, 59, 59, 999); // 종료일 포함
-
-            orders = orders.filter((order) => {
-              const orderDate = new Date(order.timestamp);
-              return orderDate >= fromDate && orderDate <= toDate;
-            });
-          }
-
-          // 정렬
-          const sortField = sort || 'timestamp';
-          const sortOrder = order || 'desc';
-
-          orders.sort((a, b) => {
-            let aVal: any;
-            let bVal: any;
-
-            if (sortField === 'timestamp') {
-              aVal = new Date(a.timestamp).getTime();
-              bVal = new Date(b.timestamp).getTime();
-            } else if (sortField === 'status') {
-              aVal = a.status;
-              bVal = b.status;
-            } else {
-              aVal = 0;
-              bVal = 0;
-            }
-
-            if (sortOrder === 'asc') {
-              return aVal > bVal ? 1 : aVal < bVal ? -1 : 0;
-            } else {
-              return aVal < bVal ? 1 : aVal > bVal ? -1 : 0;
-            }
-          });
-
-          // 페이지네이션
-          const limitVal = limit || 100;
-          const offsetVal = offset || 0;
-          orders = orders.slice(offsetVal, offsetVal + limitVal);
         }
 
-        const paginatedOrders = orders;
+        // SheetService에서 모든 주문 가져오기
+        const allRows = await fastify.core.sheetService.getAllRows();
+        const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
-        // PDF 데이터 변환
+        // 공통 헬퍼 함수로 주문 처리
+        const { orders: paginatedOrders, filterDescription } = processOrdersForPdfReport(
+          allOrders,
+          { rowNumbers, status, from, to, sort, order, limit, offset }
+        );
+
+        // PDF 데이터 변환 및 생성
         const pdfRows = mapOrdersToPdfRows(paginatedOrders);
+        const pdfBuffer = await generatePdfBuffer(pdfRows, {
+          title: '형미 주문 목록',
+          includeTimestamp: true,
+          filterDescription,
+          pageOrientation: 'landscape',
+          pageSize: 'A4',
+        });
 
-        // 필터 설명 생성
-        const filterParts: string[] = [];
-        if (status) filterParts.push(`상태: ${status}`);
-        if (from) filterParts.push(`시작: ${from}`);
-        if (to) filterParts.push(`종료: ${to}`);
-        const filterDescription =
-          filterParts.length > 0 ? `필터: ${filterParts.join(', ')}` : undefined;
+        // 파일명 생성 (YYYYMMDD 형식)
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const filename = `orders-report-${dateStr}.pdf`;
 
-        // PDF 생성
+        // 응답 헤더 설정
+        reply.header('Content-Type', 'application/pdf');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        reply.header('X-Order-Count', paginatedOrders.length.toString());
+        reply.header('X-Generated-At', now.toISOString());
+
+        return reply.send(pdfBuffer);
+      } catch (error) {
+        fastify.log.error(error, 'PDF 생성 중 오류 발생');
+        return reply.status(500).send({
+          error: 'PDF_GENERATION_ERROR',
+          message: error instanceof Error ? error.message : 'PDF 생성 실패',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/orders/report
+   * 주문 목록 PDF 내보내기 (POST 버전)
+   * Issue #104: 모바일 환경 대응 - URL 길이 제한 우회
+   */
+  fastify.post(
+    '/api/orders/report',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'PDF 형식으로 주문 목록 다운로드 (POST)',
+        description:
+          '필터링된 주문 목록을 PDF 파일로 생성하여 다운로드합니다. ' +
+          'rowNumbers를 body로 전송하여 URL 길이 제한을 우회합니다.',
+        body: {
+          type: 'object',
+          properties: {
+            rowNumbers: {
+              type: 'array',
+              items: { type: 'integer' },
+              description: '선택된 행 번호 배열 (예: [2, 3, 5])',
+            },
+            status: {
+              type: 'string',
+              description: '주문 상태 필터 (예: 확인, 미확인)',
+            },
+            from: {
+              type: 'string',
+              format: 'date',
+              description: '시작 날짜 (YYYY-MM-DD)',
+            },
+            to: {
+              type: 'string',
+              format: 'date',
+              description: '종료 날짜 (YYYY-MM-DD)',
+            },
+            sort: {
+              type: 'string',
+              enum: ['timestamp', 'status'],
+              default: 'timestamp',
+              description: '정렬 기준',
+            },
+            order: {
+              type: 'string',
+              enum: ['asc', 'desc'],
+              default: 'desc',
+              description: '정렬 순서',
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 1000,
+              default: 100,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'string',
+            description: 'PDF 파일 (application/pdf)',
+          },
+          500: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { rowNumbers, status, from, to, sort, order, limit, offset } = request.body as {
+        rowNumbers?: number[];
+        status?: string;
+        from?: string;
+        to?: string;
+        sort?: 'timestamp' | 'status';
+        order?: 'asc' | 'desc';
+        limit?: number;
+        offset?: number;
+      };
+
+      try {
+        // 검증: 1000건 제한
+        if (rowNumbers && rowNumbers.length > 1000) {
+          return reply.code(400).send({
+            error: 'Too many rows',
+            message: 'Cannot select more than 1000 rows at once',
+          });
+        }
+
+        // SheetService에서 모든 주문 가져오기
+        const allRows = await fastify.core.sheetService.getAllRows();
+        const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
+
+        // 공통 헬퍼 함수로 주문 처리
+        const { orders: paginatedOrders, filterDescription } = processOrdersForPdfReport(
+          allOrders,
+          { rowNumbers, status, from, to, sort, order, limit, offset }
+        );
+
+        // PDF 데이터 변환 및 생성
+        const pdfRows = mapOrdersToPdfRows(paginatedOrders);
         const pdfBuffer = await generatePdfBuffer(pdfRows, {
           title: '형미 주문 목록',
           includeTimestamp: true,
