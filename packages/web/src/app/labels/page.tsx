@@ -238,27 +238,23 @@ export default function LabelsPage() {
     const toastId = toast.loading('PDF 파일을 생성하는 중입니다...');
 
     try {
-      // API 엔드포인트 URL 구성
-      const params = new URLSearchParams();
-
-      // rowNumbers 파라미터 추가 (사용자가 선택한 순서 유지)
-      const rowNumbers = selectedOrders.map(order => order.rowNumber).join(',');
-      params.append('rowNumbers', rowNumbers);
-
-      // API Base URL 사용 (api-client.ts에서 import)
-      const apiUrl = `${apiBaseUrl}/api/orders/report?${params.toString()}`;
-
-      // PDF 다운로드
-      const response = await fetch(apiUrl);
+      // POST 방식으로 PDF 요청 (URL 길이 제한 우회)
+      const rowNumbers = selectedOrders.map(order => order.rowNumber);
+      const response = await fetch(`${apiBaseUrl}/api/orders/report`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ rowNumbers }),
+      });
 
       if (!response.ok) {
-        throw new Error('PDF 생성에 실패했습니다.');
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'PDF 생성에 실패했습니다.');
       }
 
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
 
       // 파일명 생성 (응답 헤더에서 가져오거나 기본값 사용)
       const contentDisposition = response.headers.get('Content-Disposition');
@@ -267,16 +263,32 @@ export default function LabelsPage() {
       const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
       const filename = filenameMatch ? filenameMatch[1] : `labels-${dateStr}.pdf`;
 
-      a.download = filename;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      window.URL.revokeObjectURL(url);
+      // iOS 감지 (iOS의 모든 브라우저는 WebKit 사용)
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
 
-      toast.success(`${selectedOrders.length}개의 주문을 PDF로 다운로드했습니다.`, { id: toastId });
+      if (isIOS) {
+        // iOS: 새 탭에서 PDF 열기 (사용자가 직접 저장)
+        // iOS에서는 프로그래밍 방식 다운로드가 제한됨
+        window.open(url, '_blank');
+        toast.success(
+          `${selectedOrders.length}개의 주문 PDF가 열렸습니다. 공유 버튼을 눌러 저장하세요.`,
+          { id: toastId }
+        );
+      } else {
+        // 기타 브라우저: 프로그래밍 방식 다운로드
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        toast.success(`${selectedOrders.length}개의 주문을 PDF로 다운로드했습니다.`, { id: toastId });
+      }
     } catch (error) {
       console.error('PDF 다운로드 실패:', error);
-      toast.error('PDF 파일 다운로드에 실패했습니다.', { id: toastId });
+      const errorMessage = error instanceof Error ? error.message : 'PDF 파일 다운로드에 실패했습니다.';
+      toast.error(errorMessage, { id: toastId });
     }
   };
 
