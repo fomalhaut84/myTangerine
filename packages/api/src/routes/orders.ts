@@ -12,6 +12,7 @@ import {
   type StatsGrouping,
   type StatsMetric,
   type StatsResponse,
+  type OrderTypeFilter,
 } from '../utils/stats.js';
 import { InMemoryCache } from '../utils/cache.js';
 import { generatePdfBuffer } from '../utils/pdf-generator.js';
@@ -61,12 +62,13 @@ function getStatsCacheKey(
   range: StatsRange,
   grouping: StatsGrouping,
   metric: StatsMetric,
+  orderType: OrderTypeFilter,
   customStart?: Date,
   customEnd?: Date
 ): string {
   const start = customStart ? customStart.toISOString().split('T')[0] : '';
   const end = customEnd ? customEnd.toISOString().split('T')[0] : '';
-  return `stats:${scope}:${range}:${grouping}:${metric}:${start}:${end}`;
+  return `stats:${scope}:${range}:${grouping}:${metric}:${orderType}:${start}:${end}`;
 }
 
 /**
@@ -843,6 +845,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       range?: StatsRange;
       grouping?: StatsGrouping;
       metric?: StatsMetric;
+      orderType?: OrderTypeFilter;
       start?: string;
       end?: string;
       format?: 'json' | 'csv';
@@ -881,6 +884,12 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
               description: '측정 지표',
               default: 'quantity',
             },
+            orderType: {
+              type: 'string',
+              enum: ['all', 'customer', 'gift'],
+              description: '주문 유형 필터 (all: 전체, customer: 판매, gift: 선물)',
+              default: 'all',
+            },
             start: {
               type: 'string',
               format: 'date',
@@ -902,22 +911,25 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         response: {
           200: {
             type: 'object',
-            required: ['success', 'filters', 'summary', 'series', 'totalsByProduct', 'meta'],
+            required: ['success', 'filters', 'summary', 'sections', 'series', 'totalsByProduct', 'meta'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
               filters: {
                 type: 'object',
-                required: ['scope', 'range', 'grouping', 'metric'],
+                required: ['scope', 'range', 'grouping', 'metric', 'orderType'],
                 properties: {
                   scope: { type: 'string', example: 'completed' },
                   range: { type: 'string', example: '12m' },
                   grouping: { type: 'string', example: 'monthly' },
                   metric: { type: 'string', example: 'quantity' },
+                  orderType: { type: 'string', example: 'all' },
                 },
               },
               summary: {
                 type: 'object',
+                description: '현재 필터에 해당하는 요약 통계',
                 required: [
+                  'orderCount',
                   'total5kgQty',
                   'total10kgQty',
                   'total5kgAmount',
@@ -927,6 +939,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                   'dateRange',
                 ],
                 properties: {
+                  orderCount: { type: 'integer', example: 150 },
                   total5kgQty: { type: 'integer', example: 120 },
                   total10kgQty: { type: 'integer', example: 80 },
                   total5kgAmount: { type: 'integer', example: 2400000 },
@@ -939,6 +952,43 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                     properties: {
                       start: { type: 'string', format: 'date', example: '2024-01-01' },
                       end: { type: 'string', format: 'date', example: '2025-01-31' },
+                    },
+                  },
+                },
+              },
+              sections: {
+                type: 'object',
+                description: '섹션별 통계 (전체/판매/선물)',
+                required: ['overall', 'sales', 'gifts'],
+                properties: {
+                  overall: {
+                    type: 'object',
+                    description: '전체 주문 통계 (매출은 판매 주문만 포함)',
+                    properties: {
+                      orderCount: { type: 'integer', example: 150 },
+                      total5kgQty: { type: 'integer', example: 120 },
+                      total10kgQty: { type: 'integer', example: 80 },
+                      totalRevenue: { type: 'integer', example: 5200000 },
+                    },
+                  },
+                  sales: {
+                    type: 'object',
+                    description: '판매 주문 통계 (고객 주문만)',
+                    properties: {
+                      orderCount: { type: 'integer', example: 140 },
+                      total5kgQty: { type: 'integer', example: 115 },
+                      total10kgQty: { type: 'integer', example: 75 },
+                      totalRevenue: { type: 'integer', example: 5200000 },
+                    },
+                  },
+                  gifts: {
+                    type: 'object',
+                    description: '선물 주문 통계 (매출은 0)',
+                    properties: {
+                      orderCount: { type: 'integer', example: 10 },
+                      total5kgQty: { type: 'integer', example: 5 },
+                      total10kgQty: { type: 'integer', example: 5 },
+                      totalRevenue: { type: 'integer', example: 0 },
                     },
                   },
                 },
@@ -1006,6 +1056,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       const range: StatsRange = request.query.range || '12m';
       const grouping: StatsGrouping = request.query.grouping || 'monthly';
       const metric: StatsMetric = request.query.metric || 'quantity';
+      const orderType: OrderTypeFilter = request.query.orderType || 'all';
       const format = request.query.format || 'json';
 
       // Custom 범위인 경우 start/end 검증
@@ -1049,7 +1100,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 캐시 확인
-      const cacheKey = getStatsCacheKey(scope, range, grouping, metric, customStart, customEnd);
+      const cacheKey = getStatsCacheKey(scope, range, grouping, metric, orderType, customStart, customEnd);
       const cachedStats = statsCache.get(cacheKey);
 
       if (cachedStats) {
@@ -1073,6 +1124,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         range,
         grouping,
         metric,
+        orderType,
         customStart,
         customEnd,
       });

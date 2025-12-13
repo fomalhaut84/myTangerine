@@ -449,6 +449,7 @@ describe('Orders API', () => {
         range: '12m',
         grouping: 'monthly',
         metric: 'quantity',
+        orderType: 'all',
       });
 
       // meta 검증

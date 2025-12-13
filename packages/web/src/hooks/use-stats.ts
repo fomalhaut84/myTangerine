@@ -21,11 +21,15 @@ export function useMonthlyStats() {
 
 /**
  * 통합 주문 통계 조회 훅
+ * - staleTime: 5분 (탭 전환 시 캐시된 데이터 즉시 표시)
+ * - gcTime: 30분 (가비지 컬렉션 시간)
  */
 export function useOrderStats(params?: StatsQueryParams, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: queryKeys.orders.stats(params),
     queryFn: () => getOrderStats(params),
     enabled: options?.enabled !== false,
+    staleTime: 5 * 60 * 1000, // 5분
+    gcTime: 30 * 60 * 1000, // 30분
   });
 }

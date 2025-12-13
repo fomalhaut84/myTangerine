@@ -29,6 +29,13 @@ export type ProductType = '비상품' | '5kg' | '10kg';
 export type OrderStatus = '' | '확인' | string;
 
 /**
+ * 주문 유형 (판매 vs 선물)
+ * - 'customer': 고객 주문 (판매, 매출에 포함)
+ * - 'gift': 선물용 주문 (매출에서 제외)
+ */
+export type OrderType = 'customer' | 'gift';
+
+/**
  * 스프레드시트 원본 행 데이터
  * (Google Sheets에서 가져온 그대로의 데이터)
  */
@@ -65,6 +72,9 @@ export interface SheetRow {
 
   /** 10kg 수량 */
   '10kg 수량': string | number;
+
+  /** 주문유형 (판매/선물, 선택적 - 빈 값은 '판매'로 처리) */
+  '주문유형'?: string;
 
   /** 스프레드시트에서의 실제 행 번호 (헤더 행 포함, 1-based) */
   _rowNumber?: number;
@@ -104,6 +114,9 @@ export interface Order {
 
   /** 스프레드시트에서의 실제 행 번호 */
   rowNumber: number;
+
+  /** 주문 유형 (고객 주문 vs 선물) */
+  orderType: OrderType;
 
   /** 검증 에러 메시지 (검증 실패 시) */
   validationError?: string;
@@ -231,6 +244,25 @@ function isEmpty(value: string | undefined | null): boolean {
 }
 
 /**
+ * 주문유형 파싱
+ * 시트의 '주문유형' 컬럼 값을 OrderType으로 변환
+ * - '선물' -> 'gift'
+ * - 그 외 (빈 값, '판매', 기타) -> 'customer' (기본값)
+ */
+export function parseOrderType(orderTypeValue: string | undefined): OrderType {
+  if (!orderTypeValue || orderTypeValue.trim() === '') {
+    return 'customer'; // 기본값: 고객 주문(판매)
+  }
+
+  const normalized = orderTypeValue.trim().toLowerCase();
+  if (normalized === '선물' || normalized === 'gift') {
+    return 'gift';
+  }
+
+  return 'customer';
+}
+
+/**
  * 상품 선택 값의 유효성을 검증하고 상품 타입을 파싱
  * @returns { isValid, productType, reason }
  */
@@ -286,6 +318,7 @@ export function validateProductSelection(productSelection: string): {
 export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
   const timestamp = parseKoreanTimestamp(row['타임스탬프']);
   const quantity = extractQuantity(row);
+  const orderType = parseOrderType(row['주문유형']);
 
   // 상품 타입 결정
   let productType: ProductType | null = null;
@@ -343,6 +376,7 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     productType,
     quantity,
     rowNumber: row._rowNumber || 0,
+    orderType,
     validationError,
     _raw: row,
   };

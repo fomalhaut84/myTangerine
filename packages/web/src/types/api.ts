@@ -109,17 +109,20 @@ export type StatsScope = 'completed' | 'new' | 'all';
 export type StatsRange = '6m' | '12m' | 'custom';
 export type StatsGrouping = 'monthly';
 export type StatsMetric = 'quantity' | 'amount';
+export type OrderTypeFilter = 'all' | 'customer' | 'gift';
 
 export interface StatsQueryParams {
   scope?: StatsScope;
   range?: StatsRange;
   grouping?: StatsGrouping;
   metric?: StatsMetric;
+  orderType?: OrderTypeFilter;
   start?: string;
   end?: string;
 }
 
 export interface StatsSummary {
+  orderCount: number;
   totalNonProductQty: number;
   total5kgQty: number;
   total10kgQty: number;
@@ -132,6 +135,12 @@ export interface StatsSummary {
     start: string;
     end: string;
   };
+}
+
+export interface StatsSections {
+  overall: StatsSummary;
+  sales: StatsSummary;
+  gifts: StatsSummary;
 }
 
 export interface MonthlyStatsSeries {
@@ -162,8 +171,10 @@ export interface StatsResponse {
     range: StatsRange;
     grouping: StatsGrouping;
     metric: StatsMetric;
+    orderType: OrderTypeFilter;
   };
   summary: StatsSummary;
+  sections: StatsSections;
   series: MonthlyStatsSeries[];
   totalsByProduct: ProductTotals[];
   meta: {

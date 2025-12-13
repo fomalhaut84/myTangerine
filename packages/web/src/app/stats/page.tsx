@@ -8,14 +8,22 @@ import { LineChartStats } from '@/components/stats/LineChartStats';
 import { DonutChartStats } from '@/components/stats/DonutChartStats';
 import { BarChartStats } from '@/components/stats/BarChartStats';
 import { AreaChartStats } from '@/components/stats/AreaChartStats';
-import { Loader2 } from 'lucide-react';
+import { Loader2, Gift, ShoppingCart, BarChart3 } from 'lucide-react';
+import type { OrderTypeFilter } from '@/types/api';
 
 type StatsRange = '6m' | '12m' | 'custom';
 type StatsMetric = 'quantity' | 'amount';
 
+const ORDER_TYPE_TABS: { value: OrderTypeFilter; label: string; icon: typeof BarChart3 }[] = [
+  { value: 'all', label: '전체', icon: BarChart3 },
+  { value: 'customer', label: '판매', icon: ShoppingCart },
+  { value: 'gift', label: '선물', icon: Gift },
+];
+
 export default function StatsPage() {
   const [range, setRange] = useState<StatsRange>('12m');
   const [metric, setMetric] = useState<StatsMetric>('quantity');
+  const [orderType, setOrderType] = useState<OrderTypeFilter>('all');
   const [customStart, setCustomStart] = useState<string>('');
   const [customEnd, setCustomEnd] = useState<string>('');
 
@@ -24,6 +32,7 @@ export default function StatsPage() {
       scope: 'completed',
       range,
       metric,
+      orderType,
       ...(range === 'custom' && customStart && customEnd
         ? { start: customStart, end: customEnd }
         : {}),
@@ -145,6 +154,44 @@ export default function StatsPage() {
           <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
         )}
       </div>
+
+      {/* Order Type Tabs */}
+      <div className="flex gap-2">
+        {ORDER_TYPE_TABS.map((tab) => {
+          const Icon = tab.icon;
+          const isActive = orderType === tab.value;
+          return (
+            <button
+              key={tab.value}
+              onClick={() => setOrderType(tab.value)}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                isActive
+                  ? 'bg-primary text-primary-foreground'
+                  : 'bg-muted hover:bg-muted/80'
+              }`}
+            >
+              <Icon className="h-4 w-4" />
+              {tab.label}
+              {stats?.sections && (
+                <span className={`ml-1 text-xs ${isActive ? 'opacity-80' : 'text-muted-foreground'}`}>
+                  ({tab.value === 'all'
+                    ? stats.sections.overall.orderCount
+                    : tab.value === 'customer'
+                      ? stats.sections.sales.orderCount
+                      : stats.sections.gifts.orderCount})
+                </span>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* 선물 탭 안내 메시지 */}
+      {orderType === 'gift' && (
+        <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
+          선물 주문은 매출에서 제외됩니다. 수량 기준 통계만 유효합니다.
+        </div>
+      )}
 
       {/* Filters */}
       <Card>
