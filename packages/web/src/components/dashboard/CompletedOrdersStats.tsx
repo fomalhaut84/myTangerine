@@ -11,6 +11,7 @@ import { LineChartStats } from '@/components/stats/LineChartStats';
 import { DonutChartStats } from '@/components/stats/DonutChartStats';
 import { BarChartStats } from '@/components/stats/BarChartStats';
 import { Card } from '@/components/common/Card';
+import { formatDateRangeKorean } from '@/lib/utils';
 import type { StatsMetric, StatsRange } from '@/types/api';
 
 export function CompletedOrdersStats() {
@@ -63,8 +64,14 @@ export function CompletedOrdersStats() {
         <div className="flex gap-2">
           <select
             value={range}
-            onChange={(e) => setRange(e.target.value as StatsRange)}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === '6m' || value === '12m') {
+                setRange(value);
+              }
+            }}
             disabled={isFetching}
+            aria-label="조회 기간 선택"
             className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="6m">최근 6개월</option>
@@ -72,8 +79,14 @@ export function CompletedOrdersStats() {
           </select>
           <select
             value={metric}
-            onChange={(e) => setMetric(e.target.value as StatsMetric)}
+            onChange={(e) => {
+              const value = e.target.value;
+              if (value === 'quantity' || value === 'amount') {
+                setMetric(value);
+              }
+            }}
             disabled={isFetching}
+            aria-label="조회 지표 선택"
             className="px-4 py-2 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <option value="quantity">수량 기준</option>
@@ -127,7 +140,7 @@ export function CompletedOrdersStats() {
 
       {/* 기간 표시 */}
       <div className="text-sm text-gray-500 text-center">
-        데이터 기간: {summary.dateRange.start} ~ {summary.dateRange.end}
+        데이터 기간: {formatDateRangeKorean(summary.dateRange.start, summary.dateRange.end)}
       </div>
     </div>
   );

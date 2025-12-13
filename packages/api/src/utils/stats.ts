@@ -380,29 +380,39 @@ function formatLocalDate(date: Date): string {
 
 /**
  * 날짜 범위 계산
+ * - 6m/12m: 월 단위로 계산 (각 월의 1일을 기준)
+ * - 예: 오늘이 2025년 12월 13일이고 12개월 선택 시
+ *   - 시작: 2025년 1월 1일 (현재 달 포함 12개월)
+ *   - 종료: 2025년 12월 31일 (현재 달의 마지막 날)
+ * - customEnd가 전달된 경우 해당 날짜를 존중
  */
 export function calculateDateRange(range: StatsRange, customStart?: Date, customEnd?: Date): { start: Date; end: Date } {
-  let end = customEnd || new Date();
-
-  // Custom range인 경우 end date를 해당 날짜의 마지막 시간으로 설정
-  if (range === 'custom' && customEnd) {
-    end = new Date(customEnd);
-    end.setHours(23, 59, 59, 999);
-  }
-
+  const now = new Date();
+  let end: Date;
   let start: Date;
-  if (range === 'custom' && customStart) {
+
+  if (range === 'custom' && customStart && customEnd) {
+    // Custom range: 사용자 지정 날짜 사용 (정확히 전달된 날짜 사용)
     start = new Date(customStart);
     start.setHours(0, 0, 0, 0);
-  } else if (range === '6m') {
-    start = new Date(end);
-    start.setMonth(start.getMonth() - 6);
-    start.setHours(0, 0, 0, 0); // 자정으로 정규화
+    end = new Date(customEnd);
+    end.setHours(23, 59, 59, 999);
+  } else if (customEnd) {
+    // customEnd가 전달된 경우 (테스트 등에서 특정 날짜 기준으로 계산)
+    const baseDate = new Date(customEnd);
+    end = new Date(baseDate);
+    end.setHours(23, 59, 59, 999);
+
+    // 시작일: N개월 전 월의 1일
+    const monthsBack = range === '6m' ? 5 : 11;
+    start = new Date(baseDate.getFullYear(), baseDate.getMonth() - monthsBack, 1, 0, 0, 0, 0);
   } else {
-    // 12m (기본값)
-    start = new Date(end);
-    start.setMonth(start.getMonth() - 12);
-    start.setHours(0, 0, 0, 0); // 자정으로 정규화
+    // 기본: 월 단위 계산 (현재 달의 마지막 날을 종료일로 설정)
+    end = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59, 999);
+
+    // 시작일: N개월 전 월의 1일
+    const monthsBack = range === '6m' ? 5 : 11; // 현재 달 포함이므로 N-1
+    start = new Date(now.getFullYear(), now.getMonth() - monthsBack, 1, 0, 0, 0, 0);
   }
 
   return { start, end };

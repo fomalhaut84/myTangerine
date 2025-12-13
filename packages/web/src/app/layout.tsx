@@ -2,6 +2,7 @@ import type { Metadata } from 'next';
 import { Providers } from '@/components/providers';
 import { Toaster } from '@/components/ui/sonner';
 import { KeyboardShortcuts } from '@/components/common/KeyboardShortcuts';
+import { GlobalNav } from '@/components/common/GlobalNav';
 import './globals.css';
 
 export const metadata: Metadata = {
@@ -29,7 +30,10 @@ export default function RootLayout({
   return (
     <html lang="ko">
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <GlobalNav />
+          {children}
+        </Providers>
         <Toaster />
         <KeyboardShortcuts />
       </body>

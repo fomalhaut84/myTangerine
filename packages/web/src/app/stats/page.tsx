@@ -9,6 +9,7 @@ import { DonutChartStats } from '@/components/stats/DonutChartStats';
 import { BarChartStats } from '@/components/stats/BarChartStats';
 import { AreaChartStats } from '@/components/stats/AreaChartStats';
 import { Loader2, Gift, ShoppingCart, BarChart3 } from 'lucide-react';
+import { formatDateRangeKorean } from '@/lib/utils';
 import type { OrderTypeFilter } from '@/types/api';
 
 type StatsRange = '6m' | '12m' | 'custom';
@@ -74,7 +75,12 @@ export default function StatsPage() {
                 <label className="text-sm font-medium">기간:</label>
                 <select
                   value={range}
-                  onChange={(e) => setRange(e.target.value as StatsRange)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === '6m' || value === '12m' || value === 'custom') {
+                      setRange(value);
+                    }
+                  }}
                   className="px-3 py-2 border rounded-md text-sm"
                 >
                   <option value="6m">최근 6개월</option>
@@ -108,7 +114,12 @@ export default function StatsPage() {
                 <label className="text-sm font-medium">기준:</label>
                 <select
                   value={metric}
-                  onChange={(e) => setMetric(e.target.value as StatsMetric)}
+                  onChange={(e) => {
+                    const value = e.target.value;
+                    if (value === 'quantity' || value === 'amount') {
+                      setMetric(value);
+                    }
+                  }}
                   className="px-3 py-2 border rounded-md text-sm"
                 >
                   <option value="quantity">수량</option>
@@ -202,7 +213,12 @@ export default function StatsPage() {
               <label className="text-sm font-medium">기간:</label>
               <select
                 value={range}
-                onChange={(e) => setRange(e.target.value as StatsRange)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === '6m' || value === '12m' || value === 'custom') {
+                    setRange(value);
+                  }
+                }}
                 className="px-3 py-2 border rounded-md text-sm"
               >
                 <option value="6m">최근 6개월</option>
@@ -240,7 +256,12 @@ export default function StatsPage() {
               <label className="text-sm font-medium">기준:</label>
               <select
                 value={metric}
-                onChange={(e) => setMetric(e.target.value as StatsMetric)}
+                onChange={(e) => {
+                  const value = e.target.value;
+                  if (value === 'quantity' || value === 'amount') {
+                    setMetric(value);
+                  }
+                }}
                 className="px-3 py-2 border rounded-md text-sm"
               >
                 <option value="quantity">수량</option>
@@ -257,7 +278,7 @@ export default function StatsPage() {
           title="총 매출"
           value={summary.totalRevenue}
           unit="원"
-          subtitle={`${summary.dateRange.start} ~ ${summary.dateRange.end}`}
+          subtitle={formatDateRangeKorean(summary.dateRange.start, summary.dateRange.end)}
         />
         <KPICard
           title="평균 주문 금액"
