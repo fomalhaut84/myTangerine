@@ -85,3 +85,15 @@ model SyncLog {
   @@index([startedAt])
   @@map("sync_logs")
 }
+
+// 분산 락 테이블 (동시 실행 방지)
+model DistributedLock {
+  id          Int      @id @default(autoincrement())
+  lockKey     String   @unique @map("lock_key")  // 'sync', 'backup' 등
+  owner       String   // 락을 획득한 프로세스/요청 ID
+  acquiredAt  DateTime @default(now()) @map("acquired_at")
+  expiresAt   DateTime @map("expires_at")  // TTL
+
+  @@index([lockKey, expiresAt])
+  @@map("distributed_locks")
+}

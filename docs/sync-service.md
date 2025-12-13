@@ -21,9 +21,10 @@
 - **컴포넌트 흐름:**
   1. `src/index.ts`에서 환경 변수 로딩 및 core 서비스(SheetService, DatabaseService) 인스턴스화.
   2. `PollingScheduler`가 `SYNC_INTERVAL` 크론 표현식을 검증 후 1분 간격으로 `SyncEngine.incrementalSync()` 호출.
-  3. `SyncEngine`은 Sheets에서 행을 읽고, 증분 대상만 선별해 DatabaseService로 upsert.
-  4. 각 행의 결과는 다시 Sheet에 기록되며 `logger`가 메트릭을 남깁니다.
-- **데이터 흐름:** Google Sheets → SyncEngine(검증/증분 판단) → PostgreSQL → Sheets(상태 업데이트). 실패한 행은 다음 폴링 주기에 자동 재시도됩니다.
+  3. Sync 실행 직전에 `DistributedLockService`가 DB 기반 락(`DistributedLock` 테이블)을 획득해 멀티 인스턴스와 API 수동 호출 간 단일 실행을 보장합니다.
+  4. `SyncEngine`은 Sheets에서 행을 읽고, 증분 대상만 선별해 DatabaseService로 upsert.
+  5. 각 행의 결과는 다시 Sheet에 기록되며 `logger`가 메트릭을 남깁니다.
+- **데이터 흐름:** Google Sheets → DistributedLock → SyncEngine(검증/증분 판단) → PostgreSQL → Sheets(상태 업데이트). 락 TTL은 20분이며 작업이 끝나거나 graceful shutdown이 완료될 때까지 유지됩니다. 실패한 행은 다음 폴링 주기에 자동 재시도됩니다.
 
 ## 3. 핵심 기능
 - **증분 싱크 (`incrementalSync`)**
@@ -36,6 +37,10 @@
   - 개별 행 실패는 `errors` 배열에 기록하고 전체 배치를 중단하지 않습니다.
   - DatabaseService upsert 성공 후 Sheets 업데이트가 실패할 수 있으므로 각각 별도 try/catch로 감쌉니다.
   - 싱크 종료 시 `total/success/failed/skipped`를 로깅해 관측성을 확보합니다.
+- **분산 락 & 동시 실행 제어**
+  - `withDistributedLock` 헬퍼가 락을 획득한 후에만 `SyncEngine`을 실행하며, 실패 시 즉시 로그를 남기고 다음 사이클로 넘어갑니다.
+  - 락 TTL과 Next.js proxy timeout을 20분으로 정렬하여 네트워크/프로세스 타임아웃 불일치를 제거했습니다.
+  - PollingScheduler가 진행 중 promise를 추적해 예약 싱크와 수동 싱크 모두 graceful shutdown에 포함됩니다.
 
 ## 4. 설치 및 설정
 1. 루트에서 의존성 설치: `pnpm install`
@@ -59,7 +64,7 @@
   pnpm --filter @mytangerine/sync-service build
   pnpm --filter @mytangerine/sync-service start
   ```
-- Graceful shutdown: SIGINT/SIGTERM 수신 시 현재 배치 완료 후 종료합니다. 컨테이너/PM2 등에서 stop 신호를 줄 때 최소 1분 이상의 타임아웃을 확보하세요.
+- Graceful shutdown: SIGINT/SIGTERM 수신 시 현재 배치와 분산 락이 감싸는 모든 promise가 완료될 때까지 대기합니다. Next.js proxy timeout, SyncEngine 실행 시간, 락 TTL을 모두 20분으로 맞췄으므로 stop 신호를 줄 때 최소 20분의 여유를 잡는 것이 안전합니다.
 
 ## 6. 모니터링 및 로그
 - `src/utils/logger.ts`는 `pino` 기반이며 개발 모드에서는 `pino-pretty`로 컬러 출력합니다.
@@ -72,7 +77,9 @@
 
 ## 7. 트러블슈팅
 - **싱크가 실행되지 않음:** `SYNC_ENABLED`가 `true`인지 확인하고 크론 표현식 검증 실패 로그를 확인합니다.
-- **동시 실행 경고:** 이전 싱크가 장시간 실행 중일 수 있습니다. `isRunning`이 true면 새 사이클은 대기하므로 지연 원인(대량 데이터, DB 슬로우 쿼리)을 조사하세요.
+- **동시 실행 경고:** DB `DistributedLock`에 기존 락이 남아 있으면 새 사이클은 대기/스킵됩니다. `isRunning`과 함께 락 레코드의 `expiresAt`을 확인해 지연 원인(대량 데이터, DB 슬로우 쿼리)을 조사하세요.
+- **분산 락 획득 실패:** 동일한 API 호출이나 다른 싱크 인스턴스가 이미 락을 보유 중일 수 있습니다. TTL(20분) 이후에도 해제되지 않으면 수동으로 레코드를 삭제하기 전에 원인을 파악하세요.
+- **20분 TTL 도달:** Sync가 TTL에 도달하면 작업이 안전하게 중단되고 락이 해제됩니다. `SYNC_INTERVAL`과 작업 크기를 조정해 TTL 이내에 완료되도록 합니다.
 - **Sheets API quota 초과:** `incrementalSync`가 정상적으로 스킵을 수행하는지 점검하고, 필요 시 `SYNC_INTERVAL`을 늘리거나 `fullResync` 빈도를 조절합니다.
 - **DB 업서트 성공 후 Sheets 업데이트 실패:** `errors` 배열과 관련 로그를 확인해 수동 재시도하거나 `fullResync`를 실행합니다.
 - **Graceful shutdown 미동작:** 프로세스가 강제 종료된 경우 마지막 배치가 중단될 수 있으니 프로세스 매니저에서 SIGTERM 후 충분한 대기 시간을 구성합니다.
@@ -80,6 +87,6 @@
 ## 8. 향후 개선사항
 - Sheets API rate-limit 대응을 위한 paging 및 백오프 전략
 - 싱크 결과 메트릭을 Prometheus/StatsD로 내보내어 대시보드 구축
+- 분산 락 상태/TTL을 메트릭으로 노출해 운영 대시보드에서 모니터링
 - 실패 행 자동 재시도 큐(예: BullMQ) 도입
 - `fullResync` 진행 상황을 노출하는 관리용 CLI/REST 엔드포인트 추가
-- 멀티 인스턴스 환경 대비를 위한 Redis 기반 분산 락 적용

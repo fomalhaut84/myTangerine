@@ -9,6 +9,7 @@ import { useConfirmSingleOrder } from '@/hooks/use-orders';
 import { LabelGroupCard } from '@/components/labels/LabelGroupCard';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/ui/input';
+import { apiBaseUrl } from '@/lib/api-client';
 import Link from 'next/link';
 import { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
@@ -222,20 +223,30 @@ export default function LabelsPage() {
       return;
     }
 
+    // 선택된 그룹의 모든 주문 추출
+    const selectedData = filteredGroups.filter((group) =>
+      selectedGroups.has(getGroupId(group))
+    );
+    const selectedOrders = selectedData.flatMap(group => group.orders);
+
+    // 1000건 초과 검증
+    if (selectedOrders.length > 1000) {
+      toast.error('한 번에 최대 1000개의 주문만 PDF로 다운로드할 수 있습니다.');
+      return;
+    }
+
     const toastId = toast.loading('PDF 파일을 생성하는 중입니다...');
 
     try {
-      // 선택된 그룹의 모든 주문 추출
-      const selectedData = filteredGroups.filter((group) =>
-        selectedGroups.has(getGroupId(group))
-      );
-      const selectedOrders = selectedData.flatMap(group => group.orders);
-
       // API 엔드포인트 URL 구성
       const params = new URLSearchParams();
-      params.append('limit', selectedOrders.length.toString());
 
-      const apiUrl = `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:4001'}/api/orders/report?${params.toString()}`;
+      // rowNumbers 파라미터 추가 (사용자가 선택한 순서 유지)
+      const rowNumbers = selectedOrders.map(order => order.rowNumber).join(',');
+      params.append('rowNumbers', rowNumbers);
+
+      // API Base URL 사용 (api-client.ts에서 import)
+      const apiUrl = `${apiBaseUrl}/api/orders/report?${params.toString()}`;
 
       // PDF 다운로드
       const response = await fetch(apiUrl);
