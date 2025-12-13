@@ -11,7 +11,7 @@ import { OrderStatsPanel } from '@/components/dashboard/OrderStatsPanel';
 
 export default function DashboardPage() {
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-[calc(100vh-3.5rem)] bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
         <h1 className="text-3xl font-bold text-gray-900 mb-8">
           대시보드

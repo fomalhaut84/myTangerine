@@ -12,6 +12,7 @@ import { LineChartStats } from '@/components/stats/LineChartStats';
 import { DonutChartStats } from '@/components/stats/DonutChartStats';
 import { BarChartStats } from '@/components/stats/BarChartStats';
 import { Card } from '@/components/common/Card';
+import { formatDateRangeKorean } from '@/lib/utils';
 import type { StatsMetric, StatsRange, StatsScope } from '@/types/api';
 
 interface OrderStatsPanelProps {
@@ -197,7 +198,7 @@ export function OrderStatsPanel({
 
       {/* 기간 표시 */}
       <div className="text-xs text-gray-500 text-center">
-        {summary.dateRange.start} ~ {summary.dateRange.end}
+        {formatDateRangeKorean(summary.dateRange.start, summary.dateRange.end)}
       </div>
     </div>
   );
