@@ -292,6 +292,80 @@ export default function LabelsPage() {
     }
   };
 
+  const handleDownloadExcel = async () => {
+    if (selectedGroups.size === 0) {
+      toast.error('선택된 라벨이 없습니다.');
+      return;
+    }
+
+    // 선택된 그룹의 모든 주문 추출
+    const selectedData = filteredGroups.filter((group) =>
+      selectedGroups.has(getGroupId(group))
+    );
+    const selectedOrders = selectedData.flatMap(group => group.orders);
+
+    // 1000건 초과 검증
+    if (selectedOrders.length > 1000) {
+      toast.error('한 번에 최대 1000개의 주문만 Excel로 다운로드할 수 있습니다.');
+      return;
+    }
+
+    const toastId = toast.loading('Excel 파일을 생성하는 중입니다...');
+
+    try {
+      // POST 방식으로 Excel 요청 (URL 길이 제한 우회)
+      const rowNumbers = selectedOrders.map(order => order.rowNumber);
+      const response = await fetch(`${apiBaseUrl}/api/orders/report/excel`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ rowNumbers }),
+      });
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.message || 'Excel 생성에 실패했습니다.');
+      }
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+
+      // 파일명 생성 (응답 헤더에서 가져오거나 기본값 사용)
+      const contentDisposition = response.headers.get('Content-Disposition');
+      const filenameMatch = contentDisposition?.match(/filename="(.+)"/);
+      const now = new Date();
+      const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+      const filename = filenameMatch ? filenameMatch[1] : `labels-${dateStr}.xlsx`;
+
+      // iOS 감지 (iOS의 모든 브라우저는 WebKit 사용)
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent);
+
+      if (isIOS) {
+        // iOS: 새 탭에서 파일 열기 (사용자가 직접 저장)
+        window.open(url, '_blank');
+        toast.success(
+          `${selectedOrders.length}개의 주문 Excel이 열렸습니다. 공유 버튼을 눌러 저장하세요.`,
+          { id: toastId }
+        );
+      } else {
+        // 기타 브라우저: 프로그래밍 방식 다운로드
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = filename;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        window.URL.revokeObjectURL(url);
+        toast.success(`${selectedOrders.length}개의 주문을 Excel로 다운로드했습니다.`, { id: toastId });
+      }
+    } catch (error) {
+      console.error('Excel 다운로드 실패:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Excel 파일 다운로드에 실패했습니다.';
+      toast.error(errorMessage, { id: toastId });
+    }
+  };
+
   return (
     <div className="min-h-screen bg-gray-50 p-8">
       <div className="max-w-7xl mx-auto">
@@ -353,6 +427,14 @@ export default function LabelsPage() {
                 className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
               >
                 PDF ({selectedGroups.size})
+              </button>
+
+              <button
+                onClick={handleDownloadExcel}
+                disabled={selectedGroups.size === 0}
+                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              >
+                Excel ({selectedGroups.size})
               </button>
             </div>
 

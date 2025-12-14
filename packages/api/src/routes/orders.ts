@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -16,6 +16,7 @@ import {
 } from '../utils/stats.js';
 import { InMemoryCache } from '../utils/cache.js';
 import { generatePdfBuffer } from '../utils/pdf-generator.js';
+import { generateExcelBuffer } from '../utils/excel-generator.js';
 
 /**
  * 통계 데이터를 CSV 형식으로 변환
@@ -676,6 +677,300 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.status(500).send({
           error: 'PDF_GENERATION_ERROR',
           message: error instanceof Error ? error.message : 'PDF 생성 실패',
+        });
+      }
+    }
+  );
+
+  /**
+   * GET /api/orders/report/excel
+   * 주문 목록 Excel 내보내기
+   * Issue #113: 주문 목록 Excel 내보내기
+   */
+  fastify.get(
+    '/api/orders/report/excel',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'Excel 형식으로 주문 목록 다운로드',
+        description: '필터링된 주문 목록을 Excel 파일로 생성하여 다운로드합니다.',
+        querystring: {
+          type: 'object',
+          properties: {
+            rowNumbers: {
+              type: 'string',
+              description: '선택된 행 번호들 (쉼표로 구분, 예: "2,3,5")',
+            },
+            status: {
+              type: 'string',
+              description: '주문 상태 필터 (예: 확인, 미확인)',
+            },
+            from: {
+              type: 'string',
+              format: 'date',
+              description: '시작 날짜 (YYYY-MM-DD)',
+            },
+            to: {
+              type: 'string',
+              format: 'date',
+              description: '종료 날짜 (YYYY-MM-DD)',
+            },
+            sort: {
+              type: 'string',
+              enum: ['timestamp', 'status'],
+              default: 'timestamp',
+              description: '정렬 기준',
+            },
+            order: {
+              type: 'string',
+              enum: ['asc', 'desc'],
+              default: 'desc',
+              description: '정렬 순서',
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 1000,
+              default: 100,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'string',
+            description: 'Excel 파일 (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)',
+          },
+          500: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { rowNumbers: rowNumbersStr, status, from, to, sort, order, limit, offset } = request.query as {
+        rowNumbers?: string;
+        status?: string;
+        from?: string;
+        to?: string;
+        sort?: 'timestamp' | 'status';
+        order?: 'asc' | 'desc';
+        limit?: number;
+        offset?: number;
+      };
+
+      try {
+        // rowNumbers 문자열 파싱 및 검증
+        let rowNumbers: number[] | undefined;
+        if (rowNumbersStr) {
+          const tokens = rowNumbersStr.split(',').map((n) => n.trim());
+
+          // 검증: 각 토큰이 정수인지 확인 (정규식으로 엄격하게 검증)
+          const isValidInteger = /^\d+$/;
+          const invalidTokens = tokens.filter((token) => !isValidInteger.test(token));
+
+          if (invalidTokens.length > 0) {
+            return reply.code(400).send({
+              error: 'Invalid row numbers',
+              message: `rowNumbers must be comma-separated positive integers. Invalid: ${invalidTokens.join(', ')}`,
+            });
+          }
+
+          rowNumbers = tokens.map((n) => parseInt(n, 10));
+
+          // 검증: 1000건 제한
+          if (rowNumbers.length > 1000) {
+            return reply.code(400).send({
+              error: 'Too many rows',
+              message: 'Cannot select more than 1000 rows at once',
+            });
+          }
+        }
+
+        // SheetService에서 모든 주문 가져오기
+        const allRows = await fastify.core.sheetService.getAllRows();
+        const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
+
+        // 공통 헬퍼 함수로 주문 처리
+        const { orders: paginatedOrders, filterDescription } = processOrdersForPdfReport(
+          allOrders,
+          { rowNumbers, status, from, to, sort, order, limit, offset }
+        );
+
+        // Excel 데이터 변환 및 생성
+        const excelRows = mapOrdersToExcelRows(paginatedOrders);
+        const excelBuffer = await generateExcelBuffer(excelRows, {
+          title: '현애순(딸) 주문목록',
+          includeTimestamp: true,
+          filterDescription,
+        });
+
+        // 파일명 생성 (YYYYMMDD 형식)
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const filename = `orders-report-${dateStr}.xlsx`;
+
+        // 응답 헤더 설정
+        reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        reply.header('X-Order-Count', paginatedOrders.length.toString());
+        reply.header('X-Generated-At', now.toISOString());
+
+        return reply.send(excelBuffer);
+      } catch (error) {
+        fastify.log.error(error, 'Excel 생성 중 오류 발생');
+        return reply.status(500).send({
+          error: 'EXCEL_GENERATION_ERROR',
+          message: error instanceof Error ? error.message : 'Excel 생성 실패',
+        });
+      }
+    }
+  );
+
+  /**
+   * POST /api/orders/report/excel
+   * 주문 목록 Excel 내보내기 (POST 버전)
+   * Issue #113: 모바일 환경 대응 - URL 길이 제한 우회
+   */
+  fastify.post(
+    '/api/orders/report/excel',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: 'Excel 형식으로 주문 목록 다운로드 (POST)',
+        description:
+          '필터링된 주문 목록을 Excel 파일로 생성하여 다운로드합니다. ' +
+          'rowNumbers를 body로 전송하여 URL 길이 제한을 우회합니다.',
+        body: {
+          type: 'object',
+          properties: {
+            rowNumbers: {
+              type: 'array',
+              items: { type: 'integer' },
+              description: '선택된 행 번호 배열 (예: [2, 3, 5])',
+            },
+            status: {
+              type: 'string',
+              description: '주문 상태 필터 (예: 확인, 미확인)',
+            },
+            from: {
+              type: 'string',
+              format: 'date',
+              description: '시작 날짜 (YYYY-MM-DD)',
+            },
+            to: {
+              type: 'string',
+              format: 'date',
+              description: '종료 날짜 (YYYY-MM-DD)',
+            },
+            sort: {
+              type: 'string',
+              enum: ['timestamp', 'status'],
+              default: 'timestamp',
+              description: '정렬 기준',
+            },
+            order: {
+              type: 'string',
+              enum: ['asc', 'desc'],
+              default: 'desc',
+              description: '정렬 순서',
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 1000,
+              default: 100,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'string',
+            description: 'Excel 파일 (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)',
+          },
+          500: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { rowNumbers, status, from, to, sort, order, limit, offset } = request.body as {
+        rowNumbers?: number[];
+        status?: string;
+        from?: string;
+        to?: string;
+        sort?: 'timestamp' | 'status';
+        order?: 'asc' | 'desc';
+        limit?: number;
+        offset?: number;
+      };
+
+      try {
+        // 검증: 1000건 제한
+        if (rowNumbers && rowNumbers.length > 1000) {
+          return reply.code(400).send({
+            error: 'Too many rows',
+            message: 'Cannot select more than 1000 rows at once',
+          });
+        }
+
+        // SheetService에서 모든 주문 가져오기
+        const allRows = await fastify.core.sheetService.getAllRows();
+        const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
+
+        // 공통 헬퍼 함수로 주문 처리
+        const { orders: paginatedOrders, filterDescription } = processOrdersForPdfReport(
+          allOrders,
+          { rowNumbers, status, from, to, sort, order, limit, offset }
+        );
+
+        // Excel 데이터 변환 및 생성
+        const excelRows = mapOrdersToExcelRows(paginatedOrders);
+        const excelBuffer = await generateExcelBuffer(excelRows, {
+          title: '현애순(딸) 주문목록',
+          includeTimestamp: true,
+          filterDescription,
+        });
+
+        // 파일명 생성 (YYYYMMDD 형식)
+        const now = new Date();
+        const dateStr = now.toISOString().slice(0, 10).replace(/-/g, '');
+        const filename = `orders-report-${dateStr}.xlsx`;
+
+        // 응답 헤더 설정
+        reply.header('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+        reply.header('Content-Disposition', `attachment; filename="${filename}"`);
+        reply.header('X-Order-Count', paginatedOrders.length.toString());
+        reply.header('X-Generated-At', now.toISOString());
+
+        return reply.send(excelBuffer);
+      } catch (error) {
+        fastify.log.error(error, 'Excel 생성 중 오류 발생');
+        return reply.status(500).send({
+          error: 'EXCEL_GENERATION_ERROR',
+          message: error instanceof Error ? error.message : 'Excel 생성 실패',
         });
       }
     }
