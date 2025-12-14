@@ -6,6 +6,7 @@
 // Types
 export * from './types/order.js';
 export * from './types/pdf.js';
+export * from './types/excel.js';
 
 // Config
 export { Config } from './config/config.js';
@@ -25,6 +26,7 @@ export {
 // Formatters
 export { LabelFormatter } from './formatters/label-formatter.js';
 export { mapOrderToPdfRow, mapOrdersToPdfRows } from './formatters/pdf-formatter.js';
+export { mapOrderToExcelRow, mapOrdersToExcelRows } from './formatters/excel-formatter.js';
 
 // Utils (추후 추가)
 // export * from './utils/phone.js';
