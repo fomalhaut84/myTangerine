@@ -168,7 +168,9 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           status: statusData,
         });
       } catch (error) {
-        fastify.log.error({ error }, 'Failed to get sync status');
+        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorStack = error instanceof Error ? error.stack : undefined;
+        fastify.log.error({ errorMessage, errorStack }, 'Failed to get sync status');
 
         return reply.code(500).send({
           success: false,
