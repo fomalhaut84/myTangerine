@@ -51,6 +51,26 @@ export class SyncEngine {
   }
 
   /**
+   * KST (UTC+9) 타임스탬프를 ISO 8601 형식으로 포맷
+   * @param date - Date 객체
+   * @returns "2024-02-01T21:34:56+09:00" 형식의 문자열
+   */
+  private formatKstTimestamp(date: Date): string {
+    const kstOffset = 9 * 60; // +9시간 (분 단위)
+    const utcTime = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
+    const kstTime = new Date(utcTime + kstOffset * 60 * 1000);
+
+    const year = kstTime.getFullYear();
+    const month = String(kstTime.getMonth() + 1).padStart(2, '0');
+    const day = String(kstTime.getDate()).padStart(2, '0');
+    const hours = String(kstTime.getHours()).padStart(2, '0');
+    const minutes = String(kstTime.getMinutes()).padStart(2, '0');
+    const seconds = String(kstTime.getSeconds()).padStart(2, '0');
+
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+09:00`;
+  }
+
+  /**
    * Sheets의 싱크 상태 필드 업데이트 (배치 업데이트)
    * @param rowNumber - 행 번호
    * @param status - 'success' | 'fail'
@@ -62,10 +82,9 @@ export class SyncEngine {
     status: 'success' | 'fail',
     orderId?: number
   ): Promise<void> {
-    // KST (UTC+9) 시간으로 변환
-    const now = new Date();
-    const kstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    const syncTime = kstTime.toISOString().replace('T', ' ').substring(0, 19);
+    // KST (UTC+9) 시간으로 ISO 8601 형식 저장
+    // 형식: "2024-02-01T21:34:56+09:00"
+    const syncTime = this.formatKstTimestamp(new Date());
 
     const updates: Record<string, string> = {
       DB_SYNC_STATUS: status,
@@ -155,11 +174,12 @@ export class SyncEngine {
   }
 
   /**
-   * 증분 동기화 (기본 모드)
-   * DB_SYNC_STATUS가 'success'인 행은 스킵
+   * 공통 동기화 로직
+   * @param skipSynced - true면 이미 동기화된 행 스킵 (증분), false면 모두 재동기화 (전체)
+   * @param mode - 로그용 모드 이름
    */
-  async incrementalSync(): Promise<SyncResult> {
-    this.logger?.info('Starting incremental sync...');
+  private async performSync(skipSynced: boolean, mode: string): Promise<SyncResult> {
+    this.logger?.info(`Starting ${mode} sync...`);
 
     const result: SyncResult = {
       total: 0,
@@ -185,12 +205,14 @@ export class SyncEngine {
           continue;
         }
 
-        // DB_SYNC_STATUS 확인 (증분 모드: 싱크 상태가 'success'인 행은 스킵)
-        const syncStatus = row['DB_SYNC_STATUS'];
-        if (syncStatus === 'success') {
-          this.logger?.debug({ rowNumber, syncStatus }, 'Row already synced successfully, skipping');
-          result.skipped++;
-          continue;
+        // 증분 모드에서만 DB_SYNC_STATUS 확인
+        if (skipSynced) {
+          const syncStatus = row['DB_SYNC_STATUS'];
+          if (syncStatus === 'success') {
+            this.logger?.debug({ rowNumber, syncStatus }, 'Row already synced successfully, skipping');
+            result.skipped++;
+            continue;
+          }
         }
 
         // 행 동기화
@@ -213,15 +235,23 @@ export class SyncEngine {
 
       this.logger?.info(
         { success: result.success, failed: result.failed, skipped: result.skipped },
-        'Incremental sync completed'
+        `${mode} sync completed`
       );
 
       return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      this.logger?.error({ error: message }, 'Incremental sync failed');
-      throw new Error(`Incremental sync failed: ${message}`);
+      this.logger?.error({ error: message }, `${mode} sync failed`);
+      throw new Error(`${mode} sync failed: ${message}`);
     }
+  }
+
+  /**
+   * 증분 동기화 (기본 모드)
+   * DB_SYNC_STATUS가 'success'인 행은 스킵
+   */
+  async incrementalSync(): Promise<SyncResult> {
+    return this.performSync(true, 'incremental');
   }
 
   /**
@@ -229,58 +259,6 @@ export class SyncEngine {
    * 모든 행을 강제로 다시 동기화
    */
   async fullResync(): Promise<SyncResult> {
-    this.logger?.info('Starting full resync...');
-
-    const result: SyncResult = {
-      total: 0,
-      success: 0,
-      failed: 0,
-      skipped: 0,
-      errors: [],
-    };
-
-    try {
-      // 모든 행 가져오기
-      const allRows = await this.sheetService.getAllRows();
-      result.total = allRows.length;
-
-      this.logger?.info({ total: result.total }, 'Fetched rows from Google Sheets');
-
-      // 각 행 동기화 (DB_SYNC_STATUS 무시하고 모두 재동기화)
-      for (const row of allRows) {
-        const rowNumber = row._rowNumber;
-
-        if (!rowNumber) {
-          result.skipped++;
-          continue;
-        }
-
-        const { success, error } = await this.syncRow(row);
-
-        if (success) {
-          result.success++;
-        } else {
-          result.failed++;
-          result.errors.push({
-            rowNumber,
-            error: error || 'Unknown error',
-          });
-        }
-
-        // Rate limiting
-        await new Promise(resolve => setTimeout(resolve, 1000));
-      }
-
-      this.logger?.info(
-        { success: result.success, failed: result.failed, skipped: result.skipped },
-        'Full resync completed'
-      );
-
-      return result;
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger?.error({ error: message }, 'Full resync failed');
-      throw new Error(`Full resync failed: ${message}`);
-    }
+    return this.performSync(false, 'full');
   }
 }

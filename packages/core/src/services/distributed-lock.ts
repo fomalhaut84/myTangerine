@@ -38,7 +38,7 @@ export class DistributedLockService {
         await this.cleanupExpired();
 
         // 2. 락 획득 시도 (upsert with unique constraint)
-        const lock = await this.prisma.distributedLock.create({
+        await this.prisma.distributedLock.create({
           data: {
             lockKey,
             owner,
@@ -178,7 +178,7 @@ export class DistributedLockService {
 }
 
 /**
- * 락을 사용한 안전한 함수 실행
+ * 락을 사용한 안전한 함수 실행 (자동 갱신 포함)
  * @param prisma - Prisma 클라이언트
  * @param lockKey - 락 식별자
  * @param owner - 락 소유자 식별자
@@ -194,6 +194,7 @@ export async function withDistributedLock<T>(
   options: DistributedLockOptions = {}
 ): Promise<T> {
   const lockService = new DistributedLockService(prisma);
+  const { ttlMs = 20 * 60 * 1000 } = options;
 
   // 락 획득 시도
   const acquired = await lockService.acquire(lockKey, owner, options);
@@ -207,10 +208,49 @@ export async function withDistributedLock<T>(
     );
   }
 
+  // 자동 락 갱신 (heartbeat)
+  // TTL의 절반마다 갱신 (예: 20분 TTL → 10분마다 갱신)
+  const renewIntervalMs = Math.floor(ttlMs / 2);
+  let lockLost = false;
+  let lockLostError: Error | null = null;
+
+  const heartbeatInterval = setInterval(async () => {
+    try {
+      const renewed = await lockService.renew(lockKey, owner, ttlMs);
+      if (!renewed) {
+        // 락 갱신 실패 = 락이 만료되었거나 다른 프로세스가 삭제
+        // 즉시 작업을 중단해야 함
+        lockLost = true;
+        lockLostError = new Error(
+          `Lock '${lockKey}' renewal failed for owner '${owner}'. ` +
+          `The lock may have expired or been taken by another process. ` +
+          `Aborting operation to prevent concurrent execution.`
+        );
+        console.error(lockLostError.message);
+      }
+    } catch (error) {
+      lockLost = true;
+      lockLostError = new Error(
+        `Error renewing lock ${lockKey}: ${error instanceof Error ? error.message : String(error)}`
+      );
+      console.error(lockLostError.message);
+    }
+  }, renewIntervalMs);
+
   try {
     // 함수 실행
-    return await fn();
+    const result = await fn();
+
+    // 함수 실행 완료 후 락 손실 확인
+    if (lockLost && lockLostError) {
+      throw lockLostError;
+    }
+
+    return result;
   } finally {
+    // heartbeat 중지
+    clearInterval(heartbeatInterval);
+
     // 락 해제 (항상 실행)
     await lockService.release(lockKey, owner);
   }
