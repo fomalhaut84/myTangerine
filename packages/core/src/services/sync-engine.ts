@@ -62,10 +62,9 @@ export class SyncEngine {
     status: 'success' | 'fail',
     orderId?: number
   ): Promise<void> {
-    // KST (UTC+9) 시간으로 ISO 8601 형식 생성
-    const now = new Date();
-    const kstTime = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    const syncTime = kstTime.toISOString(); // ISO 8601: "2024-02-01T12:34:56.789Z"
+    // UTC 시간으로 ISO 8601 형식 저장 (표준 방식)
+    // 클라이언트에서 표시할 때 KST로 변환
+    const syncTime = new Date().toISOString();
 
     const updates: Record<string, string> = {
       DB_SYNC_STATUS: status,

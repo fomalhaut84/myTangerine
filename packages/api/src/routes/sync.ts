@@ -267,10 +267,19 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         syncStatusCache = null;
         fastify.log.debug('Sync status cache invalidated after sync');
 
+        // 에러 메시지 일반화 (내부 에러 상세 노출 방지)
+        const sanitizedErrors = result.errors.map(({ rowNumber }) => ({
+          rowNumber,
+          error: 'Sync failed for this row',
+        }));
+
         return reply.code(200).send({
           success: true,
           message: `동기화 완료: ${result.success}개 성공, ${result.failed}개 실패, ${result.skipped}개 건너뜀`,
-          result,
+          result: {
+            ...result,
+            errors: sanitizedErrors,
+          },
         });
       } catch (error) {
         fastify.log.error({ error }, 'Manual sync failed');
@@ -397,10 +406,19 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         syncStatusCache = null;
         fastify.log.debug('Sync status cache invalidated after full resync');
 
+        // 에러 메시지 일반화 (내부 에러 상세 노출 방지)
+        const sanitizedErrors = result.errors.map(({ rowNumber }) => ({
+          rowNumber,
+          error: 'Sync failed for this row',
+        }));
+
         return reply.code(200).send({
           success: true,
           message: `전체 동기화 완료: ${result.success}개 성공, ${result.failed}개 실패, ${result.skipped}개 건너뜀 (소요 시간: ${result.duration}초)`,
-          result,
+          result: {
+            ...result,
+            errors: sanitizedErrors,
+          },
         });
       } catch (error) {
         fastify.log.error({ error }, 'Full resync failed');
