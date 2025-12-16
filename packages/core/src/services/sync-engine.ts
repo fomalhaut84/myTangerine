@@ -51,6 +51,26 @@ export class SyncEngine {
   }
 
   /**
+   * KST (UTC+9) 타임스탬프를 ISO 8601 형식으로 포맷
+   * @param date - Date 객체
+   * @returns "2024-02-01T21:34:56+09:00" 형식의 문자열
+   */
+  private formatKstTimestamp(date: Date): string {
+    const kstOffset = 9 * 60; // +9시간 (분 단위)
+    const utcTime = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
+    const kstTime = new Date(utcTime + kstOffset * 60 * 1000);
+
+    const year = kstTime.getFullYear();
+    const month = String(kstTime.getMonth() + 1).padStart(2, '0');
+    const day = String(kstTime.getDate()).padStart(2, '0');
+    const hours = String(kstTime.getHours()).padStart(2, '0');
+    const minutes = String(kstTime.getMinutes()).padStart(2, '0');
+    const seconds = String(kstTime.getSeconds()).padStart(2, '0');
+
+    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+09:00`;
+  }
+
+  /**
    * Sheets의 싱크 상태 필드 업데이트 (배치 업데이트)
    * @param rowNumber - 행 번호
    * @param status - 'success' | 'fail'
@@ -62,9 +82,9 @@ export class SyncEngine {
     status: 'success' | 'fail',
     orderId?: number
   ): Promise<void> {
-    // UTC 시간으로 ISO 8601 형식 저장 (표준 방식)
-    // 클라이언트에서 표시할 때 KST로 변환
-    const syncTime = new Date().toISOString();
+    // KST (UTC+9) 시간으로 ISO 8601 형식 저장
+    // 형식: "2024-02-01T21:34:56+09:00"
+    const syncTime = this.formatKstTimestamp(new Date());
 
     const updates: Record<string, string> = {
       DB_SYNC_STATUS: status,
