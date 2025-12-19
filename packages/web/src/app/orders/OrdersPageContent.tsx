@@ -240,10 +240,10 @@ export function OrdersPageContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
         {/* 헤더 */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 sm:mb-8">
           <div>
             <Link
               href="/dashboard"
@@ -251,7 +251,7 @@ export function OrdersPageContent() {
             >
               ← 대시보드로 돌아가기
             </Link>
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
               주문 목록
             </h1>
             {/* 뷰 모드 토글 */}
@@ -279,7 +279,7 @@ export function OrdersPageContent() {
             </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             <button
               onClick={handleDownloadCSV}
               disabled={
@@ -287,9 +287,9 @@ export function OrdersPageContent() {
                 currentData.orders.length === 0 ||
                 filteredAndSortedOrders.length === 0
               }
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              className="px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
             >
-              CSV 다운로드
+              CSV
             </button>
 
             <button
@@ -299,14 +299,14 @@ export function OrdersPageContent() {
                 currentData.orders.length === 0 ||
                 filteredAndSortedOrders.length === 0
               }
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              className="px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
             >
-              Excel 다운로드
+              Excel
             </button>
 
             <Link
               href="/labels"
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+              className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
             >
               라벨 생성
             </Link>
@@ -333,7 +333,7 @@ export function OrdersPageContent() {
             </div>
 
             {/* 필터 및 정렬 */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
               {/* 주문 상태 필터 */}
               <div>
                 <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-2">

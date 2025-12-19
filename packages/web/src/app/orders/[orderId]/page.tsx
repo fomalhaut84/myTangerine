@@ -135,7 +135,7 @@ export default function OrderDetailPage() {
   // orderId가 유효하지 않은 경우 (API 호출 전에 체크)
   if (!isValidOrderId) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <Link
             href={backLink}
@@ -153,7 +153,7 @@ export default function OrderDetailPage() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <div className="animate-pulse space-y-4">
             <div className="h-8 bg-gray-200 rounded w-1/4"></div>
@@ -166,7 +166,7 @@ export default function OrderDetailPage() {
 
   if (error || !data?.success) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <Link
             href={backLink}
@@ -185,7 +185,7 @@ export default function OrderDetailPage() {
   // 주문을 찾을 수 없는 경우
   if (!order) {
     return (
-      <div className="min-h-screen bg-gray-50 p-8">
+      <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
         <div className="max-w-4xl mx-auto">
           <Link
             href={backLink}
@@ -202,17 +202,17 @@ export default function OrderDetailPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-4xl mx-auto">
         {/* 헤더 */}
-        <div className="mb-8">
+        <div className="mb-6 sm:mb-8">
           <Link
             href={backLink}
             className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block"
           >
             ← 주문 목록으로 돌아가기
           </Link>
-          <h1 className="text-3xl font-bold text-gray-900">
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
             주문 상세 정보
           </h1>
         </div>
@@ -408,11 +408,11 @@ export default function OrderDetailPage() {
         </Card>
 
         {/* 액션 버튼 */}
-        <div className="flex justify-end gap-3">
+        <div className="flex flex-wrap justify-end gap-2 sm:gap-3">
           {/* 삭제된 주문인 경우 복원 버튼만 표시 */}
           {order.isDeleted ? (
             <button
-              className="px-6 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              className="px-4 sm:px-6 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
               onClick={handleRestore}
               disabled={isProcessing}
             >
@@ -423,7 +423,7 @@ export default function OrderDetailPage() {
               {/* 신규주문 → 입금확인 */}
               {order.status === '신규주문' && (
                 <button
-                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  className="px-4 sm:px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                   onClick={handleConfirmPayment}
                   disabled={isProcessing}
                 >
@@ -434,7 +434,7 @@ export default function OrderDetailPage() {
               {/* 입금확인 → 배송완료 */}
               {order.status === '입금확인' && (
                 <button
-                  className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  className="px-4 sm:px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                   onClick={handleOpenTrackingModal}
                   disabled={isProcessing}
                 >
@@ -445,7 +445,7 @@ export default function OrderDetailPage() {
               {/* 삭제 버튼 (배송완료가 아닌 경우에만) */}
               {order.status !== '배송완료' && (
                 <button
-                  className="px-6 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  className="px-4 sm:px-6 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                   onClick={handleDelete}
                   disabled={isProcessing}
                 >
