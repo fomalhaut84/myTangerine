@@ -132,7 +132,9 @@ export class DatabaseService {
       quantity5kg: String(row['5kg 수량'] || ''),
       quantity10kg: String(row['10kg 수량'] || ''),
       quantity,
-      status: row['비고'] || '',
+      // P2 Fix: DB 저장 시 status 정규화하여 필터링과 일치
+      // 공백 포함된 값(예: '확인 ')도 올바르게 분류
+      status: normalizeOrderStatus(row['비고']),
       validationError: validation.isValid ? null : validation.reason,
       deletedAt, // Phase 3: Soft Delete 동기화 (undefined = 기존 값 유지)
       // syncStatus는 호출자(SyncEngine)에서 설정
@@ -161,20 +163,19 @@ export class DatabaseService {
 
       let statusWhere = {};
 
+      // P2 Fix: DB에 저장 시 status가 정규화되므로 정규화된 값으로만 필터링
+      // - '신규주문': 신규 주문 (이전의 빈 문자열, 알 수 없는 값 포함)
+      // - '입금확인': 입금 확인된 주문
+      // - '배송완료': 배송 완료된 주문 (이전의 '확인' 포함)
       switch (status) {
         case 'completed':
-          // 배송완료 (하위 호환: '확인'도 포함)
-          statusWhere = { status: { in: ['배송완료', '확인'] } };
+          statusWhere = { status: '배송완료' };
           break;
         case 'pending_payment':
-          // 입금확인
           statusWhere = { status: '입금확인' };
           break;
         case 'new':
-          // P1 Fix: 신규주문 = 배송완료/입금확인이 아닌 모든 상태
-          // Sheet 모드의 normalizeOrderStatus와 일치: 알 수 없는 값도 신규주문 취급
-          // 기존 '확인'도 배송완료로 간주하므로 제외 목록에 포함
-          statusWhere = { status: { notIn: ['배송완료', '확인', '입금확인'] } };
+          statusWhere = { status: '신규주문' };
           break;
         case 'all':
         default:
