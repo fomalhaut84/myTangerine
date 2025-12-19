@@ -1614,7 +1614,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
 
   /**
    * GET /api/orders/stats
-   * 통합 통계 조회 (완료/신규/전체 주문별, 기간별)
+   * 통합 통계 조회 (신규/입금확인/배송완료/전체 주문별, 기간별)
    */
   fastify.get<{
     Querystring: {
@@ -1633,14 +1633,14 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['orders'],
         summary: '통합 주문 통계 조회',
-        description: '완료된 주문 기반 통계를 조회합니다. 기간, 범위, 지표 등을 선택할 수 있습니다.',
+        description: '주문 통계를 조회합니다. scope로 상태별(신규/입금확인/배송완료/전체) 필터링이 가능합니다.',
         querystring: {
           type: 'object',
           properties: {
             scope: {
               type: 'string',
-              enum: ['completed', 'new', 'all'],
-              description: '통계 범위 (completed: 완료 주문, new: 신규 주문, all: 전체)',
+              enum: ['completed', 'new', 'pending_payment', 'all'],
+              description: '통계 범위 (completed: 배송완료, new: 신규주문, pending_payment: 입금확인, all: 전체)',
               default: 'completed',
             },
             range: {

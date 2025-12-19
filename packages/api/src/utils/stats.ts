@@ -7,8 +7,12 @@ import type { Config } from '@mytangerine/core';
 
 /**
  * 통계 조회 범위
+ * - 'completed': 배송완료 주문
+ * - 'new': 신규주문
+ * - 'pending_payment': 입금확인 주문 (Issue #130)
+ * - 'all': 전체 주문
  */
-export type StatsScope = 'completed' | 'new' | 'all';
+export type StatsScope = 'completed' | 'new' | 'pending_payment' | 'all';
 
 /**
  * 기간 범위
