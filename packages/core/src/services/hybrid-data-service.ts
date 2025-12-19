@@ -63,25 +63,26 @@ export class HybridDataService {
 
   /**
    * 모든 행 가져오기
+   * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
-  async getAllRows(): Promise<SheetRow[]> {
+  async getAllRows(includeDeleted: boolean = false): Promise<SheetRow[]> {
     if (this.mode === 'sheets') {
-      return this.sheetService!.getAllRows();
+      return this.sheetService!.getAllRows(includeDeleted);
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.getAllRows();
+      return this.databaseService.getAllRows(includeDeleted);
     }
 
     // hybrid: DB 우선, 실패 시 Sheets fallback
     try {
-      const rows = await this.databaseService.getAllRows();
+      const rows = await this.databaseService.getAllRows(includeDeleted);
       this.logger?.info(`[hybrid] getAllRows from DB: ${rows.length} rows`);
       return rows;
     } catch (dbError) {
       if (this.fallbackToSheets) {
         this.logger?.warn(`[hybrid] DB getAllRows failed, falling back to Sheets: ${dbError}`);
-        return this.sheetService!.getAllRows();
+        return this.sheetService!.getAllRows(includeDeleted);
       }
       throw dbError;
     }

@@ -194,8 +194,9 @@ export class SheetService {
 
   /**
    * 모든 행 가져오기
+   * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
-  async getAllRows(): Promise<SheetRow[]> {
+  async getAllRows(includeDeleted: boolean = false): Promise<SheetRow[]> {
     // 매 요청마다 로그 캐시 초기화 (수정된 데이터의 재검증을 위해)
     this.loggedInvalidRows.clear();
 
@@ -237,7 +238,7 @@ export class SheetService {
       // 필수 필드가 비어있는 행은 제외 (데이터 정합성 유지)
       // 타임스탬프, 받으실분 정보(이름, 주소, 전화번호)는 반드시 필요
       // 상품 선택은 검증하되, 실패해도 제외하지 않고 _validationError 필드에 저장
-      return allRows.filter((row) => {
+      const validRows = allRows.filter((row) => {
         const timestamp = row['타임스탬프'] || '';
         const recipientName = row['받으실분 성함'] || '';
         const recipientAddress = row['받으실분 주소 (도로명 주소로 부탁드려요)'] || '';
@@ -276,6 +277,20 @@ export class SheetService {
 
         return true;
       });
+
+      // Soft Delete 필터링 (Phase 3)
+      if (!includeDeleted) {
+        return validRows.filter((row) => {
+          // '삭제됨' 컬럼에 값이 있거나 _isDeleted 플래그가 true면 제외
+          const deletedValue = row['삭제됨'];
+          if (row._isDeleted || (deletedValue && deletedValue.trim() !== '')) {
+            return false;
+          }
+          return true;
+        });
+      }
+
+      return validRows;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to get all rows: ${message}`);
@@ -299,7 +314,8 @@ export class SheetService {
     includeDeleted: boolean = false
   ): Promise<SheetRow[]> {
     try {
-      const allRows = await this.getAllRows();
+      // getAllRows(true)로 모든 행 가져오고 여기서 soft delete 필터링 수행
+      const allRows = await this.getAllRows(true);
 
       if (allRows.length === 0) {
         // status='new'일 때만 newOrderRows 초기화 (race condition 방지)
