@@ -81,6 +81,23 @@ export class DatabaseService {
     const productSelection = row['상품 선택'] || '';
     const validation = validateProductSelection(productSelection);
 
+    // Soft Delete 처리: 시트의 '삭제됨' 값을 deletedAt으로 변환
+    let deletedAt: Date | null = null;
+    if (row['삭제됨'] && row['삭제됨'].trim() !== '') {
+      try {
+        deletedAt = new Date(row['삭제됨']);
+        // Invalid Date 체크
+        if (isNaN(deletedAt.getTime())) {
+          deletedAt = null;
+        }
+      } catch {
+        deletedAt = null;
+      }
+    } else if (row._isDeleted) {
+      // _isDeleted 플래그만 있는 경우 현재 시각 사용
+      deletedAt = new Date();
+    }
+
     return {
       sheetRowNumber: row._rowNumber,
       timestamp,
@@ -98,6 +115,7 @@ export class DatabaseService {
       quantity,
       status: row['비고'] || '',
       validationError: validation.isValid ? null : validation.reason,
+      deletedAt, // Phase 3: Soft Delete 동기화
       // syncStatus는 호출자(SyncEngine)에서 설정
     };
   }
