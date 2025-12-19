@@ -328,10 +328,14 @@ export class SheetService {
       // 필수 컬럼 검증
       this.validateRequiredColumns(allRows[0]);
 
-      // Soft Delete 필터링
+      // Soft Delete 필터링 (P2 Fix: 공백 문자열도 빈값으로 취급)
       let baseRows = allRows;
       if (!includeDeleted) {
-        baseRows = allRows.filter(row => !row['삭제됨'] && !row._isDeleted);
+        baseRows = allRows.filter(row => {
+          const deletedValue = row['삭제됨'];
+          const isDeleted = row._isDeleted || (deletedValue && deletedValue.trim() !== '');
+          return !isDeleted;
+        });
       }
 
       // Status에 따라 필터링
@@ -744,7 +748,11 @@ export class SheetService {
     try {
       // P1 Fix: 삭제된 행을 포함하여 조회해야 함
       const allRows = await this.getAllRows(true);
-      return allRows.filter(row => !!row['삭제됨'] || row._isDeleted);
+      // P2 Fix: 공백 문자열도 빈값으로 취급
+      return allRows.filter(row => {
+        const deletedValue = row['삭제됨'];
+        return row._isDeleted || (deletedValue && deletedValue.trim() !== '');
+      });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to get deleted orders: ${message}`);
