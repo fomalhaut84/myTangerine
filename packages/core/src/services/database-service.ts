@@ -171,8 +171,10 @@ export class DatabaseService {
           statusWhere = { status: '입금확인' };
           break;
         case 'new':
-          // 신규주문 (하위 호환: 빈 문자열도 포함)
-          statusWhere = { status: { in: ['신규주문', ''] } };
+          // P1 Fix: 신규주문 = 배송완료/입금확인이 아닌 모든 상태
+          // Sheet 모드의 normalizeOrderStatus와 일치: 알 수 없는 값도 신규주문 취급
+          // 기존 '확인'도 배송완료로 간주하므로 제외 목록에 포함
+          statusWhere = { status: { notIn: ['배송완료', '확인', '입금확인'] } };
           break;
         case 'all':
         default:
