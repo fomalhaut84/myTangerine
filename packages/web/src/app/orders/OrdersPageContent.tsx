@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useOrders, useConfirmOrders, useDeletedOrders } from '@/hooks/use-orders';
+import { useOrders, useDeletedOrders } from '@/hooks/use-orders';
 import { OrdersTable } from '@/components/orders/OrdersTable';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/ui/input';
@@ -53,7 +53,6 @@ export function OrdersPageContent() {
   const { data: deletedData, isLoading: deletedLoading, error: deletedError } = useDeletedOrders({
     enabled: viewMode === 'deleted',
   });
-  const confirmMutation = useConfirmOrders();
   const searchInputRef = useRef<HTMLInputElement>(null);
 
   // 현재 보기 모드에 따른 데이터 선택
@@ -210,19 +209,6 @@ export function OrdersPageContent() {
     updateQueryParams({ page });
   };
 
-  const handleConfirm = async () => {
-    if (!confirm('모든 주문을 확인 처리하시겠습니까?')) {
-      return;
-    }
-
-    try {
-      const result = await confirmMutation.mutateAsync();
-      toast.success(result.message);
-    } catch (error) {
-      toast.error('주문 확인 처리 중 오류가 발생했습니다.');
-    }
-  };
-
   const handleDownloadCSV = () => {
     if (filteredAndSortedOrders.length === 0) {
       toast.error('다운로드할 주문이 없습니다.');
@@ -324,20 +310,6 @@ export function OrdersPageContent() {
             >
               라벨 생성
             </Link>
-
-            {viewMode === 'active' && (
-              <button
-                onClick={handleConfirm}
-                disabled={
-                  confirmMutation.isPending ||
-                  !data?.orders ||
-                  data.orders.length === 0
-                }
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-              >
-                {confirmMutation.isPending ? '처리 중...' : '모두 확인'}
-              </button>
-            )}
           </div>
         </div>
 

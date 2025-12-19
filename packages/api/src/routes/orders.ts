@@ -250,6 +250,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         quantity: order.quantity,
         rowNumber: order.rowNumber,
         validationError: order.validationError,
+        orderType: order.orderType,
+        isDeleted: order.isDeleted,
+        deletedAt: order.deletedAt?.toISOString(),
       })),
     };
   });
@@ -1057,6 +1060,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           quantity: order.quantity,
           rowNumber: order.rowNumber,
           validationError: order.validationError,
+          orderType: order.orderType,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
         },
       };
     }
