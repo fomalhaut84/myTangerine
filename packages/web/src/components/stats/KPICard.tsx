@@ -40,14 +40,14 @@ export function KPICard({ title, value, unit, subtitle, trend, variant = 'defaul
     : value;
 
   return (
-    <Card className={`p-4 sm:p-5 lg:p-6 ${variantClasses[variant]}`}>
-      <div className="space-y-1 sm:space-y-2 min-w-0">
-        <h3 className="text-xs sm:text-sm font-medium text-gray-600 truncate">{title}</h3>
-        <div className="flex items-baseline gap-1 sm:gap-2 min-w-0">
-          <p className="text-xl sm:text-2xl lg:text-3xl font-bold truncate">{displayValue}</p>
-          {unit && <span className="text-sm sm:text-base lg:text-lg text-gray-600 flex-shrink-0">{unit}</span>}
+    <Card className={`p-3 sm:p-4 lg:p-5 ${variantClasses[variant]}`}>
+      <div className="space-y-0.5 sm:space-y-1">
+        <h3 className="text-xs sm:text-sm font-medium text-gray-600 whitespace-nowrap">{title}</h3>
+        <div className="flex items-baseline gap-0.5 sm:gap-1 flex-wrap">
+          <p className="text-lg sm:text-xl lg:text-2xl font-bold whitespace-nowrap">{displayValue}</p>
+          {unit && <span className="text-xs sm:text-sm lg:text-base text-gray-600">{unit}</span>}
         </div>
-        {subtitle && <p className="text-xs sm:text-sm text-gray-500 truncate">{subtitle}</p>}
+        {subtitle && <p className="text-xs text-gray-500">{subtitle}</p>}
         {trend && (
           <div className="flex items-center gap-1 flex-wrap">
             <span
