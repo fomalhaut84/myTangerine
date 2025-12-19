@@ -1100,6 +1100,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             },
           },
           400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
           500: { $ref: 'ErrorResponse#' },
         },
       },
@@ -1128,8 +1129,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // 삭제된 주문은 상태 변경 불가
-      if (order._isDeleted || order['삭제됨']) {
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
         return reply.code(400).send({
           success: false,
           error: 'Cannot change status of deleted order. Please restore it first.',
@@ -1218,8 +1220,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // 삭제된 주문은 상태 변경 불가
-      if (order._isDeleted || order['삭제됨']) {
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
         return reply.code(400).send({
           success: false,
           error: 'Cannot change status of deleted order. Please restore it first.',
@@ -1308,8 +1311,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // 삭제된 주문은 상태 변경 불가
-      if (order._isDeleted || order['삭제됨']) {
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
         return reply.code(400).send({
           success: false,
           error: 'Cannot change status of deleted order. Please restore it first.',
@@ -1398,8 +1402,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // 이미 삭제된 주문인 경우 idempotent 처리 (성공 응답)
-      if (order._isDeleted || order['삭제됨']) {
+      // 이미 삭제된 주문인 경우 idempotent 처리 (성공 응답, 공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
         return {
           success: true,
           message: '주문이 이미 삭제되어 있습니다.',
