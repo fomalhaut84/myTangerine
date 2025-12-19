@@ -7,6 +7,7 @@ import { SummaryCard } from '@/components/dashboard/SummaryCard';
 import { RecentOrders } from '@/components/dashboard/RecentOrders';
 import { QuickActions } from '@/components/dashboard/QuickActions';
 import { NewOrdersPanel } from '@/components/dashboard/NewOrdersPanel';
+import { PendingPaymentPanel } from '@/components/dashboard/PendingPaymentPanel';
 import { OrderStatsPanel } from '@/components/dashboard/OrderStatsPanel';
 
 export default function DashboardPage() {
@@ -28,11 +29,16 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 중앙: 신규 주문 현황 + 완료 주문 통계 (2열) */}
-        <div className="mt-8 grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* 중앙: 주문 상태별 현황 (3열: 신규 → 입금확인 → 완료) */}
+        <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
           {/* 신규 주문 현황 */}
           <div className="bg-white rounded-xl shadow-sm p-6">
             <NewOrdersPanel />
+          </div>
+
+          {/* 입금확인 주문 현황 (Issue #130) */}
+          <div className="bg-white rounded-xl shadow-sm p-6">
+            <PendingPaymentPanel />
           </div>
 
           {/* 완료 주문 통계 (컴팩트 모드) */}
