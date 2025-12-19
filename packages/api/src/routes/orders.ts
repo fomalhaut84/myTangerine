@@ -1197,6 +1197,16 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // 삭제된 주문은 상태 변경 불가
+      if (order._isDeleted || order['삭제됨']) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // 입금확인 처리
       await dataService.markPaymentConfirmed([rowNumber]);
 
@@ -1273,6 +1283,16 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           success: false,
           error: `Order not found at row ${rowNumber}`,
           statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 상태 변경 불가
+      if (order._isDeleted || order['삭제됨']) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
           timestamp: new Date().toISOString(),
         });
       }
@@ -1355,6 +1375,14 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           statusCode: 404,
           timestamp: new Date().toISOString(),
         });
+      }
+
+      // 이미 삭제된 주문인 경우 idempotent 처리 (성공 응답)
+      if (order._isDeleted || order['삭제됨']) {
+        return {
+          success: true,
+          message: '주문이 이미 삭제되어 있습니다.',
+        };
       }
 
       // Soft Delete 처리

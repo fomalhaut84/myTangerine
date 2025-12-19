@@ -164,6 +164,9 @@ export async function createTestServer(): Promise<{
       quantity: { type: 'integer', minimum: 1 },
       rowNumber: { type: 'integer', minimum: 1 },
       validationError: { type: 'string' },
+      orderType: { type: 'string', enum: ['customer', 'gift'] },
+      isDeleted: { type: 'boolean' },
+      deletedAt: { type: 'string', format: 'date-time' },
     },
   });
 

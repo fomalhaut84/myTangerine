@@ -265,6 +265,23 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
         description: '검증 에러 메시지 (상품 선택 검증 실패 시)',
         example: '유효하지 않은 상품 타입: "3kg"',
       },
+      orderType: {
+        type: 'string',
+        enum: ['customer', 'gift'],
+        description: '주문 유형 (customer: 판매, gift: 선물)',
+        example: 'customer',
+      },
+      isDeleted: {
+        type: 'boolean',
+        description: 'Soft Delete 여부',
+        example: false,
+      },
+      deletedAt: {
+        type: 'string',
+        format: 'date-time',
+        description: '삭제 시각 (ISO 8601, 삭제된 경우만)',
+        example: '2025-01-21T10:30:00.000Z',
+      },
     },
   });
 
