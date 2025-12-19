@@ -7,7 +7,7 @@ import { useState, useEffect } from 'react';
 
 /**
  * 미디어 쿼리 매칭 여부를 반환하는 훅
- * @param query - CSS 미디어 쿼리 문자열 (예: '(max-width: 640px)')
+ * @param query - CSS 미디어 쿼리 문자열 (예: '(max-width: 639px)')
  * @returns 미디어 쿼리 매칭 여부
  */
 export function useMediaQuery(query: string): boolean {

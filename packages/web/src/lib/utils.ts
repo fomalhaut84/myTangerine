@@ -45,16 +45,21 @@ export function formatDateRangeKorean(start: string, end: string): string {
 /**
  * 큰 숫자를 축약 표기로 변환 (한국식)
  * Issue #134: 금액 오버플로우 방지
+ *
  * @param value - 숫자 값
  * @param options - 포맷 옵션
  * @returns 축약된 문자열 (예: "1.2억", "340만")
+ *
+ * @remarks
+ * threshold는 10000(만 단위) 또는 100000000(억 단위)만 지원합니다.
+ * 다른 값을 사용하면 예상치 못한 결과가 발생할 수 있습니다.
  */
 export function formatCompactNumber(
   value: number,
   options?: {
     /** 소수점 자리수 (기본: 1) */
     decimals?: number;
-    /** 축약 임계값 (이 값 이상일 때만 축약, 기본: 10000) */
+    /** 축약 임계값 - 10000(만) 또는 100000000(억)만 지원 (기본: 10000) */
     threshold?: number;
   }
 ): string {
@@ -68,15 +73,14 @@ export function formatCompactNumber(
     return value.toLocaleString();
   }
 
-  // 억 단위 (1억 이상 또는 반올림 시 1억 이상)
-  // 반올림으로 단위가 넘어가는 케이스 처리 (예: 99,950,000 -> 1억)
-  if (absValue >= 100000000) {
+  // 억 단위 (1억 이상이고 threshold도 충족)
+  if (absValue >= 100000000 && threshold <= 100000000) {
     const num = absValue / 100000000;
     return `${sign}${num.toFixed(decimals).replace(/\.0+$/, '')}억`;
   }
 
   // 만 단위일 때, 반올림 결과가 10000만이 되면 1억으로 표시
-  if (absValue >= 10000) {
+  if (absValue >= 10000 && threshold <= 10000) {
     const num = absValue / 10000;
     const rounded = parseFloat(num.toFixed(decimals));
     // 반올림 결과가 10000 이상이면 억 단위로 변환
