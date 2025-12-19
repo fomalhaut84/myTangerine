@@ -1,7 +1,7 @@
 # myTangerine 개발 로드맵
 
 > 마지막 업데이트: 2025-12-19
-> 현재 진행: Phase 1 완료, Phase 2.3 완료
+> 현재 진행: Phase 1 완료, Phase 2.3 완료, Phase 2.4 보류
 
 ## 전체 작업 순서
 
@@ -243,10 +243,17 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 - [x] API 라우트 통합 (sheetService → dataService)
 - [x] 성능 테스트 (hybrid 모드: 54ms, sheets 모드: 1533ms, 28배 개선)
 
-#### Phase 2.4: 완전 전환 (1-2주)
+#### Phase 2.4: 완전 전환 ⏸️ 보류
+**보류 사유**: 자체 주문 폼 구축(#94) 선행 필요
+**관련 이슈**: #93 (SheetService 완전 제거), #94 (자체 폼 구축)
+
 - [ ] SheetService 코드 제거
 - [ ] 최종 테스트
 - [ ] 문서 업데이트
+
+> **현재 운영 모드**: `hybrid` (DB 우선 읽기 + Sheets 폴백/동시쓰기)
+> - Google Forms로 주문 입력 → Sheets → Sync → DB
+> - 읽기는 DB에서 수행 (28배 성능 개선)
 
 ---
 
@@ -291,6 +298,7 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 | Phase 2.1 | #68 | ✅ 완료 | 100% | 2025-12-12 | - |
 | Phase 2.2 | #68 | ✅ 완료 | 100% | 2025-12-16 | #123 |
 | Phase 2.3 | #68 | ✅ 완료 | 100% | 2025-12-19 | #124 |
+| Phase 2.4 | #93 | ⏸️ 보류 | 0% | - | - |
 | Phase 3 | #67 | ⏳ 대기 중 | 0% | - | - |
 | Phase 3 | #66 | ⏳ 대기 중 | 0% | - | - |
 
@@ -341,3 +349,4 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 - 2025-12-16: **Phase 2.2 완료** ✅ (초기 데이터 적재 - 353행 100% 동기화)
 - 2025-12-16: API 엔드포인트 추가 (`GET /api/sync/status`, `POST /api/sync/full`)
 - 2025-12-19: **Phase 2.3 완료** ✅ (하이브리드 운영 모드 - HybridDataService 구현)
+- 2025-12-19: **Phase 2.4 보류** ⏸️ (자체 폼 #94 선행 필요, 당분간 hybrid 모드 유지)
