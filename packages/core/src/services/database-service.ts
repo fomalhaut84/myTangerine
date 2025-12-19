@@ -328,8 +328,9 @@ export class DatabaseService {
   /**
    * 배송완료 처리 (Phase 3)
    * @param rowNumbers - 처리할 행 번호 배열
+   * @param trackingNumber - 송장번호 (선택)
    */
-  async markDelivered(rowNumbers: number[]): Promise<void> {
+  async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
     try {
       await this.prisma.order.updateMany({
         where: {
@@ -338,6 +339,7 @@ export class DatabaseService {
         },
         data: {
           status: '배송완료',
+          ...(trackingNumber && { trackingNumber }),
           updatedAt: new Date(),
         },
       });

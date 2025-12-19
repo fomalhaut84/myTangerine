@@ -113,8 +113,9 @@ export function useMarkDelivered() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (rowNumber: number) => markDelivered(rowNumber),
-    onSuccess: (_, rowNumber) => {
+    mutationFn: ({ rowNumber, trackingNumber }: { rowNumber: number; trackingNumber?: string }) =>
+      markDelivered(rowNumber, trackingNumber),
+    onSuccess: (_, { rowNumber }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
       queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });

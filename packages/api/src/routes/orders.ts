@@ -253,6 +253,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         orderType: order.orderType,
         isDeleted: order.isDeleted,
         deletedAt: order.deletedAt?.toISOString(),
+        trackingNumber: order.trackingNumber,
       })),
     };
   });
@@ -1063,6 +1064,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           orderType: order.orderType,
           isDeleted: order.isDeleted,
           deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
         },
       };
     }
@@ -1256,13 +1258,14 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
    */
   fastify.post<{
     Params: { rowNumber: string };
+    Body: { trackingNumber?: string };
   }>(
     '/api/orders/:rowNumber/mark-delivered',
     {
       schema: {
         tags: ['orders'],
         summary: '배송 완료 처리',
-        description: '주문을 "배송완료" 상태로 변경합니다.',
+        description: '주문을 "배송완료" 상태로 변경합니다. 송장번호를 함께 저장할 수 있습니다.',
         params: {
           type: 'object',
           required: ['rowNumber'],
@@ -1271,6 +1274,16 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
               type: 'string',
               description: '스프레드시트 행 번호',
               example: '5',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            trackingNumber: {
+              type: 'string',
+              description: '송장번호 (택배사 운송장 번호)',
+              example: '1234567890123',
             },
           },
         },
@@ -1296,6 +1309,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const { dataService } = fastify.core;
       const rowNumber = parseInt(request.params.rowNumber, 10);
+      const { trackingNumber } = request.body || {};
 
       if (isNaN(rowNumber) || rowNumber < 2) {
         return reply.code(400).send({
@@ -1328,15 +1342,17 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // 배송완료 처리
-      await dataService.markDelivered([rowNumber]);
+      // 배송완료 처리 (송장번호 포함)
+      await dataService.markDelivered([rowNumber], trackingNumber);
 
       // 통계 캐시 무효화
       statsCache.invalidate(/^stats:/);
 
       return {
         success: true,
-        message: '배송이 완료되었습니다.',
+        message: trackingNumber
+          ? `배송이 완료되었습니다. (송장번호: ${trackingNumber})`
+          : '배송이 완료되었습니다.',
       };
     }
   );

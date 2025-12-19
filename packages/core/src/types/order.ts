@@ -158,6 +158,9 @@ export interface SheetRow {
   /** Soft Delete 타임스탬프 (Phase 3, 삭제된 경우 ISO 문자열) */
   '삭제됨'?: string;
 
+  /** 송장번호 (배송완료 시 입력) */
+  '송장번호'?: string;
+
   /** Soft Delete 여부 (내부 사용) */
   _isDeleted?: boolean;
 }
@@ -202,6 +205,9 @@ export interface Order {
 
   /** 삭제된 시간 (Phase 3, 삭제된 경우만) */
   deletedAt?: Date;
+
+  /** 송장번호 (배송완료 시 입력) */
+  trackingNumber?: string;
 
   /** 원본 시트 행 데이터 (디버깅용) */
   _raw?: SheetRow;
@@ -473,6 +479,7 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     validationError,
     isDeleted,
     deletedAt,
+    trackingNumber: row['송장번호'] || undefined,
     _raw: row,
   };
 }

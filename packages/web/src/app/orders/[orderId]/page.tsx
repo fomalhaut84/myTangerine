@@ -14,6 +14,7 @@ import {
 } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
 import { StatusBadge } from '@/components/orders/StatusBadge';
+import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -43,6 +44,8 @@ export default function OrderDetailPage() {
   const deleteMutation = useDeleteOrder();
   const restoreMutation = useRestoreOrder();
   const [isProcessing, setIsProcessing] = useState(false);
+  const [showTrackingModal, setShowTrackingModal] = useState(false);
+  const [trackingNumber, setTrackingNumber] = useState('');
 
   // API에서 직접 주문을 가져옴 (더 이상 클라이언트에서 필터링하지 않음)
   const order = data?.order ?? null;
@@ -82,14 +85,35 @@ export default function OrderDetailPage() {
       '입금 확인 처리 중 오류가 발생했습니다.'
     );
 
-  const handleMarkDelivered = () =>
-    handleAction(
-      () => markDeliveredMutation.mutateAsync(order!.rowNumber),
-      '배송 완료 처리하시겠습니까?',
-      '배송이 완료되었습니다.',
-      '배송 완료 처리 중 오류가 발생했습니다.',
-      true
-    );
+  // 배송완료 모달 열기
+  const handleOpenTrackingModal = () => {
+    setTrackingNumber('');
+    setShowTrackingModal(true);
+  };
+
+  // 배송완료 처리 (송장번호 포함)
+  const handleMarkDelivered = async () => {
+    if (!order) return;
+
+    setIsProcessing(true);
+    try {
+      await markDeliveredMutation.mutateAsync({
+        rowNumber: order.rowNumber,
+        trackingNumber: trackingNumber.trim() || undefined,
+      });
+      toast.success(
+        trackingNumber.trim()
+          ? `배송이 완료되었습니다. (송장번호: ${trackingNumber.trim()})`
+          : '배송이 완료되었습니다.'
+      );
+      setShowTrackingModal(false);
+      router.push(backLink);
+    } catch {
+      toast.error('배송 완료 처리 중 오류가 발생했습니다.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   const handleDelete = () =>
     handleAction(
@@ -238,6 +262,16 @@ export default function OrderDetailPage() {
                 </dd>
               </div>
             )}
+            {order.trackingNumber && (
+              <div>
+                <dt className="text-sm font-medium text-gray-500">
+                  송장번호
+                </dt>
+                <dd className="mt-1 text-sm text-gray-900 font-mono">
+                  {order.trackingNumber}
+                </dd>
+              </div>
+            )}
           </dl>
         </Card>
 
@@ -374,7 +408,7 @@ export default function OrderDetailPage() {
               {order.status === '입금확인' && (
                 <button
                   className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-                  onClick={handleMarkDelivered}
+                  onClick={handleOpenTrackingModal}
                   disabled={isProcessing}
                 >
                   {isProcessing ? '처리 중...' : '배송완료'}
@@ -394,6 +428,50 @@ export default function OrderDetailPage() {
             </>
           )}
         </div>
+
+        {/* 송장번호 입력 모달 */}
+        {showTrackingModal && (
+          <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+            <div className="bg-white rounded-lg p-6 w-full max-w-md mx-4 shadow-xl">
+              <h2 className="text-xl font-bold text-gray-900 mb-4">
+                배송 완료 처리
+              </h2>
+              <div className="mb-4">
+                <label htmlFor="trackingNumber" className="block text-sm font-medium text-gray-700 mb-2">
+                  송장번호 (선택)
+                </label>
+                <Input
+                  id="trackingNumber"
+                  type="text"
+                  placeholder="송장번호를 입력하세요"
+                  value={trackingNumber}
+                  onChange={(e) => setTrackingNumber(e.target.value)}
+                  className="w-full"
+                  autoFocus
+                />
+                <p className="mt-2 text-sm text-gray-500">
+                  송장번호 없이도 배송완료 처리가 가능합니다.
+                </p>
+              </div>
+              <div className="flex justify-end gap-3">
+                <button
+                  className="px-4 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg font-medium transition-colors"
+                  onClick={() => setShowTrackingModal(false)}
+                  disabled={isProcessing}
+                >
+                  취소
+                </button>
+                <button
+                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  onClick={handleMarkDelivered}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? '처리 중...' : '배송완료'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

@@ -45,6 +45,9 @@ model Order {
   // '신규주문' | '입금확인' | '배송완료' (하위 호환: '' → 신규주문, '확인' → 배송완료)
   status           String  @default("신규주문")
 
+  // 송장번호 (배송완료 시 입력)
+  trackingNumber   String? @map("tracking_number")
+
   // Soft Delete (Phase 3)
   deletedAt        DateTime? @map("deleted_at")
 

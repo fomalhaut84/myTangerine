@@ -32,6 +32,7 @@ export interface Order {
   validationError?: string;
   isDeleted: boolean;
   deletedAt?: string;
+  trackingNumber?: string;
 }
 
 export interface ProductSummary {

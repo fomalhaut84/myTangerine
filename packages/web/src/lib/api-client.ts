@@ -124,12 +124,16 @@ export async function confirmPayment(rowNumber: number): Promise<{
 
 /**
  * 배송 완료 처리 (입금확인 → 배송완료)
+ * @param rowNumber - 스프레드시트 행 번호
+ * @param trackingNumber - 송장번호 (선택)
  */
-export async function markDelivered(rowNumber: number): Promise<{
+export async function markDelivered(rowNumber: number, trackingNumber?: string): Promise<{
   success: boolean;
   message: string;
 }> {
-  return api.post(`api/orders/${rowNumber}/mark-delivered`, { json: {} }).json<{
+  return api.post(`api/orders/${rowNumber}/mark-delivered`, {
+    json: trackingNumber ? { trackingNumber } : {}
+  }).json<{
     success: boolean;
     message: string;
   }>();
