@@ -5,7 +5,7 @@
 'use client';
 
 import { useGroupedLabels } from '@/hooks/use-labels';
-import { useConfirmSingleOrder } from '@/hooks/use-orders';
+import { useConfirmPayment } from '@/hooks/use-orders';
 import { LabelGroupCard } from '@/components/labels/LabelGroupCard';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/ui/input';
@@ -19,7 +19,7 @@ type StatusFilter = 'new' | 'pending_payment' | 'completed' | 'all';
 export default function LabelsPage() {
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
   const { data, isLoading, error } = useGroupedLabels(statusFilter);
-  const confirmSingleMutation = useConfirmSingleOrder();
+  const confirmPaymentMutation = useConfirmPayment();
 
   const [selectedGroups, setSelectedGroups] = useState<Set<string>>(new Set());
   const [dateFilter, setDateFilter] = useState('');
@@ -172,7 +172,7 @@ export default function LabelsPage() {
     printWindow.print();
   };
 
-  const handleConfirm = async () => {
+  const handleConfirmPayment = async () => {
     if (selectedGroups.size === 0) {
       toast.error('선택된 라벨이 없습니다.');
       return;
@@ -184,12 +184,12 @@ export default function LabelsPage() {
     );
     const totalOrders = selectedData.reduce((sum, group) => sum + group.orders.length, 0);
 
-    if (!confirm(`${selectedGroups.size}개 그룹 (총 ${totalOrders}건)의 주문을 확인 처리하시겠습니까?`)) {
+    if (!confirm(`${selectedGroups.size}개 그룹 (총 ${totalOrders}건)의 주문을 입금확인 처리하시겠습니까?`)) {
       return;
     }
 
     try {
-      // 선택된 그룹의 모든 주문에 대해 개별 확인 처리
+      // 선택된 그룹의 모든 주문에 대해 입금확인 처리
       const rowNumbers = selectedData.flatMap(group =>
         group.orders.map(order => order.rowNumber)
       );
@@ -199,23 +199,23 @@ export default function LabelsPage() {
 
       for (const rowNumber of rowNumbers) {
         try {
-          await confirmSingleMutation.mutateAsync(rowNumber);
+          await confirmPaymentMutation.mutateAsync(rowNumber);
           successCount++;
         } catch (error) {
           failCount++;
-          console.error(`Failed to confirm order ${rowNumber}:`, error);
+          console.error(`Failed to confirm payment for order ${rowNumber}:`, error);
         }
       }
 
       if (failCount === 0) {
-        toast.success(`${successCount}건의 주문이 확인되었습니다.`);
+        toast.success(`${successCount}건의 주문이 입금확인 되었습니다.`);
       } else {
-        toast.warning(`${successCount}건 확인, ${failCount}건 실패했습니다.`);
+        toast.warning(`${successCount}건 입금확인, ${failCount}건 실패했습니다.`);
       }
 
       setSelectedGroups(new Set());
     } catch (error) {
-      toast.error('주문 확인 처리 중 오류가 발생했습니다.');
+      toast.error('입금확인 처리 중 오류가 발생했습니다.');
     }
   };
 
@@ -416,11 +416,11 @@ export default function LabelsPage() {
               </button>
 
               <button
-                onClick={handleConfirm}
-                disabled={confirmSingleMutation.isPending || selectedGroups.size === 0}
+                onClick={handleConfirmPayment}
+                disabled={confirmPaymentMutation.isPending || selectedGroups.size === 0}
                 className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
               >
-                {confirmSingleMutation.isPending ? '처리 중...' : `확인 (${selectedGroups.size})`}
+                {confirmPaymentMutation.isPending ? '처리 중...' : `입금확인 (${selectedGroups.size})`}
               </button>
 
               <button

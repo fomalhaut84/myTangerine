@@ -57,6 +57,7 @@ export class DatabaseService {
       _validationError: order.validationError || undefined,
       _syncAttemptCount: order.syncAttemptCount,
       '삭제됨': order.deletedAt?.toISOString(),
+      '송장번호': order.trackingNumber || undefined,
       _isDeleted: !!order.deletedAt,
     };
   }
