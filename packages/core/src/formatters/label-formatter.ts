@@ -94,6 +94,11 @@ export class LabelFormatter {
   private formatSenderGroup(sender: Sender, orders: Order[]): string[] {
     const labels: string[] = [];
 
+    // 빈 그룹 방어 (groupBySender에서 생성된 그룹은 비어있을 수 없지만 안전을 위해)
+    if (orders.length === 0) {
+      return labels;
+    }
+
     // 첫 번째 주문의 주문자 정보 가져오기
     const firstOrder = orders[0];
     const ordererName = firstOrder.ordererName || sender.name;
