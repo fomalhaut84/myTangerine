@@ -228,11 +228,11 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-    const { sheetService, config } = fastify.core;
+    const { dataService, config } = fastify.core;
     const status = request.query.status || 'new';
 
     // Status별 주문 가져오기
-    const sheetRows = await sheetService.getOrdersByStatus(status);
+    const sheetRows = await dataService.getOrdersByStatus(status);
 
     // SheetRow를 Order로 변환
     const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
@@ -279,10 +279,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-    const { sheetService, config } = fastify.core;
+    const { dataService, config } = fastify.core;
 
     // 새로운 주문 가져오기
-    const sheetRows = await sheetService.getNewOrders();
+    const sheetRows = await dataService.getNewOrders();
 
     // SheetRow를 Order로 변환
     const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
@@ -353,10 +353,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-    const { sheetService } = fastify.core;
+    const { dataService } = fastify.core;
 
     // 먼저 새로운 주문을 가져오기
-    const newOrders = await sheetService.getNewOrders();
+    const newOrders = await dataService.getNewOrders();
 
     if (newOrders.length === 0) {
       return {
@@ -372,7 +372,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       .filter((n): n is number => n !== undefined && n > 0);
 
     // 주문을 확인 상태로 표시 (명시적으로 행 번호 전달)
-    await sheetService.markAsConfirmed(rowNumbers);
+    await dataService.markAsConfirmed(rowNumbers);
 
     // 통계 캐시 무효화 (새 주문이 완료됨으로 변경되었으므로)
     statsCache.invalidate(/^stats:/);
@@ -500,7 +500,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
+        const allRows = await fastify.core.dataService.getAllRows();
         const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 공통 헬퍼 함수로 주문 처리
@@ -641,7 +641,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
+        const allRows = await fastify.core.dataService.getAllRows();
         const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 공통 헬퍼 함수로 주문 처리
@@ -798,7 +798,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
+        const allRows = await fastify.core.dataService.getAllRows();
         const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 공통 헬퍼 함수로 주문 처리
@@ -937,7 +937,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
+        const allRows = await fastify.core.dataService.getAllRows();
         const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 공통 헬퍼 함수로 주문 처리
@@ -1016,7 +1016,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { sheetService, config } = fastify.core;
+      const { dataService, config } = fastify.core;
 
       // 엄격한 숫자 검증: "2foo" 같은 값을 거부
       const rowNumber = Number(request.params.rowNumber);
@@ -1031,7 +1031,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 특정 주문 조회
-      const sheetRow = await sheetService.getOrderByRowNumber(rowNumber);
+      const sheetRow = await dataService.getOrderByRowNumber(rowNumber);
 
       if (!sheetRow) {
         return reply.code(404).send({
@@ -1105,7 +1105,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { sheetService } = fastify.core;
+      const { dataService } = fastify.core;
       const rowNumber = parseInt(request.params.rowNumber, 10);
 
       if (isNaN(rowNumber) || rowNumber < 2) {
@@ -1118,7 +1118,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 특정 주문을 확인 상태로 표시
-      await sheetService.markSingleAsConfirmed(rowNumber);
+      await dataService.markSingleAsConfirmed(rowNumber);
 
       // 통계 캐시 무효화 (주문이 완료됨으로 변경되었으므로)
       statsCache.invalidate(/^stats:/);
@@ -1344,7 +1344,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { sheetService, config } = fastify.core;
+      const { dataService, config } = fastify.core;
 
       // Query parameter 기본값 설정
       const scope: StatsScope = request.query.scope || 'completed';
@@ -1410,7 +1410,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 캐시 미스 - 데이터 조회 및 계산
-      const sheetRows = await sheetService.getOrdersByStatus(scope);
+      const sheetRows = await dataService.getOrdersByStatus(scope);
       const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
       // 통계 계산
@@ -1477,10 +1477,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-      const { sheetService, config } = fastify.core;
+      const { dataService, config } = fastify.core;
 
       // 모든 주문 가져오기 (확인된 주문 포함)
-      const sheetRows = await sheetService.getAllRows();
+      const sheetRows = await dataService.getAllRows();
       const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
       // 월별로 그룹화
