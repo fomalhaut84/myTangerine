@@ -24,6 +24,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **모든 작업은 GitHub 이슈로 먼저 생성**
 - 진행사항은 이슈에서 트래킹 및 관리
 - **피쳐 머지는 반드시 PR을 통해서만 진행**
+- ⚠️ **PR 머지는 사용자가 직접 수행** - Claude Code는 PR 생성까지만 담당
 - **GitHub 이슈/PR/코멘트에서 codex-cli 언급 시**:
   - ⚠️ `@` 기호를 **사용하지 말 것** (GitHub에서 멘션으로 인식됨)
   - ✅ 올바른 표기: "codex-cli 코드 리뷰 통과"
