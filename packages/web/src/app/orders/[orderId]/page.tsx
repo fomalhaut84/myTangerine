@@ -217,6 +217,33 @@ export default function OrderDetailPage() {
           </h1>
         </div>
 
+        {/* 삭제된 주문 알림 배너 */}
+        {order.isDeleted && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <div className="flex items-start gap-3">
+              <div className="flex-shrink-0">
+                <svg className="w-6 h-6 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </div>
+              <div>
+                <h3 className="text-lg font-semibold text-red-800">삭제된 주문</h3>
+                <p className="text-sm text-red-600 mt-1">
+                  이 주문은 삭제 처리되었습니다.
+                  {order.deletedAt && (
+                    <span className="ml-1">
+                      (삭제일: {new Date(order.deletedAt).toLocaleString('ko-KR')})
+                    </span>
+                  )}
+                </p>
+                <p className="text-sm text-red-600 mt-1">
+                  주문을 다시 활성화하려면 하단의 &quot;복원&quot; 버튼을 클릭하세요.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
         {/* 주문 기본 정보 */}
         <Card title="기본 정보" className="mb-6">
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
@@ -385,7 +412,7 @@ export default function OrderDetailPage() {
           {/* 삭제된 주문인 경우 복원 버튼만 표시 */}
           {order.isDeleted ? (
             <button
-              className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              className="px-6 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
               onClick={handleRestore}
               disabled={isProcessing}
             >

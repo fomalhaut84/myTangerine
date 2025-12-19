@@ -179,6 +179,12 @@ export interface Order {
   /** 주문 상태 */
   status: OrderStatus;
 
+  /** 주문자 성함 (스프레드시트 '주문자 성함' 컬럼) */
+  ordererName?: string;
+
+  /** 주문자 이메일 (스프레드시트 '이메일 주소' 컬럼) */
+  ordererEmail?: string;
+
   /** 발송인 정보 */
   sender: Sender;
 
@@ -466,6 +472,8 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     timestamp,
     timestampRaw: row['타임스탬프'],
     status: normalizeOrderStatus(row['비고']),
+    ordererName: row['주문자 성함'] || undefined,
+    ordererEmail: row['이메일 주소'] || undefined,
     sender,
     recipient: {
       name: row['받으실분 성함'],

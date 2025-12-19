@@ -254,6 +254,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         isDeleted: order.isDeleted,
         deletedAt: order.deletedAt?.toISOString(),
         trackingNumber: order.trackingNumber,
+        ordererName: order.ordererName,
+        ordererEmail: order.ordererEmail,
       })),
     };
   });
@@ -1065,6 +1067,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           isDeleted: order.isDeleted,
           deletedAt: order.deletedAt?.toISOString(),
           trackingNumber: order.trackingNumber,
+          ordererName: order.ordererName,
+          ordererEmail: order.ordererEmail,
         },
       };
     }

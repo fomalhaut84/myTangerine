@@ -33,6 +33,8 @@ export interface Order {
   isDeleted: boolean;
   deletedAt?: string;
   trackingNumber?: string;
+  ordererName?: string;
+  ordererEmail?: string;
 }
 
 export interface ProductSummary {

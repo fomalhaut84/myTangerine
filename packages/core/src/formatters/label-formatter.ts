@@ -88,19 +88,31 @@ export class LabelFormatter {
 
   /**
    * 발송인 그룹 포맷팅
+   * - 주문자 정보를 먼저 표시 (연락처 포함)
+   * - 보내는분은 주문자와 다른 경우에만 표시
    */
   private formatSenderGroup(sender: Sender, orders: Order[]): string[] {
-    const labels: string[] = ['보내는사람\n'];
+    const labels: string[] = [];
+
+    // 첫 번째 주문의 주문자 정보 가져오기
+    const firstOrder = orders[0];
+    const ordererName = firstOrder.ordererName || sender.name;
+    const ordererEmail = firstOrder.ordererEmail;
 
     // 발송인 정보 유효성 검사
-    if (LabelFormatter.isValidSender(sender.name, sender.address, sender.phone)) {
-      labels.push(`${sender.address} ${sender.name} ${sender.phone}\n\n`);
-    } else {
-      const defaultSender = this.config.defaultSender;
-      labels.push(
-        `${defaultSender.address} ${defaultSender.name} ${defaultSender.phone}\n\n`
-      );
+    const validSender = LabelFormatter.isValidSender(sender.name, sender.address, sender.phone)
+      ? sender
+      : this.config.defaultSender;
+
+    // 주문자 정보 표시 (이메일 주소 포함)
+    labels.push('주문자\n');
+    labels.push(`${ordererName}${ordererEmail ? ` (${ordererEmail})` : ''}\n`);
+
+    // 보내는분이 주문자와 다른 경우에만 표시
+    if (ordererName !== validSender.name) {
+      labels.push(`보내는분: ${validSender.address} ${validSender.name} ${validSender.phone}\n`);
     }
+    labels.push('\n');
 
     // 각 주문에 대한 수취인 정보 추가
     for (const order of orders) {
@@ -116,8 +128,13 @@ export class LabelFormatter {
   private formatRecipient(order: Order): string[] {
     const labels: string[] = ['받는사람\n'];
 
-    const { recipient, productType, quantity, validationError, timestamp } = order;
+    const { recipient, productType, quantity, validationError, timestamp, trackingNumber } = order;
     labels.push(`${recipient.address} ${recipient.name} ${recipient.phone}\n`);
+
+    // 송장번호가 있으면 표시
+    if (trackingNumber) {
+      labels.push(`송장번호: ${trackingNumber}\n`);
+    }
 
     labels.push('주문상품\n');
 
@@ -160,10 +177,10 @@ export class LabelFormatter {
   }
 
   /**
-   * 주문 요약 포맷팅
+   * 주문 요약 포맷팅 (금액 제외, 수량만 표시)
    */
   private formatSummary(): string[] {
-    const totalPrice = this.totalNonProductAmount + this.total5kgAmount + this.total10kgAmount;
+    const totalBoxes = this.totalNonProduct + this.total5kg + this.total10kg;
     const summary: string[] = [
       '='.repeat(50) + '\n',
       '주문 요약\n',
@@ -172,14 +189,14 @@ export class LabelFormatter {
 
     // 비상품이 있는 경우에만 출력
     if (this.totalNonProduct > 0) {
-      summary.push(`비상품 주문: ${this.totalNonProduct}박스 (${this.totalNonProductAmount.toLocaleString()}원)\n`);
+      summary.push(`비상품 주문: ${this.totalNonProduct}박스\n`);
     }
 
     summary.push(
-      `5kg 주문: ${this.total5kg}박스 (${this.total5kgAmount.toLocaleString()}원)\n`,
-      `10kg 주문: ${this.total10kg}박스 (${this.total10kgAmount.toLocaleString()}원)\n`,
+      `5kg 주문: ${this.total5kg}박스\n`,
+      `10kg 주문: ${this.total10kg}박스\n`,
       '-'.repeat(20) + '\n',
-      `총 주문금액: ${totalPrice.toLocaleString()}원\n`,
+      `총 주문: ${totalBoxes}박스\n`,
     );
 
     return summary;
