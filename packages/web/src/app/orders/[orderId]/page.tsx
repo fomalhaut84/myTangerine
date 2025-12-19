@@ -4,8 +4,16 @@
 
 'use client';
 
-import { useOrder, useConfirmSingleOrder } from '@/hooks/use-orders';
+import {
+  useOrder,
+  useConfirmSingleOrder,
+  useConfirmPayment,
+  useMarkDelivered,
+  useDeleteOrder,
+  useRestoreOrder,
+} from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
+import { StatusBadge } from '@/components/orders/StatusBadge';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
 import { useState } from 'react';
@@ -25,33 +33,99 @@ export default function OrderDetailPage() {
   // orderId가 유효한 숫자가 아니면 API 호출 전에 처리
   const isValidOrderId = Number.isFinite(orderId) && orderId >= 2;
 
-  // 단일 주문 조회로 변경 (유효한 경우에만)
-  const { data, isLoading, error } = useOrder(orderId);
+  // 단일 주문 조회로 변경 (유효한 orderId인 경우에만 실행)
+  const { data, isLoading, error, refetch } = useOrder(orderId, {
+    enabled: isValidOrderId,
+  });
   const confirmMutation = useConfirmSingleOrder();
-  const [isConfirming, setIsConfirming] = useState(false);
+  const confirmPaymentMutation = useConfirmPayment();
+  const markDeliveredMutation = useMarkDelivered();
+  const deleteMutation = useDeleteOrder();
+  const restoreMutation = useRestoreOrder();
+  const [isProcessing, setIsProcessing] = useState(false);
 
   // API에서 직접 주문을 가져옴 (더 이상 클라이언트에서 필터링하지 않음)
   const order = data?.order ?? null;
 
-  const handleConfirm = async () => {
+  // 공통 액션 핸들러
+  const handleAction = async (
+    action: () => Promise<unknown>,
+    confirmMessage: string,
+    successMessage: string,
+    errorMessage: string,
+    navigateBack = false
+  ) => {
     if (!order) return;
+    if (!confirm(confirmMessage)) return;
 
-    if (!confirm('이 주문을 확인 처리하시겠습니까?')) {
-      return;
-    }
-
-    setIsConfirming(true);
+    setIsProcessing(true);
     try {
-      await confirmMutation.mutateAsync(order.rowNumber);
-      toast.success('주문이 확인되었습니다.');
-      // 검색 상태를 유지하면서 주문 목록으로 이동
-      router.push(backLink);
-    } catch (error) {
-      toast.error('주문 확인 처리 중 오류가 발생했습니다.');
+      await action();
+      toast.success(successMessage);
+      if (navigateBack) {
+        router.push(backLink);
+      } else {
+        refetch();
+      }
+    } catch {
+      toast.error(errorMessage);
     } finally {
-      setIsConfirming(false);
+      setIsProcessing(false);
     }
   };
+
+  const handleConfirmPayment = () =>
+    handleAction(
+      () => confirmPaymentMutation.mutateAsync(order!.rowNumber),
+      '입금 확인 처리하시겠습니까?',
+      '입금이 확인되었습니다.',
+      '입금 확인 처리 중 오류가 발생했습니다.'
+    );
+
+  const handleMarkDelivered = () =>
+    handleAction(
+      () => markDeliveredMutation.mutateAsync(order!.rowNumber),
+      '배송 완료 처리하시겠습니까?',
+      '배송이 완료되었습니다.',
+      '배송 완료 처리 중 오류가 발생했습니다.',
+      true
+    );
+
+  const handleDelete = () =>
+    handleAction(
+      () => deleteMutation.mutateAsync(order!.rowNumber),
+      '이 주문을 삭제하시겠습니까?',
+      '주문이 삭제되었습니다.',
+      '주문 삭제 중 오류가 발생했습니다.',
+      true
+    );
+
+  const handleRestore = () =>
+    handleAction(
+      () => restoreMutation.mutateAsync(order!.rowNumber),
+      '이 주문을 복원하시겠습니까?',
+      '주문이 복원되었습니다.',
+      '주문 복원 중 오류가 발생했습니다.'
+    );
+
+  // orderId가 유효하지 않은 경우 (API 호출 전에 체크)
+  if (!isValidOrderId) {
+    return (
+      <div className="min-h-screen bg-gray-50 p-8">
+        <div className="max-w-4xl mx-auto">
+          <Link
+            href={backLink}
+            className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block"
+          >
+            ← 주문 목록으로 돌아가기
+          </Link>
+          <div className="text-center py-12 text-gray-500">
+            유효하지 않은 주문 번호입니다.
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   if (isLoading) {
     return (
@@ -70,27 +144,14 @@ export default function OrderDetailPage() {
     return (
       <div className="min-h-screen bg-gray-50 p-8">
         <div className="max-w-4xl mx-auto">
-          <div className="text-center py-12 text-red-600">
-            주문 정보를 불러오는 중 오류가 발생했습니다.
-          </div>
-        </div>
-      </div>
-    );
-  }
-
-  // orderId가 유효하지 않은 경우
-  if (!isValidOrderId) {
-    return (
-      <div className="min-h-screen bg-gray-50 p-8">
-        <div className="max-w-4xl mx-auto">
           <Link
             href={backLink}
             className="text-sm text-blue-600 hover:text-blue-700 mb-4 inline-block"
           >
             ← 주문 목록으로 돌아가기
           </Link>
-          <div className="text-center py-12 text-gray-500">
-            주문을 찾을 수 없습니다.
+          <div className="text-center py-12 text-red-600">
+            주문 정보를 불러오는 중 오류가 발생했습니다.
           </div>
         </div>
       </div>
@@ -156,17 +217,27 @@ export default function OrderDetailPage() {
                 상태
               </dt>
               <dd className="mt-1">
-                <span
-                  className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                    order.status === '확인'
-                      ? 'bg-green-100 text-green-800'
-                      : 'bg-yellow-100 text-yellow-800'
-                  }`}
-                >
-                  {order.status || '미확인'}
-                </span>
+                <StatusBadge status={order.status} isDeleted={order.isDeleted} size="md" />
               </dd>
             </div>
+            {order.orderType && (
+              <div>
+                <dt className="text-sm font-medium text-gray-500">
+                  주문 유형
+                </dt>
+                <dd className="mt-1">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      order.orderType === 'gift'
+                        ? 'bg-purple-100 text-purple-800'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    {order.orderType === 'gift' ? '선물' : '판매'}
+                  </span>
+                </dd>
+              </div>
+            )}
           </dl>
         </Card>
 
@@ -276,19 +347,53 @@ export default function OrderDetailPage() {
         </Card>
 
         {/* 액션 버튼 */}
-        {order.status !== '확인' && (
-          <div className="flex justify-end">
+        <div className="flex justify-end gap-3">
+          {/* 삭제된 주문인 경우 복원 버튼만 표시 */}
+          {order.isDeleted ? (
             <button
-              className="px-6 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-              onClick={handleConfirm}
-              disabled={isConfirming || confirmMutation.isPending}
+              className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              onClick={handleRestore}
+              disabled={isProcessing}
             >
-              {isConfirming || confirmMutation.isPending
-                ? '처리 중...'
-                : '이 주문 확인'}
+              {isProcessing ? '처리 중...' : '복원'}
             </button>
-          </div>
-        )}
+          ) : (
+            <>
+              {/* 신규주문 → 입금확인 */}
+              {order.status === '신규주문' && (
+                <button
+                  className="px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  onClick={handleConfirmPayment}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? '처리 중...' : '입금확인'}
+                </button>
+              )}
+
+              {/* 입금확인 → 배송완료 */}
+              {order.status === '입금확인' && (
+                <button
+                  className="px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  onClick={handleMarkDelivered}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? '처리 중...' : '배송완료'}
+                </button>
+              )}
+
+              {/* 삭제 버튼 (배송완료가 아닌 경우에만) */}
+              {order.status !== '배송완료' && (
+                <button
+                  className="px-6 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  onClick={handleDelete}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? '처리 중...' : '삭제'}
+                </button>
+              )}
+            </>
+          )}
+        </div>
       </div>
     </div>
   );

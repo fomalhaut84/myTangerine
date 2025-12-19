@@ -14,8 +14,10 @@ import Link from 'next/link';
 import { useState, useMemo, useEffect } from 'react';
 import { toast } from 'sonner';
 
+type StatusFilter = 'new' | 'pending_payment' | 'completed' | 'all';
+
 export default function LabelsPage() {
-  const [statusFilter, setStatusFilter] = useState<'new' | 'completed' | 'all'>('new');
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>('new');
   const { data, isLoading, error } = useGroupedLabels(statusFilter);
   const confirmSingleMutation = useConfirmSingleOrder();
 
@@ -445,33 +447,43 @@ export default function LabelsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   주문 상태
                 </label>
-                <div className="flex gap-4">
+                <div className="flex flex-wrap gap-4">
                   <label className="flex items-center">
                     <input
                       type="radio"
                       value="new"
                       checked={statusFilter === 'new'}
-                      onChange={(e) => setStatusFilter(e.target.value as 'new')}
+                      onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                       className="mr-2"
                     />
-                    <span className="text-sm">미확인</span>
+                    <span className="text-sm">신규주문</span>
+                  </label>
+                  <label className="flex items-center">
+                    <input
+                      type="radio"
+                      value="pending_payment"
+                      checked={statusFilter === 'pending_payment'}
+                      onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
+                      className="mr-2"
+                    />
+                    <span className="text-sm">입금확인</span>
                   </label>
                   <label className="flex items-center">
                     <input
                       type="radio"
                       value="completed"
                       checked={statusFilter === 'completed'}
-                      onChange={(e) => setStatusFilter(e.target.value as 'completed')}
+                      onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                       className="mr-2"
                     />
-                    <span className="text-sm">확인됨</span>
+                    <span className="text-sm">배송완료</span>
                   </label>
                   <label className="flex items-center">
                     <input
                       type="radio"
                       value="all"
                       checked={statusFilter === 'all'}
-                      onChange={(e) => setStatusFilter(e.target.value as 'all')}
+                      onChange={(e) => setStatusFilter(e.target.value as StatusFilter)}
                       className="mr-2"
                     />
                     <span className="text-sm">전체</span>
@@ -579,9 +591,11 @@ export default function LabelsPage() {
             <div className="text-center py-12 text-gray-500">
               {data?.data.length === 0
                 ? statusFilter === 'new'
-                  ? '미확인 주문이 없습니다.'
+                  ? '신규주문이 없습니다.'
+                  : statusFilter === 'pending_payment'
+                  ? '입금확인 주문이 없습니다.'
                   : statusFilter === 'completed'
-                  ? '확인된 주문이 없습니다.'
+                  ? '배송완료 주문이 없습니다.'
                   : '주문이 없습니다.'
                 : '필터 조건에 맞는 라벨이 없습니다.'}
             </div>

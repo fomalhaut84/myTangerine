@@ -9,16 +9,29 @@ export interface PersonInfo {
   address: string;
 }
 
+/**
+ * 주문 상태 (3단계)
+ */
+export type OrderStatus = '신규주문' | '입금확인' | '배송완료';
+
+/**
+ * 주문 유형
+ */
+export type OrderType = 'customer' | 'gift';
+
 export interface Order {
   timestamp: string;
   timestampRaw: string;
-  status: string;
+  status: OrderStatus;
   sender: PersonInfo;
   recipient: PersonInfo;
   productType: '비상품' | '5kg' | '10kg' | null;
   quantity: number;
   rowNumber: number;
+  orderType: OrderType;
   validationError?: string;
+  isDeleted: boolean;
+  deletedAt?: string;
 }
 
 export interface ProductSummary {

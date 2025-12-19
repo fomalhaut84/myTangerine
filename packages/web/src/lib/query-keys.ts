@@ -3,6 +3,7 @@
  */
 
 import type { StatsQueryParams } from '@/types/api';
+import type { OrderStatusFilter } from '@/lib/api-client';
 
 export const queryKeys = {
   orders: {
@@ -15,7 +16,7 @@ export const queryKeys = {
   },
   labels: {
     all: ['labels'] as const,
-    text: (status?: 'new' | 'completed' | 'all') => [...queryKeys.labels.all, 'text', status] as const,
-    grouped: (status?: 'new' | 'completed' | 'all') => [...queryKeys.labels.all, 'grouped', status] as const,
+    text: (status?: OrderStatusFilter) => [...queryKeys.labels.all, 'text', status] as const,
+    grouped: (status?: OrderStatusFilter) => [...queryKeys.labels.all, 'grouped', status] as const,
   },
 } as const;
