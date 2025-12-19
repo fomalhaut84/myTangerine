@@ -455,50 +455,50 @@ export default function LabelsPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
         {/* 헤더 */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <Link
-              href="/dashboard"
-              className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block"
-            >
-              ← 대시보드로 돌아가기
-            </Link>
-            <h1 className="text-3xl font-bold text-gray-900">
-              배송 라벨
-            </h1>
-          </div>
+        <div className="mb-6 sm:mb-8">
+          <Link
+            href="/dashboard"
+            className="text-sm text-blue-600 hover:text-blue-700 mb-2 inline-block"
+          >
+            ← 대시보드로 돌아가기
+          </Link>
+          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+            배송 라벨
+          </h1>
         </div>
 
         {/* 액션 및 필터 */}
         <Card className="mb-6">
           <div className="space-y-4">
             {/* 액션 버튼 */}
-            <div className="flex gap-3">
+            <div className="flex flex-wrap gap-2 sm:gap-3">
               <button
                 onClick={() => handleSelectAll(selectedGroups.size !== filteredGroups.length)}
                 disabled={filteredGroups.length === 0}
-                className="px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                className="px-3 sm:px-4 py-2 bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
               >
-                {selectedGroups.size === filteredGroups.length ? '전체 해제' : '전체 선택'}
+                {selectedGroups.size === filteredGroups.length ? '해제' : '전체'}
               </button>
 
               <button
                 onClick={handleCopy}
                 disabled={selectedGroups.size === 0}
-                className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                className="px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
               >
-                복사 ({selectedGroups.size})
+                <span className="hidden sm:inline">복사 ({selectedGroups.size})</span>
+                <span className="sm:hidden">복사</span>
               </button>
 
               <button
                 onClick={handlePrint}
                 disabled={selectedGroups.size === 0}
-                className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
               >
-                출력 ({selectedGroups.size})
+                <span className="hidden sm:inline">출력 ({selectedGroups.size})</span>
+                <span className="sm:hidden">출력</span>
               </button>
 
               {/* 신규주문 상태일 때만 입금확인 버튼 표시 */}
@@ -506,9 +506,9 @@ export default function LabelsPage() {
                 <button
                   onClick={handleConfirmPayment}
                   disabled={confirmPaymentMutation.isPending || selectedGroups.size === 0}
-                  className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  className="px-3 sm:px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                 >
-                  {confirmPaymentMutation.isPending ? '처리 중...' : `입금확인 (${selectedGroups.size})`}
+                  {confirmPaymentMutation.isPending ? '처리 중...' : '입금확인'}
                 </button>
               )}
 
@@ -517,37 +517,37 @@ export default function LabelsPage() {
                 <button
                   onClick={handleOpenDeliveryModal}
                   disabled={selectedGroups.size === 0}
-                  className="px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                  className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                 >
-                  배송완료 ({selectedGroups.size})
+                  배송완료
                 </button>
               )}
 
               <button
                 onClick={handleDownloadPDF}
                 disabled={selectedGroups.size === 0}
-                className="px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                className="px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
               >
-                PDF ({selectedGroups.size})
+                PDF
               </button>
 
               <button
                 onClick={handleDownloadExcel}
                 disabled={selectedGroups.size === 0}
-                className="px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+                className="px-3 sm:px-4 py-2 bg-teal-600 hover:bg-teal-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
               >
-                Excel ({selectedGroups.size})
+                Excel
               </button>
             </div>
 
             {/* 필터 */}
-            <div className="space-y-4">
+            <div className="space-y-3 sm:space-y-4">
               {/* 상태 필터 */}
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   주문 상태
                 </label>
-                <div className="flex flex-wrap gap-4">
+                <div className="flex flex-wrap gap-3 sm:gap-4">
                   <label className="flex items-center">
                     <input
                       type="radio"
@@ -596,8 +596,8 @@ export default function LabelsPage() {
                 <label className="block text-sm font-medium text-gray-700 mb-2">
                   정렬
                 </label>
-                <div className="flex flex-wrap gap-4">
-                  <div className="flex gap-3">
+                <div className="flex flex-wrap gap-3 sm:gap-4">
+                  <div className="flex gap-2 sm:gap-3">
                     <label className="flex items-center">
                       <input
                         type="radio"
@@ -619,14 +619,14 @@ export default function LabelsPage() {
                       <span className="text-sm">보내는사람순</span>
                     </label>
                   </div>
-                  <div className="flex gap-3">
+                  <div className="flex gap-2 sm:gap-3">
                     <label className="flex items-center">
                       <input
                         type="radio"
                         value="asc"
                         checked={sortOrder === 'asc'}
                         onChange={(e) => setSortOrder(e.target.value as 'asc')}
-                        className="mr-2"
+                        className="mr-1 sm:mr-2"
                       />
                       <span className="text-sm">오름차순</span>
                     </label>
@@ -636,7 +636,7 @@ export default function LabelsPage() {
                         value="desc"
                         checked={sortOrder === 'desc'}
                         onChange={(e) => setSortOrder(e.target.value as 'desc')}
-                        className="mr-2"
+                        className="mr-1 sm:mr-2"
                       />
                       <span className="text-sm">내림차순</span>
                     </label>
@@ -675,7 +675,7 @@ export default function LabelsPage() {
 
         {/* 그리드 뷰 */}
         {isLoading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
             {[...Array(6)].map((_, i) => (
               <div key={i} className="h-64 bg-gray-200 rounded-lg animate-pulse"></div>
             ))}
@@ -702,12 +702,12 @@ export default function LabelsPage() {
           </Card>
         ) : (
           <div>
-            <div className="mb-4 text-sm text-gray-600">
+            <div className="mb-3 sm:mb-4 text-sm text-gray-600">
               전체 <span className="font-semibold">{data?.data.length}개</span> 중{' '}
               <span className="font-semibold">{filteredGroups.length}개</span>{' '}
               (선택: {selectedGroups.size}개)
             </div>
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
               {filteredGroups.map((group) => {
                 const groupId = getGroupId(group);
                 return (

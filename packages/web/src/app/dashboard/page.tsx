@@ -1,6 +1,7 @@
 /**
  * 대시보드 페이지
  * 신규 주문과 완료 주문을 명확하게 분리하여 표시
+ * Issue #134: 모바일 반응형 레이아웃 개선
  */
 
 import { SummaryCard } from '@/components/dashboard/SummaryCard';
@@ -12,15 +13,15 @@ import { OrderStatsPanel } from '@/components/dashboard/OrderStatsPanel';
 
 export default function DashboardPage() {
   return (
-    <div className="min-h-[calc(100vh-3.5rem)] bg-gray-50 p-8">
+    <div className="min-h-[calc(100vh-3.5rem)] bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
-        <h1 className="text-3xl font-bold text-gray-900 mb-8">
+        <h1 className="text-2xl sm:text-3xl font-bold text-gray-900 mb-4 sm:mb-6 lg:mb-8">
           대시보드
         </h1>
 
         {/* 상단: 신규 주문 요약 + 최근 주문 */}
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-          <div className="lg:col-span-1 space-y-6">
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-4 sm:gap-6">
+          <div className="lg:col-span-1 space-y-4 sm:space-y-6">
             <SummaryCard />
             <QuickActions />
           </div>
@@ -29,20 +30,20 @@ export default function DashboardPage() {
           </div>
         </div>
 
-        {/* 중앙: 주문 상태별 현황 (3열: 신규 → 입금확인 → 완료) */}
-        <div className="mt-8 grid grid-cols-1 md:grid-cols-3 gap-6">
+        {/* 중앙: 주문 상태별 현황 (모바일 1열, 태블릿 2열, 데스크탑 3열) */}
+        <div className="mt-4 sm:mt-6 lg:mt-8 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 sm:gap-6">
           {/* 신규 주문 현황 */}
-          <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5 lg:p-6">
             <NewOrdersPanel />
           </div>
 
           {/* 입금확인 주문 현황 (Issue #130) */}
-          <div className="bg-white rounded-xl shadow-sm p-6">
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5 lg:p-6">
             <PendingPaymentPanel />
           </div>
 
-          {/* 완료 주문 통계 (컴팩트 모드) */}
-          <div className="bg-white rounded-xl shadow-sm p-6">
+          {/* 완료 주문 통계 (컴팩트 모드) - 태블릿에서 전체 폭 */}
+          <div className="bg-white rounded-xl shadow-sm p-4 sm:p-5 lg:p-6 sm:col-span-2 lg:col-span-1">
             <OrderStatsPanel
               title="완료 주문 통계"
               scope="completed"
@@ -54,7 +55,7 @@ export default function DashboardPage() {
         </div>
 
         {/* 하단: 완료 주문 상세 통계 (차트 포함) */}
-        <div className="mt-8 bg-white rounded-xl shadow-sm p-6">
+        <div className="mt-4 sm:mt-6 lg:mt-8 bg-white rounded-xl shadow-sm p-4 sm:p-5 lg:p-6">
           <OrderStatsPanel
             title="완료 주문 상세 분석"
             scope="completed"
