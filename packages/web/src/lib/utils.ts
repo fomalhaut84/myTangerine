@@ -73,20 +73,19 @@ export function formatCompactNumber(
     return value.toLocaleString();
   }
 
-  // 억 단위 (1억 이상이고 threshold도 충족)
-  if (absValue >= 100000000 && threshold <= 100000000) {
-    const num = absValue / 100000000;
-    return `${sign}${num.toFixed(decimals).replace(/\.0+$/, '')}억`;
+  // 억 단위 체크 (1억 이상이거나, 반올림 시 1억 이상이 되는 경우)
+  // 예: 99,950,000 → 0.9995억 → 반올림 시 1.0억
+  if (threshold <= 100000000) {
+    const billionNum = absValue / 100000000;
+    const billionRounded = parseFloat(billionNum.toFixed(decimals));
+    if (billionRounded >= 1) {
+      return `${sign}${billionRounded.toString().replace(/\.0+$/, '')}억`;
+    }
   }
 
-  // 만 단위일 때, 반올림 결과가 10000만이 되면 1억으로 표시
+  // 만 단위 (1만 이상 ~ 1억 미만, 반올림해도 1억 미만인 경우)
   if (absValue >= 10000 && threshold <= 10000) {
     const num = absValue / 10000;
-    const rounded = parseFloat(num.toFixed(decimals));
-    // 반올림 결과가 10000 이상이면 억 단위로 변환
-    if (rounded >= 10000) {
-      return `${sign}${(rounded / 10000).toFixed(decimals).replace(/\.0+$/, '')}억`;
-    }
     return `${sign}${num.toFixed(decimals).replace(/\.0+$/, '')}만`;
   }
 
