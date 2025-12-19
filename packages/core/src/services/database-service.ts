@@ -438,6 +438,13 @@ export class DatabaseService {
         syncedAt: new Date(),
       };
 
+      // P1 Fix: update 시 deletedAt이 null이면 제외하여 기존 DB soft delete 보존
+      // 시트에서 삭제 정보가 없을 때 DB의 soft delete를 덮어쓰지 않도록 함
+      const { deletedAt, ...dataWithoutDeletedAt } = data;
+      const updateData = deletedAt !== null
+        ? { ...data, ...syncData, syncedAt: new Date() }
+        : { ...dataWithoutDeletedAt, ...syncData, syncedAt: new Date() };
+
       const result = await this.prisma.order.upsert({
         where: { sheetRowNumber: data.sheetRowNumber },
         create: {
@@ -445,12 +452,7 @@ export class DatabaseService {
           ...syncData,
           syncedAt: new Date(),
         },
-        update: {
-          ...data,
-          ...syncData,
-          syncedAt: new Date(),
-          // syncAttemptCount는 증가하지 않고 syncMeta에서 제공된 값 사용
-        },
+        update: updateData,
       });
 
       return result;
