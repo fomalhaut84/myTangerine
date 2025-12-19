@@ -23,11 +23,13 @@ import { queryKeys } from '@/lib/query-keys';
 /**
  * 주문 목록 조회 훅
  * @param status - 'new' (신규), 'pending_payment' (입금확인), 'completed' (배송완료), 'all' (전체)
+ * @param options - 추가 옵션 (enabled 등)
  */
-export function useOrders(status?: OrderStatusFilter) {
+export function useOrders(status?: OrderStatusFilter, options?: { enabled?: boolean }) {
   return useQuery({
     queryKey: [...queryKeys.orders.list(), status],
     queryFn: () => getOrders(status),
+    enabled: options?.enabled ?? true,
   });
 }
 

@@ -48,7 +48,7 @@ export function OrdersPageContent() {
   const [searchInput, setSearchInput] = useState(searchTerm);
 
   // 활성 주문 조회 (viewMode가 active일 때만 실행)
-  const { data, isLoading, error } = useOrders(statusFilter);
+  const { data, isLoading, error } = useOrders(statusFilter, { enabled: viewMode === 'active' });
   // 삭제된 주문 조회 (viewMode가 deleted일 때만 실행)
   const { data: deletedData, isLoading: deletedLoading, error: deletedError } = useDeletedOrders({
     enabled: viewMode === 'deleted',

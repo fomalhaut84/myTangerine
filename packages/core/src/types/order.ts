@@ -161,6 +161,12 @@ export interface SheetRow {
   /** 송장번호 (배송완료 시 입력) */
   '송장번호'?: string;
 
+  /** 주문자 성함 (폼 응답에서 직접 입력) */
+  '주문자 성함'?: string;
+
+  /** 이메일 주소 (폼 응답에서 직접 입력) */
+  '이메일 주소'?: string;
+
   /** Soft Delete 여부 (내부 사용) */
   _isDeleted?: boolean;
 }

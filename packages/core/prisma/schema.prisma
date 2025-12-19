@@ -24,6 +24,10 @@ model Order {
   timestamp       DateTime
   timestampRaw    String   @map("timestamp_raw")
 
+  // 주문자 정보 (Phase 3: ordererName/ordererEmail 추가)
+  ordererName     String?  @map("orderer_name")
+  ordererEmail    String?  @map("orderer_email")
+
   // 발송인 정보
   senderName      String   @map("sender_name")
   senderAddress   String   @map("sender_address")

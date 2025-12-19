@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -1243,6 +1243,17 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // P2 Fix: 상태 전이 검증 - 신규주문만 입금확인으로 변경 가능
+      const currentStatus = normalizeOrderStatus(order['비고']);
+      if (currentStatus !== '신규주문') {
+        return reply.code(400).send({
+          success: false,
+          error: `Cannot confirm payment for order with status "${currentStatus}". Only "신규주문" orders can be confirmed.`,
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // 입금확인 처리
       await dataService.markPaymentConfirmed([rowNumber]);
 
@@ -1341,6 +1352,17 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         return reply.code(400).send({
           success: false,
           error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // P2 Fix: 상태 전이 검증 - 입금확인만 배송완료로 변경 가능
+      const currentStatus = normalizeOrderStatus(order['비고']);
+      if (currentStatus !== '입금확인') {
+        return reply.code(400).send({
+          success: false,
+          error: `Cannot mark as delivered for order with status "${currentStatus}". Only "입금확인" orders can be marked as delivered.`,
           statusCode: 400,
           timestamp: new Date().toISOString(),
         });
@@ -1581,8 +1603,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           quantity: order.quantity,
           rowNumber: order.rowNumber,
           validationError: order.validationError,
+          orderType: order.orderType,
           isDeleted: order.isDeleted,
           deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
         })),
       };
     }
