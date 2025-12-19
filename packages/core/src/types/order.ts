@@ -445,9 +445,16 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     };
   }
 
-  // Soft Delete 처리
-  const isDeleted = row._isDeleted || !!row['삭제됨'];
-  const deletedAt = row['삭제됨'] ? new Date(row['삭제됨']) : undefined;
+  // Soft Delete 처리 (P2 Fix: Invalid Date 방어)
+  let deletedAt: Date | undefined = undefined;
+  if (row['삭제됨']) {
+    const parsedDate = new Date(row['삭제됨']);
+    if (!isNaN(parsedDate.getTime())) {
+      deletedAt = parsedDate;
+    }
+    // Invalid Date는 무시 (deletedAt = undefined)
+  }
+  const isDeleted = row._isDeleted || deletedAt !== undefined;
 
   return {
     timestamp,

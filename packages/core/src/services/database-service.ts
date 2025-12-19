@@ -82,21 +82,38 @@ export class DatabaseService {
     const validation = validateProductSelection(productSelection);
 
     // Soft Delete 처리: 시트의 '삭제됨' 값을 deletedAt으로 변환
-    let deletedAt: Date | null = null;
-    if (row['삭제됨'] && row['삭제됨'].trim() !== '') {
-      try {
-        deletedAt = new Date(row['삭제됨']);
-        // Invalid Date 체크
-        if (isNaN(deletedAt.getTime())) {
+    // - '삭제됨' 컬럼이 존재하고 값이 있음 → 해당 날짜로 soft delete
+    // - '삭제됨' 컬럼이 존재하고 빈값 → 복원 (deletedAt = null)
+    // - '삭제됨' 컬럼이 없음 → 기존 DB 값 유지 (deletedAt = undefined)
+    // - _isDeleted 플래그만 있음 → 현재 시각으로 soft delete
+    let deletedAt: Date | null | undefined = undefined;
+    const hasDeletedColumn = Object.prototype.hasOwnProperty.call(row, '삭제됨');
+
+    if (hasDeletedColumn) {
+      const deletedValue = row['삭제됨'];
+      if (deletedValue && deletedValue.trim() !== '') {
+        try {
+          const parsedDate = new Date(deletedValue);
+          // Invalid Date 체크
+          if (!isNaN(parsedDate.getTime())) {
+            deletedAt = parsedDate;
+          } else {
+            // 유효하지 않은 날짜 → 컬럼이 있으므로 복원 처리 (P2 방어)
+            deletedAt = null;
+          }
+        } catch {
+          // 파싱 실패 → 컬럼이 있으므로 복원 처리
           deletedAt = null;
         }
-      } catch {
+      } else {
+        // 빈값 = 명시적 복원
         deletedAt = null;
       }
     } else if (row._isDeleted) {
       // _isDeleted 플래그만 있는 경우 현재 시각 사용
       deletedAt = new Date();
     }
+    // else: deletedAt = undefined (기존 DB 값 유지)
 
     return {
       sheetRowNumber: row._rowNumber,
@@ -115,7 +132,7 @@ export class DatabaseService {
       quantity,
       status: row['비고'] || '',
       validationError: validation.isValid ? null : validation.reason,
-      deletedAt, // Phase 3: Soft Delete 동기화
+      deletedAt, // Phase 3: Soft Delete 동기화 (undefined = 기존 값 유지)
       // syncStatus는 호출자(SyncEngine)에서 설정
     };
   }
@@ -438,12 +455,19 @@ export class DatabaseService {
         syncedAt: new Date(),
       };
 
-      // P1 Fix: update 시 deletedAt이 null이면 제외하여 기존 DB soft delete 보존
-      // 시트에서 삭제 정보가 없을 때 DB의 soft delete를 덮어쓰지 않도록 함
+      // P1 Fix: deletedAt 처리
+      // - undefined: 시트에 '삭제됨' 컬럼 없음 → update에서 제외 (기존 DB 값 유지)
+      // - null: 시트에서 명시적 빈값 → update에 포함 (복원)
+      // - Date: 삭제 날짜 → update에 포함 (soft delete)
       const { deletedAt, ...dataWithoutDeletedAt } = data;
-      const updateData = deletedAt !== null
-        ? { ...data, ...syncData, syncedAt: new Date() }
-        : { ...dataWithoutDeletedAt, ...syncData, syncedAt: new Date() };
+      let updateData;
+      if (deletedAt === undefined) {
+        // 시트에 삭제 정보 없음 → 기존 DB soft delete 유지
+        updateData = { ...dataWithoutDeletedAt, ...syncData, syncedAt: new Date() };
+      } else {
+        // deletedAt이 null(복원) 또는 Date(삭제) → 업데이트에 포함
+        updateData = { ...dataWithoutDeletedAt, deletedAt, ...syncData, syncedAt: new Date() };
+      }
 
       const result = await this.prisma.order.upsert({
         where: { sheetRowNumber: data.sheetRowNumber },
