@@ -27,6 +27,13 @@ const EnvSchema = z.object({
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
   CORS_ORIGIN: z.string().default('*'),
+  /**
+   * 데이터 소스 모드 (Phase 2.3)
+   * - sheets: Google Sheets만 사용 (기본값, 기존 방식)
+   * - database: PostgreSQL만 사용
+   * - hybrid: DB 우선 읽기, DB+Sheets 동시 쓰기
+   */
+  DATA_SOURCE: z.enum(['sheets', 'database', 'hybrid']).default('sheets'),
 });
 
 /**

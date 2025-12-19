@@ -78,7 +78,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
     try {
-      const { sheetService, config, labelFormatter } = fastify.core;
+      const { dataService, config, labelFormatter } = fastify.core;
 
       // 쿼리 파라미터에서 status 추출 (기본값: 'new')
       // Fastify 스키마가 enum 검증을 수행하므로 추가 검증 불필요
@@ -88,7 +88,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       reply.type('text/plain; charset=utf-8');
 
       // 상태별 주문 가져오기
-      const sheetRows = await sheetService.getOrdersByStatus(status);
+      const sheetRows = await dataService.getOrdersByStatus(status);
 
       if (sheetRows.length === 0) {
         return EMPTY_MESSAGES[status];
@@ -194,14 +194,14 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const { sheetService, config } = fastify.core;
+      const { dataService, config } = fastify.core;
 
       // 쿼리 파라미터에서 status 추출 (기본값: 'new')
       // Fastify 스키마가 enum 검증을 수행하므로 추가 검증 불필요
       const status = request.query.status || 'new';
 
       // 상태별 주문 가져오기
-      const sheetRows = await sheetService.getOrdersByStatus(status);
+      const sheetRows = await dataService.getOrdersByStatus(status);
 
       if (sheetRows.length === 0) {
         return { success: true, data: [] };
