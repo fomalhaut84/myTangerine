@@ -163,19 +163,22 @@ export class DatabaseService {
 
       let statusWhere = {};
 
-      // P2 Fix: DB에 저장 시 status가 정규화되므로 정규화된 값으로만 필터링
-      // - '신규주문': 신규 주문 (이전의 빈 문자열, 알 수 없는 값 포함)
-      // - '입금확인': 입금 확인된 주문
-      // - '배송완료': 배송 완료된 주문 (이전의 '확인' 포함)
+      // P1 Fix: 레거시 상태값과 정규화된 값 모두 포함
+      // - 기존 DB 레코드: '' (신규), '확인' (완료)
+      // - 새 레코드 (정규화됨): '신규주문', '입금확인', '배송완료'
       switch (status) {
         case 'completed':
-          statusWhere = { status: '배송완료' };
+          // 배송완료: 정규화된 '배송완료' + 레거시 '확인'
+          statusWhere = { status: { in: ['배송완료', '확인'] } };
           break;
         case 'pending_payment':
+          // 입금확인: 정규화된 값만 (레거시에 없음)
           statusWhere = { status: '입금확인' };
           break;
         case 'new':
-          statusWhere = { status: '신규주문' };
+          // 신규주문: 정규화된 '신규주문' + 레거시 '' + 그 외 모든 값
+          // notIn으로 완료/입금확인 제외
+          statusWhere = { status: { notIn: ['배송완료', '확인', '입금확인'] } };
           break;
         case 'all':
         default:
