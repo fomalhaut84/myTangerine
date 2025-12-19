@@ -1117,6 +1117,27 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // 주문 존재 여부 확인
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 상태 변경 불가
+      if (order._isDeleted || order['삭제됨']) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // 특정 주문을 확인 상태로 표시
       await dataService.markSingleAsConfirmed(rowNumber);
 
