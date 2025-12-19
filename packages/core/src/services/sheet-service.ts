@@ -1,8 +1,8 @@
 import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { Config } from '../config/config.js';
-import type { SheetRow } from '../types/order.js';
-import { validateProductSelection } from '../types/order.js';
+import type { SheetRow, OrderStatus } from '../types/order.js';
+import { validateProductSelection, normalizeOrderStatus } from '../types/order.js';
 import fs from 'fs';
 
 /**
@@ -284,9 +284,20 @@ export class SheetService {
 
   /**
    * Status별 주문 가져오기
-   * @param status - 'new' (비고 != "확인"), 'completed' (비고 == "확인"), 'all' (모든 행)
+   *
+   * Phase 3: 3단계 상태 체계
+   * - 'new' → 신규주문 (비고 = '신규주문' 또는 빈 문자열)
+   * - 'pending_payment' → 입금확인 (비고 = '입금확인')
+   * - 'completed' → 배송완료 (비고 = '배송완료' 또는 '확인')
+   * - 'all' → 모든 상태
+   *
+   * @param status - 상태 필터
+   * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
-  async getOrdersByStatus(status: 'new' | 'completed' | 'all' = 'new'): Promise<SheetRow[]> {
+  async getOrdersByStatus(
+    status: 'new' | 'pending_payment' | 'completed' | 'all' = 'new',
+    includeDeleted: boolean = false
+  ): Promise<SheetRow[]> {
     try {
       const allRows = await this.getAllRows();
 
@@ -301,22 +312,41 @@ export class SheetService {
       // 필수 컬럼 검증
       this.validateRequiredColumns(allRows[0]);
 
+      // Soft Delete 필터링
+      let baseRows = allRows;
+      if (!includeDeleted) {
+        baseRows = allRows.filter(row => !row['삭제됨'] && !row._isDeleted);
+      }
+
       // Status에 따라 필터링
       let filteredOrders: SheetRow[];
 
       switch (status) {
         case 'completed':
-          // 비고가 "확인"인 주문
-          filteredOrders = allRows.filter(row => row['비고'] === '확인');
+          // 배송완료 (하위 호환: '확인'도 포함)
+          filteredOrders = baseRows.filter(row => {
+            const normalized = normalizeOrderStatus(row['비고']);
+            return normalized === '배송완료';
+          });
+          break;
+        case 'pending_payment':
+          // 입금확인
+          filteredOrders = baseRows.filter(row => {
+            const normalized = normalizeOrderStatus(row['비고']);
+            return normalized === '입금확인';
+          });
           break;
         case 'all':
           // 모든 주문
-          filteredOrders = allRows;
+          filteredOrders = baseRows;
           break;
         case 'new':
         default:
-          // 비고가 "확인"이 아닌 주문 (기본값)
-          filteredOrders = allRows.filter(row => row['비고'] !== '확인');
+          // 신규주문 (하위 호환: 빈 문자열도 포함)
+          filteredOrders = baseRows.filter(row => {
+            const normalized = normalizeOrderStatus(row['비고']);
+            return normalized === '신규주문';
+          });
           break;
       }
 
@@ -535,8 +565,9 @@ export class SheetService {
   }
 
   /**
-   * 처리된 주문을 "확인"으로 표시 (Python 버전과 동일한 로직)
-   * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 newOrderRows 사용 (하위 호환성)
+   * 처리된 주문을 "배송완료"로 표시
+   * Phase 3: '확인' → '배송완료'로 변경 (하위 호환성 유지)
+   * @param rowNumbers - 처리할 행 번호 배열 (선택). 미제공 시 newOrderRows 사용 (하위 호환성)
    */
   async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
     try {
@@ -557,23 +588,37 @@ export class SheetService {
 
       const 비고Col = 비고ColIndex + 1; // 1-based
 
-      // 지정된 주문 행을 '확인'으로 업데이트
+      // 지정된 주문 행을 '배송완료'로 업데이트
       for (const rowNum of targetRows) {
-        await this.updateCell(rowNum, 비고Col, '확인');
+        await this.updateCell(rowNum, 비고Col, '배송완료');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to mark orders as confirmed: ${message}`);
+      throw new Error(`Failed to mark orders as delivered: ${message}`);
     }
   }
 
   /**
-   * 특정 주문 행을 "확인"으로 표시
+   * 특정 주문 행을 "배송완료"로 표시
+   * Phase 3: '확인' → '배송완료'로 변경 (하위 호환성 유지)
    * @param rowNumber 스프레드시트 행 번호 (1-based, 헤더 포함)
    */
   async markSingleAsConfirmed(rowNumber: number): Promise<void> {
     try {
-      // 헤더 가져오기 (캐싱됨)
+      await this.updateOrderStatus(rowNumber, '배송완료');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark single order as delivered: ${message}`);
+    }
+  }
+
+  /**
+   * 주문 상태 변경 (Phase 3)
+   * @param rowNumber - 행 번호
+   * @param newStatus - 새 상태 ('신규주문' | '입금확인' | '배송완료')
+   */
+  async updateOrderStatus(rowNumber: number, newStatus: OrderStatus): Promise<void> {
+    try {
       const headers = await this.getHeaders();
 
       const 비고ColIndex = headers.findIndex(h => h === '비고');
@@ -583,11 +628,109 @@ export class SheetService {
 
       const 비고Col = 비고ColIndex + 1; // 1-based
 
-      // 특정 행을 '확인'으로 업데이트
-      await this.updateCell(rowNumber, 비고Col, '확인');
+      await this.updateCell(rowNumber, 비고Col, newStatus);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to mark single order as confirmed: ${message}`);
+      throw new Error(`Failed to update order status (row: ${rowNumber}, status: ${newStatus}): ${message}`);
+    }
+  }
+
+  /**
+   * 입금확인 처리 (Phase 3)
+   * @param rowNumbers - 처리할 행 번호 배열
+   */
+  async markPaymentConfirmed(rowNumbers: number[]): Promise<void> {
+    try {
+      for (const rowNum of rowNumbers) {
+        await this.updateOrderStatus(rowNum, '입금확인');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark payment confirmed (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * 배송완료 처리 (Phase 3)
+   * @param rowNumbers - 처리할 행 번호 배열
+   */
+  async markDelivered(rowNumbers: number[]): Promise<void> {
+    try {
+      for (const rowNum of rowNumbers) {
+        await this.updateOrderStatus(rowNum, '배송완료');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark as delivered (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * Soft Delete (Phase 3)
+   * '삭제됨' 컬럼에 현재 시각을 기록
+   * @param rowNumbers - 삭제할 행 번호 배열
+   */
+  async softDelete(rowNumbers: number[]): Promise<void> {
+    try {
+      const headers = await this.getHeaders();
+
+      let 삭제됨ColIndex = headers.findIndex(h => h === '삭제됨');
+
+      // '삭제됨' 컬럼이 없으면 경고 (컬럼 추가는 별도 작업 필요)
+      if (삭제됨ColIndex === -1) {
+        console.warn("[SheetService] '삭제됨' column not found. Soft delete may not work properly.");
+        return;
+      }
+
+      const 삭제됨Col = 삭제됨ColIndex + 1; // 1-based
+      const now = new Date().toISOString();
+
+      for (const rowNum of rowNumbers) {
+        await this.updateCell(rowNum, 삭제됨Col, now);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to soft delete orders (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * Soft Delete 복원 (Phase 3)
+   * '삭제됨' 컬럼을 빈 문자열로 설정
+   * @param rowNumbers - 복원할 행 번호 배열
+   */
+  async restore(rowNumbers: number[]): Promise<void> {
+    try {
+      const headers = await this.getHeaders();
+
+      let 삭제됨ColIndex = headers.findIndex(h => h === '삭제됨');
+
+      if (삭제됨ColIndex === -1) {
+        console.warn("[SheetService] '삭제됨' column not found.");
+        return;
+      }
+
+      const 삭제됨Col = 삭제됨ColIndex + 1; // 1-based
+
+      for (const rowNum of rowNumbers) {
+        await this.updateCell(rowNum, 삭제됨Col, '');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to restore orders (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * 삭제된 주문만 조회 (Phase 3)
+   */
+  async getDeletedOrders(): Promise<SheetRow[]> {
+    try {
+      const allRows = await this.getAllRows();
+      return allRows.filter(row => !!row['삭제됨'] || row._isDeleted);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get deleted orders: ${message}`);
     }
   }
 }

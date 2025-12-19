@@ -8,8 +8,8 @@
  */
 
 import { PrismaClient } from '@prisma/client';
-import type { SheetRow } from '../types/order.js';
-import { parseKoreanTimestamp, validateProductSelection, extractQuantity } from '../types/order.js';
+import type { SheetRow, OrderStatus } from '../types/order.js';
+import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normalizeOrderStatus } from '../types/order.js';
 import type { Config } from '../config/config.js';
 
 // Prisma Order 타입 정의 (runtime에서 자동 추론됨)
@@ -43,7 +43,7 @@ export class DatabaseService {
   private prismaOrderToSheetRow(order: PrismaOrder): SheetRow {
     return {
       '타임스탬프': order.timestampRaw,
-      '비고': order.status,
+      '비고': normalizeOrderStatus(order.status),
       '보내는분 성함': order.senderName,
       '보내는분 주소 (도로명 주소로 부탁드려요)': order.senderAddress,
       '보내는분 연락처 (핸드폰번호)': order.senderPhone,
@@ -56,6 +56,8 @@ export class DatabaseService {
       _rowNumber: order.sheetRowNumber || undefined,
       _validationError: order.validationError || undefined,
       _syncAttemptCount: order.syncAttemptCount,
+      '삭제됨': order.deletedAt?.toISOString(),
+      _isDeleted: !!order.deletedAt,
     };
   }
 
@@ -103,26 +105,46 @@ export class DatabaseService {
   /**
    * Status별 주문 조회
    * SheetService.getOrdersByStatus()와 동일한 인터페이스
+   *
+   * Phase 3: 3단계 상태 체계
+   * - 'new' → 신규주문 (비고 = '신규주문' 또는 빈 문자열)
+   * - 'pending_payment' → 입금확인 (비고 = '입금확인')
+   * - 'completed' → 배송완료 (비고 = '배송완료' 또는 '확인')
+   * - 'all' → 모든 상태
+   *
+   * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
-  async getOrdersByStatus(status: 'new' | 'completed' | 'all' = 'new'): Promise<SheetRow[]> {
+  async getOrdersByStatus(
+    status: 'new' | 'pending_payment' | 'completed' | 'all' = 'new',
+    includeDeleted: boolean = false
+  ): Promise<SheetRow[]> {
     try {
-      let where = {};
+      // 기본 조건: Soft Delete 제외
+      const baseWhere = includeDeleted ? {} : { deletedAt: null };
+
+      let statusWhere = {};
 
       switch (status) {
         case 'completed':
-          where = { status: '확인' };
+          // 배송완료 (하위 호환: '확인'도 포함)
+          statusWhere = { status: { in: ['배송완료', '확인'] } };
+          break;
+        case 'pending_payment':
+          // 입금확인
+          statusWhere = { status: '입금확인' };
           break;
         case 'new':
-          where = { status: { not: '확인' } };
+          // 신규주문 (하위 호환: 빈 문자열도 포함)
+          statusWhere = { status: { in: ['신규주문', ''] } };
           break;
         case 'all':
         default:
-          where = {};
+          statusWhere = {};
           break;
       }
 
       const orders = await this.prisma.order.findMany({
-        where,
+        where: { ...baseWhere, ...statusWhere },
         orderBy: { timestamp: 'desc' },
       });
 
@@ -142,9 +164,10 @@ export class DatabaseService {
 
   /**
    * 모든 행 조회
+   * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
-  async getAllRows(): Promise<SheetRow[]> {
-    return this.getOrdersByStatus('all');
+  async getAllRows(includeDeleted: boolean = false): Promise<SheetRow[]> {
+    return this.getOrdersByStatus('all', includeDeleted);
   }
 
   /**
@@ -168,47 +191,178 @@ export class DatabaseService {
   }
 
   /**
-   * 주문 확인 처리
-   * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 모든 신규 주문 확인
+   * 주문 배송완료 처리
+   * Phase 3: '확인' → '배송완료'로 변경 (하위 호환성 유지)
+   * @param rowNumbers - 처리할 행 번호 배열 (선택). 미제공 시 모든 신규 주문 처리
    */
   async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
     try {
       if (rowNumbers && rowNumbers.length > 0) {
-        // 특정 행만 확인
+        // 특정 행만 배송완료 처리
         await this.prisma.order.updateMany({
           where: {
             sheetRowNumber: { in: rowNumbers },
+            deletedAt: null, // Soft Delete된 주문 제외
           },
           data: {
-            status: '확인',
+            status: '배송완료',
             updatedAt: new Date(),
           },
         });
       } else {
-        // 모든 미확인 주문 확인 (하위 호환성)
+        // 모든 미완료 주문 배송완료 처리 (하위 호환성)
         await this.prisma.order.updateMany({
           where: {
-            status: { not: '확인' },
+            status: { notIn: ['배송완료', '확인'] },
+            deletedAt: null,
           },
           data: {
-            status: '확인',
+            status: '배송완료',
             updatedAt: new Date(),
           },
         });
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const context = rowNumbers ? `rows ${rowNumbers.join(', ')}` : 'all new orders';
-      throw new Error(`Failed to mark as confirmed (${context}): ${message}`);
+      const context = rowNumbers ? `rows ${rowNumbers.join(', ')}` : 'all incomplete orders';
+      throw new Error(`Failed to mark as delivered (${context}): ${message}`);
     }
   }
 
   /**
-   * 단일 주문 확인 처리 (SheetService 호환)
-   * @param rowNumber - 확인 처리할 행 번호
+   * 단일 주문 배송완료 처리 (SheetService 호환)
+   * @param rowNumber - 처리할 행 번호
    */
   async markSingleAsConfirmed(rowNumber: number): Promise<void> {
     return this.markAsConfirmed([rowNumber]);
+  }
+
+  /**
+   * 주문 상태 변경 (Phase 3)
+   * @param rowNumber - 행 번호
+   * @param newStatus - 새 상태 ('신규주문' | '입금확인' | '배송완료')
+   */
+  async updateOrderStatus(rowNumber: number, newStatus: OrderStatus): Promise<void> {
+    try {
+      await this.prisma.order.updateMany({
+        where: {
+          sheetRowNumber: rowNumber,
+          deletedAt: null,
+        },
+        data: {
+          status: newStatus,
+          updatedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update order status (row: ${rowNumber}, status: ${newStatus}): ${message}`);
+    }
+  }
+
+  /**
+   * 입금확인 처리 (Phase 3)
+   * @param rowNumbers - 처리할 행 번호 배열
+   */
+  async markPaymentConfirmed(rowNumbers: number[]): Promise<void> {
+    try {
+      await this.prisma.order.updateMany({
+        where: {
+          sheetRowNumber: { in: rowNumbers },
+          deletedAt: null,
+        },
+        data: {
+          status: '입금확인',
+          updatedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark payment confirmed (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * 배송완료 처리 (Phase 3)
+   * @param rowNumbers - 처리할 행 번호 배열
+   */
+  async markDelivered(rowNumbers: number[]): Promise<void> {
+    try {
+      await this.prisma.order.updateMany({
+        where: {
+          sheetRowNumber: { in: rowNumbers },
+          deletedAt: null,
+        },
+        data: {
+          status: '배송완료',
+          updatedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark as delivered (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * Soft Delete (Phase 3)
+   * @param rowNumbers - 삭제할 행 번호 배열
+   */
+  async softDelete(rowNumbers: number[]): Promise<void> {
+    try {
+      await this.prisma.order.updateMany({
+        where: {
+          sheetRowNumber: { in: rowNumbers },
+          deletedAt: null, // 이미 삭제된 주문은 건너뜀
+        },
+        data: {
+          deletedAt: new Date(),
+          updatedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to soft delete orders (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * Soft Delete 복원 (Phase 3)
+   * @param rowNumbers - 복원할 행 번호 배열
+   */
+  async restore(rowNumbers: number[]): Promise<void> {
+    try {
+      await this.prisma.order.updateMany({
+        where: {
+          sheetRowNumber: { in: rowNumbers },
+          deletedAt: { not: null }, // 삭제된 주문만
+        },
+        data: {
+          deletedAt: null,
+          updatedAt: new Date(),
+        },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to restore orders (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * 삭제된 주문만 조회 (Phase 3)
+   */
+  async getDeletedOrders(): Promise<SheetRow[]> {
+    try {
+      const orders = await this.prisma.order.findMany({
+        where: { deletedAt: { not: null } },
+        orderBy: { deletedAt: 'desc' },
+      });
+
+      return orders.map((order: PrismaOrder) => this.prismaOrderToSheetRow(order));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get deleted orders: ${message}`);
+    }
   }
 
   /**
