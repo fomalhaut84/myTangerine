@@ -191,21 +191,21 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
    * 주문 조회 (상태별 필터링 지원)
    */
   fastify.get<{
-    Querystring: { status?: 'new' | 'completed' | 'all' };
+    Querystring: { status?: 'new' | 'pending_payment' | 'completed' | 'all' };
   }>(
     '/api/orders',
     {
       schema: {
         tags: ['orders'],
         summary: '주문 목록 조회',
-        description: 'Status별로 주문들을 조회합니다. 기본값은 새로운 주문(비고 != "확인")입니다.',
+        description: 'Status별로 주문들을 조회합니다. 기본값은 새로운 주문입니다.',
         querystring: {
           type: 'object',
           properties: {
             status: {
               type: 'string',
-              enum: ['new', 'completed', 'all'],
-              description: '주문 상태 필터 (new: 신규, completed: 완료, all: 전체)',
+              enum: ['new', 'pending_payment', 'completed', 'all'],
+              description: '주문 상태 필터 (new: 신규주문, pending_payment: 입금확인, completed: 배송완료, all: 전체)',
               default: 'new',
             },
           },
@@ -1100,6 +1100,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             },
           },
           400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
           500: { $ref: 'ErrorResponse#' },
         },
       },
@@ -1117,6 +1118,28 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // 주문 존재 여부 확인
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // 특정 주문을 확인 상태로 표시
       await dataService.markSingleAsConfirmed(rowNumber);
 
@@ -1126,6 +1149,415 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         message: '주문이 확인되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/:rowNumber/confirm-payment
+   * 주문을 "입금확인" 상태로 변경 (Phase 3)
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber/confirm-payment',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '입금 확인 처리',
+        description: '주문을 "입금확인" 상태로 변경합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '처리 결과 메시지',
+                example: '입금이 확인되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 입금확인 처리
+      await dataService.markPaymentConfirmed([rowNumber]);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      return {
+        success: true,
+        message: '입금이 확인되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/:rowNumber/mark-delivered
+   * 주문을 "배송완료" 상태로 변경 (Phase 3)
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber/mark-delivered',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '배송 완료 처리',
+        description: '주문을 "배송완료" 상태로 변경합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '처리 결과 메시지',
+                example: '배송이 완료되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 배송완료 처리
+      await dataService.markDelivered([rowNumber]);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      return {
+        success: true,
+        message: '배송이 완료되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/:rowNumber/delete
+   * 주문 Soft Delete (Phase 3)
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber/delete',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 삭제 (Soft Delete)',
+        description: '주문을 삭제합니다. 실제로 데이터는 삭제되지 않고 삭제 표시만 됩니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '처리 결과 메시지',
+                example: '주문이 삭제되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인 (삭제된 주문 포함)
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 이미 삭제된 주문인 경우 idempotent 처리 (성공 응답, 공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return {
+          success: true,
+          message: '주문이 이미 삭제되어 있습니다.',
+        };
+      }
+
+      // Soft Delete 처리
+      await dataService.softDelete([rowNumber]);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      return {
+        success: true,
+        message: '주문이 삭제되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/:rowNumber/restore
+   * 삭제된 주문 복원 (Phase 3)
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber/restore',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '삭제된 주문 복원',
+        description: 'Soft Delete된 주문을 복원합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '처리 결과 메시지',
+                example: '주문이 복원되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인 (삭제된 주문도 조회)
+      const deletedOrders = await dataService.getDeletedOrders();
+      const order = deletedOrders.find((o) => o._rowNumber === rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Deleted order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 복원 처리
+      await dataService.restore([rowNumber]);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      return {
+        success: true,
+        message: '주문이 복원되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * GET /api/orders/deleted
+   * 삭제된 주문 목록 조회 (Phase 3)
+   */
+  fastify.get(
+    '/api/orders/deleted',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '삭제된 주문 목록 조회',
+        description: 'Soft Delete된 주문들을 조회합니다.',
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'count', 'orders'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              count: { type: 'integer', minimum: 0, description: '삭제된 주문 개수', example: 3 },
+              orders: {
+                type: 'array',
+                items: { $ref: 'Order#' },
+              },
+            },
+          },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async () => {
+      const { dataService, config } = fastify.core;
+
+      // 삭제된 주문 가져오기
+      const sheetRows = await dataService.getDeletedOrders();
+
+      // SheetRow를 Order로 변환
+      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+
+      return {
+        success: true,
+        count: orders.length,
+        orders: orders.map((order) => ({
+          timestamp: order.timestamp.toISOString(),
+          timestampRaw: order.timestampRaw,
+          status: order.status,
+          sender: order.sender,
+          recipient: order.recipient,
+          productType: order.productType,
+          quantity: order.quantity,
+          rowNumber: order.rowNumber,
+          validationError: order.validationError,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
+        })),
       };
     }
   );
