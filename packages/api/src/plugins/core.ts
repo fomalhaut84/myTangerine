@@ -18,7 +18,8 @@ import {
  */
 export interface CoreServices {
   config: Config;
-  sheetService: SheetService;
+  /** SheetService (database 모드에서는 null) */
+  sheetService: SheetService | null;
   databaseService: DatabaseService;
   /** 하이브리드 데이터 서비스 (Phase 2.3) - API routes에서 이 서비스를 사용 */
   dataService: HybridDataService;
@@ -57,16 +58,21 @@ const corePlugin: FastifyPluginAsync<CorePluginOptions> = async (fastify, option
   // Config 인스턴스 생성
   const config = new Config();
 
-  // SheetService 인스턴스 생성
-  const sheetService = new SheetService(config);
+  // SheetService 인스턴스 생성 (database 모드에서는 생성하지 않음)
+  // P1 수정: database 모드에서 Google 자격 증명 없이도 서버가 시작되도록 함
+  let sheetService: SheetService | null = null;
+  if (dataSourceMode !== 'database') {
+    sheetService = new SheetService(config);
+  }
 
   // DatabaseService 인스턴스 생성 (Prisma 주입)
+  // sheets 모드에서도 DatabaseService는 생성 (sync 등에서 사용 가능)
   const databaseService = new DatabaseService(config, fastify.prisma);
 
   // HybridDataService 인스턴스 생성 (Phase 2.3)
   const dataService = new HybridDataService(sheetService, databaseService, {
     mode: dataSourceMode,
-    fallbackToSheets: true,
+    fallbackToSheets: dataSourceMode !== 'database', // database 모드에서는 폴백 비활성화
     logger: {
       info: (msg, ...args) => fastify.log.info(msg, ...args),
       warn: (msg, ...args) => fastify.log.warn(msg, ...args),

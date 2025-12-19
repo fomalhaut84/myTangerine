@@ -37,13 +37,19 @@ export class HybridDataService {
   private logger?: HybridDataServiceOptions['logger'];
 
   constructor(
-    private sheetService: SheetService,
+    private sheetService: SheetService | null,
     private databaseService: DatabaseService,
     options: HybridDataServiceOptions
   ) {
     this.mode = options.mode;
-    this.fallbackToSheets = options.fallbackToSheets ?? true;
+    // database 모드에서는 sheetService가 없으므로 fallback 비활성화
+    this.fallbackToSheets = this.sheetService !== null && (options.fallbackToSheets ?? true);
     this.logger = options.logger;
+
+    // sheets 또는 hybrid 모드에서 sheetService가 없으면 에러
+    if ((this.mode === 'sheets' || this.mode === 'hybrid') && !this.sheetService) {
+      throw new Error(`SheetService is required for mode: ${this.mode}`);
+    }
 
     this.logger?.info(`HybridDataService initialized with mode: ${this.mode}`);
   }
@@ -60,7 +66,7 @@ export class HybridDataService {
    */
   async getAllRows(): Promise<SheetRow[]> {
     if (this.mode === 'sheets') {
-      return this.sheetService.getAllRows();
+      return this.sheetService!.getAllRows();
     }
 
     if (this.mode === 'database') {
@@ -75,7 +81,7 @@ export class HybridDataService {
     } catch (dbError) {
       if (this.fallbackToSheets) {
         this.logger?.warn(`[hybrid] DB getAllRows failed, falling back to Sheets: ${dbError}`);
-        return this.sheetService.getAllRows();
+        return this.sheetService!.getAllRows();
       }
       throw dbError;
     }
@@ -86,7 +92,7 @@ export class HybridDataService {
    */
   async getOrdersByStatus(status: 'new' | 'completed' | 'all' = 'new'): Promise<SheetRow[]> {
     if (this.mode === 'sheets') {
-      return this.sheetService.getOrdersByStatus(status);
+      return this.sheetService!.getOrdersByStatus(status);
     }
 
     if (this.mode === 'database') {
@@ -101,7 +107,7 @@ export class HybridDataService {
     } catch (dbError) {
       if (this.fallbackToSheets) {
         this.logger?.warn(`[hybrid] DB getOrdersByStatus failed, falling back to Sheets: ${dbError}`);
-        return this.sheetService.getOrdersByStatus(status);
+        return this.sheetService!.getOrdersByStatus(status);
       }
       throw dbError;
     }
@@ -112,7 +118,7 @@ export class HybridDataService {
    */
   async getNewOrders(): Promise<SheetRow[]> {
     if (this.mode === 'sheets') {
-      return this.sheetService.getNewOrders();
+      return this.sheetService!.getNewOrders();
     }
 
     if (this.mode === 'database') {
@@ -127,7 +133,7 @@ export class HybridDataService {
     } catch (dbError) {
       if (this.fallbackToSheets) {
         this.logger?.warn(`[hybrid] DB getNewOrders failed, falling back to Sheets: ${dbError}`);
-        return this.sheetService.getNewOrders();
+        return this.sheetService!.getNewOrders();
       }
       throw dbError;
     }
@@ -138,7 +144,7 @@ export class HybridDataService {
    */
   async getOrderByRowNumber(rowNumber: number): Promise<SheetRow | null> {
     if (this.mode === 'sheets') {
-      return this.sheetService.getOrderByRowNumber(rowNumber);
+      return this.sheetService!.getOrderByRowNumber(rowNumber);
     }
 
     if (this.mode === 'database') {
@@ -153,7 +159,7 @@ export class HybridDataService {
     } catch (dbError) {
       if (this.fallbackToSheets) {
         this.logger?.warn(`[hybrid] DB getOrderByRowNumber failed, falling back to Sheets: ${dbError}`);
-        return this.sheetService.getOrderByRowNumber(rowNumber);
+        return this.sheetService!.getOrderByRowNumber(rowNumber);
       }
       throw dbError;
     }
@@ -165,7 +171,7 @@ export class HybridDataService {
    */
   async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
     if (this.mode === 'sheets') {
-      return this.sheetService.markAsConfirmed(rowNumbers);
+      return this.sheetService!.markAsConfirmed(rowNumbers);
     }
 
     if (this.mode === 'database') {
@@ -184,7 +190,7 @@ export class HybridDataService {
     }
 
     try {
-      await this.sheetService.markAsConfirmed(rowNumbers);
+      await this.sheetService!.markAsConfirmed(rowNumbers);
       this.logger?.info(`[hybrid] markAsConfirmed Sheets success: ${rowNumbers?.length ?? 'all'} rows`);
     } catch (sheetsError) {
       errors.push(`Sheets: ${sheetsError}`);
@@ -203,7 +209,7 @@ export class HybridDataService {
    */
   async markSingleAsConfirmed(rowNumber: number): Promise<void> {
     if (this.mode === 'sheets') {
-      return this.sheetService.markSingleAsConfirmed(rowNumber);
+      return this.sheetService!.markSingleAsConfirmed(rowNumber);
     }
 
     if (this.mode === 'database') {
@@ -222,7 +228,7 @@ export class HybridDataService {
     }
 
     try {
-      await this.sheetService.markSingleAsConfirmed(rowNumber);
+      await this.sheetService!.markSingleAsConfirmed(rowNumber);
       this.logger?.info(`[hybrid] markSingleAsConfirmed Sheets success: row ${rowNumber}`);
     } catch (sheetsError) {
       errors.push(`Sheets: ${sheetsError}`);
@@ -241,7 +247,7 @@ export class HybridDataService {
    */
   async updateCell(rowNumber: number, columnName: string, value: string): Promise<void> {
     if (this.mode === 'sheets') {
-      return this.sheetService.updateCell(rowNumber, columnName, value);
+      return this.sheetService!.updateCell(rowNumber, columnName, value);
     }
 
     if (this.mode === 'database') {
@@ -260,7 +266,7 @@ export class HybridDataService {
     }
 
     try {
-      await this.sheetService.updateCell(rowNumber, columnName, value);
+      await this.sheetService!.updateCell(rowNumber, columnName, value);
       this.logger?.info(`[hybrid] updateCell Sheets success: row ${rowNumber}, ${columnName}`);
     } catch (sheetsError) {
       errors.push(`Sheets: ${sheetsError}`);
