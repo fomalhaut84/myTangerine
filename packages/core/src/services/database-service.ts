@@ -98,12 +98,14 @@ export class DatabaseService {
           if (!isNaN(parsedDate.getTime())) {
             deletedAt = parsedDate;
           } else {
-            // 유효하지 않은 날짜 → 컬럼이 있으므로 복원 처리 (P2 방어)
-            deletedAt = null;
+            // P1 Fix: 유효하지 않은 날짜 → 기존 DB 값 유지 (의도치 않은 복원 방지)
+            console.warn(`[sheetRowToPrismaOrderData] Invalid deletedAt value: "${deletedValue}" (row: ${row._rowNumber})`);
+            deletedAt = undefined;
           }
         } catch {
-          // 파싱 실패 → 컬럼이 있으므로 복원 처리
-          deletedAt = null;
+          // P1 Fix: 파싱 실패 → 기존 DB 값 유지
+          console.warn(`[sheetRowToPrismaOrderData] Failed to parse deletedAt: "${deletedValue}" (row: ${row._rowNumber})`);
+          deletedAt = undefined;
         }
       } else {
         // 빈값 = 명시적 복원
