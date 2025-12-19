@@ -742,7 +742,8 @@ export class SheetService {
    */
   async getDeletedOrders(): Promise<SheetRow[]> {
     try {
-      const allRows = await this.getAllRows();
+      // P1 Fix: 삭제된 행을 포함하여 조회해야 함
+      const allRows = await this.getAllRows(true);
       return allRows.filter(row => !!row['삭제됨'] || row._isDeleted);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
