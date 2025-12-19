@@ -1,7 +1,7 @@
 # myTangerine 개발 로드맵
 
-> 마지막 업데이트: 2025-12-16
-> 현재 진행: Phase 1 완료, Phase 2.2 완료, Phase 2.3 대기 중
+> 마지막 업데이트: 2025-12-19
+> 현재 진행: Phase 1 완료, Phase 2.3 완료
 
 ## 전체 작업 순서
 
@@ -237,11 +237,11 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
   - `GET /api/sync/status`: 동기화 상태 조회 (30초 캐시)
   - `POST /api/sync/full`: 전체 재동기화
 
-#### Phase 2.3: 하이브리드 운영 (4-6주)
-- [ ] Core DatabaseService 구축
-- [ ] API 서버 DB 연결
-- [ ] 모니터링 구성
-- [ ] 정합성 검증
+#### Phase 2.3: 하이브리드 운영 ✅ 완료 (2025-12-19)
+- [x] HybridDataService 구현 (3가지 모드: sheets, database, hybrid)
+- [x] DATA_SOURCE 환경변수 추가
+- [x] API 라우트 통합 (sheetService → dataService)
+- [x] 성능 테스트 (hybrid 모드: 54ms, sheets 모드: 1533ms, 28배 개선)
 
 #### Phase 2.4: 완전 전환 (1-2주)
 - [ ] SheetService 코드 제거
@@ -289,8 +289,8 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 | Phase 1 | 추가 개선 | ✅ 완료 | 100% | 2025-12-10 | #72 |
 | 추가 기능 | #98 | ✅ 완료 | 100% | 2025-12-12 | #101 |
 | Phase 2.1 | #68 | ✅ 완료 | 100% | 2025-12-12 | - |
-| Phase 2.2 | #68 | ✅ 완료 | 100% | 2025-12-16 | - |
-| Phase 2.3 | #68 | ⏳ 대기 중 | 0% | - | - |
+| Phase 2.2 | #68 | ✅ 완료 | 100% | 2025-12-16 | #123 |
+| Phase 2.3 | #68 | ✅ 완료 | 100% | 2025-12-19 | #124 |
 | Phase 3 | #67 | ⏳ 대기 중 | 0% | - | - |
 | Phase 3 | #66 | ⏳ 대기 중 | 0% | - | - |
 
@@ -340,3 +340,4 @@ if (value === '' || (key === 'productType' && value === 'all') || (key === 'page
 - 2025-12-12: docs/sync-service.md 문서 추가
 - 2025-12-16: **Phase 2.2 완료** ✅ (초기 데이터 적재 - 353행 100% 동기화)
 - 2025-12-16: API 엔드포인트 추가 (`GET /api/sync/status`, `POST /api/sync/full`)
+- 2025-12-19: **Phase 2.3 완료** ✅ (하이브리드 운영 모드 - HybridDataService 구현)

@@ -206,9 +206,11 @@ export async function createTestServer(): Promise<{
   const labelFormatter = new LabelFormatter(config);
 
   // Core services decorator (mock 포함)
+  // dataService는 HybridDataService와 동일한 인터페이스를 구현한 mockSheetService 사용
   server.decorate('core', {
     config,
     sheetService: mockSheetService,
+    dataService: mockSheetService, // HybridDataService 대신 mock 사용
     labelFormatter,
   });
 
