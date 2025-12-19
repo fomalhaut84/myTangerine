@@ -41,8 +41,12 @@ model Order {
   quantity10kg     String  @default("") @map("quantity_10kg")
   quantity         Int     @default(1)  // 추출된 수량
 
-  // 상태 (현재는 단순 문자열, Phase 3에서 order_status 테이블로 확장)
-  status           String  @default("")  // '' or '확인'
+  // 상태 (Phase 3: 3단계 상태 체계)
+  // '신규주문' | '입금확인' | '배송완료' (하위 호환: '' → 신규주문, '확인' → 배송완료)
+  status           String  @default("신규주문")
+
+  // Soft Delete (Phase 3)
+  deletedAt        DateTime? @map("deleted_at")
 
   // 검증 에러
   validationError  String? @map("validation_error")
@@ -61,6 +65,7 @@ model Order {
   syncLogs         SyncLog[]
 
   @@index([status, timestamp])  // 실제 쿼리 패턴에 맞춤 (status로 필터 + timestamp로 정렬)
+  @@index([deletedAt, status, timestamp])  // Phase 3: Soft Delete 필터 + 상태/시간 정렬
   @@index([syncStatus, syncAttemptCount])
   @@map("orders")
 }

@@ -5,6 +5,9 @@ import {
   extractQuantity,
   sheetRowToOrder,
   validateProductSelection,
+  normalizeOrderStatus,
+  orderStatusToFilter,
+  filterToOrderStatus,
   type SheetRow,
 } from '../order.js';
 import { Config } from '../../config/config.js';
@@ -70,6 +73,64 @@ describe('formatPhoneNumber', () => {
 
   it('should return original for non-standard formats', () => {
     expect(formatPhoneNumber('02-1234-5678')).toBe('02-1234-5678');
+  });
+});
+
+describe('normalizeOrderStatus (Phase 3)', () => {
+  it('should return 신규주문 for empty or null values', () => {
+    expect(normalizeOrderStatus('')).toBe('신규주문');
+    expect(normalizeOrderStatus('   ')).toBe('신규주문');
+    expect(normalizeOrderStatus(null)).toBe('신규주문');
+    expect(normalizeOrderStatus(undefined)).toBe('신규주문');
+  });
+
+  it('should return 신규주문 for 신규주문 input', () => {
+    expect(normalizeOrderStatus('신규주문')).toBe('신규주문');
+  });
+
+  it('should return 입금확인 for 입금확인 input', () => {
+    expect(normalizeOrderStatus('입금확인')).toBe('입금확인');
+  });
+
+  it('should return 배송완료 for 배송완료 input', () => {
+    expect(normalizeOrderStatus('배송완료')).toBe('배송완료');
+  });
+
+  it('should return 배송완료 for legacy 확인 input (backward compatibility)', () => {
+    expect(normalizeOrderStatus('확인')).toBe('배송완료');
+  });
+
+  it('should return 신규주문 for unknown values', () => {
+    expect(normalizeOrderStatus('기타')).toBe('신규주문');
+    expect(normalizeOrderStatus('unknown')).toBe('신규주문');
+  });
+});
+
+describe('orderStatusToFilter (Phase 3)', () => {
+  it('should convert 신규주문 to new', () => {
+    expect(orderStatusToFilter('신규주문')).toBe('new');
+  });
+
+  it('should convert 입금확인 to pending_payment', () => {
+    expect(orderStatusToFilter('입금확인')).toBe('pending_payment');
+  });
+
+  it('should convert 배송완료 to completed', () => {
+    expect(orderStatusToFilter('배송완료')).toBe('completed');
+  });
+});
+
+describe('filterToOrderStatus (Phase 3)', () => {
+  it('should convert new to 신규주문', () => {
+    expect(filterToOrderStatus('new')).toBe('신규주문');
+  });
+
+  it('should convert pending_payment to 입금확인', () => {
+    expect(filterToOrderStatus('pending_payment')).toBe('입금확인');
+  });
+
+  it('should convert completed to 배송완료', () => {
+    expect(filterToOrderStatus('completed')).toBe('배송완료');
   });
 });
 
@@ -261,10 +322,11 @@ describe('sheetRowToOrder', () => {
 
       expect(order.timestamp).toBeInstanceOf(Date);
       expect(order.timestampRaw).toBe('2024. 12. 5. 오후 3:45:23');
-      expect(order.status).toBe('');
+      expect(order.status).toBe('신규주문'); // Phase 3: 빈 문자열은 '신규주문'으로 정규화
       expect(order.productType).toBe('5kg');
       expect(order.quantity).toBe(2);
       expect(order.rowNumber).toBe(5);
+      expect(order.isDeleted).toBe(false); // Phase 3: Soft Delete
 
       // Sender (original data)
       expect(order.sender.name).toBe('김철수');
