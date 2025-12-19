@@ -44,6 +44,8 @@ export class DatabaseService {
     return {
       '타임스탬프': order.timestampRaw,
       '비고': normalizeOrderStatus(order.status),
+      '주문자 성함': order.ordererName || undefined,
+      '이메일 주소': order.ordererEmail || undefined,
       '보내는분 성함': order.senderName,
       '보내는분 주소 (도로명 주소로 부탁드려요)': order.senderAddress,
       '보내는분 연락처 (핸드폰번호)': order.senderPhone,
@@ -57,6 +59,7 @@ export class DatabaseService {
       _validationError: order.validationError || undefined,
       _syncAttemptCount: order.syncAttemptCount,
       '삭제됨': order.deletedAt?.toISOString(),
+      '송장번호': order.trackingNumber || undefined,
       _isDeleted: !!order.deletedAt,
     };
   }
@@ -121,6 +124,8 @@ export class DatabaseService {
       sheetRowNumber: row._rowNumber,
       timestamp,
       timestampRaw: row['타임스탬프'],
+      ordererName: row['주문자 성함'] || null,
+      ordererEmail: row['이메일 주소'] || null,
       senderName: row['보내는분 성함'],
       senderAddress: row['보내는분 주소 (도로명 주소로 부탁드려요)'],
       senderPhone: row['보내는분 연락처 (핸드폰번호)'],
@@ -137,6 +142,7 @@ export class DatabaseService {
       status: normalizeOrderStatus(row['비고']),
       validationError: validation.isValid ? null : validation.reason,
       deletedAt, // Phase 3: Soft Delete 동기화 (undefined = 기존 값 유지)
+      trackingNumber: row['송장번호'] || null, // P1 Fix: 송장번호 동기화 추가
       // syncStatus는 호출자(SyncEngine)에서 설정
     };
   }
@@ -328,8 +334,9 @@ export class DatabaseService {
   /**
    * 배송완료 처리 (Phase 3)
    * @param rowNumbers - 처리할 행 번호 배열
+   * @param trackingNumber - 송장번호 (선택)
    */
-  async markDelivered(rowNumbers: number[]): Promise<void> {
+  async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
     try {
       await this.prisma.order.updateMany({
         where: {
@@ -338,6 +345,7 @@ export class DatabaseService {
         },
         data: {
           status: '배송완료',
+          ...(trackingNumber && { trackingNumber }),
           updatedAt: new Date(),
         },
       });

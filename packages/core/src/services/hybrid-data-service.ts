@@ -373,21 +373,22 @@ export class HybridDataService {
    * 배송완료 처리 (Phase 3)
    * hybrid 모드: DB + Sheets 동시 업데이트
    * @param rowNumbers - 처리할 행 번호 배열
+   * @param trackingNumber - 송장번호 (선택)
    */
-  async markDelivered(rowNumbers: number[]): Promise<void> {
+  async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
     if (this.mode === 'sheets') {
-      return this.sheetService!.markDelivered(rowNumbers);
+      return this.sheetService!.markDelivered(rowNumbers, trackingNumber);
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markDelivered(rowNumbers);
+      return this.databaseService.markDelivered(rowNumbers, trackingNumber);
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markDelivered(rowNumbers);
+      await this.databaseService.markDelivered(rowNumbers, trackingNumber);
       this.logger?.info(`[hybrid] markDelivered DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -395,7 +396,7 @@ export class HybridDataService {
     }
 
     try {
-      await this.sheetService!.markDelivered(rowNumbers);
+      await this.sheetService!.markDelivered(rowNumbers, trackingNumber);
       this.logger?.info(`[hybrid] markDelivered Sheets success: ${rowNumbers.length} rows`);
     } catch (sheetsError) {
       errors.push(`Sheets: ${sheetsError}`);

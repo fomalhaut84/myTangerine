@@ -6,19 +6,21 @@
 
 import type { Order } from '@/types/api';
 import { useRouter } from 'next/navigation';
+import { StatusBadge } from './StatusBadge';
 
 interface OrdersTableProps {
   orders: Order[];
   searchParams?: URLSearchParams;
+  showDeleted?: boolean;
 }
 
-export function OrdersTable({ orders, searchParams }: OrdersTableProps) {
+export function OrdersTable({ orders, searchParams, showDeleted = false }: OrdersTableProps) {
   const router = useRouter();
 
   if (orders.length === 0) {
     return (
       <div className="text-center py-12 text-gray-500">
-        주문이 없습니다.
+        {showDeleted ? '삭제된 주문이 없습니다.' : '주문이 없습니다.'}
       </div>
     );
   }
@@ -36,6 +38,9 @@ export function OrdersTable({ orders, searchParams }: OrdersTableProps) {
       <table className="min-w-full divide-y divide-gray-200">
         <thead className="bg-gray-50">
           <tr>
+            <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+              상태
+            </th>
             <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
               타임스탬프
             </th>
@@ -61,8 +66,11 @@ export function OrdersTable({ orders, searchParams }: OrdersTableProps) {
             <tr
               key={order.rowNumber}
               onClick={() => handleRowClick(order.rowNumber)}
-              className="hover:bg-gray-50 transition-colors cursor-pointer"
+              className={`hover:bg-gray-50 transition-colors cursor-pointer ${order.isDeleted ? 'opacity-60' : ''}`}
             >
+              <td className="px-6 py-4 whitespace-nowrap">
+                <StatusBadge status={order.status} isDeleted={order.isDeleted} />
+              </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                 {new Date(order.timestamp).toLocaleString('ko-KR', {
                   month: 'short',
@@ -71,10 +79,10 @@ export function OrdersTable({ orders, searchParams }: OrdersTableProps) {
                   minute: '2-digit',
                 })}
               </td>
-              <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+              <td className={`px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900 ${order.isDeleted ? 'line-through' : ''}`}>
                 {order.recipient.name}
               </td>
-              <td className="px-6 py-4 text-sm text-gray-600 max-w-xs truncate">
+              <td className={`px-6 py-4 text-sm text-gray-600 max-w-xs truncate ${order.isDeleted ? 'line-through' : ''}`}>
                 {order.recipient.address}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-600">

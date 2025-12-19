@@ -282,6 +282,21 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
         description: '삭제 시각 (ISO 8601, 삭제된 경우만)',
         example: '2025-01-21T10:30:00.000Z',
       },
+      trackingNumber: {
+        type: 'string',
+        description: '송장번호 (배송완료 시)',
+        example: '1234567890',
+      },
+      ordererName: {
+        type: 'string',
+        description: '주문자 성함',
+        example: '홍길동',
+      },
+      ordererEmail: {
+        type: 'string',
+        description: '주문자 이메일',
+        example: 'hong@example.com',
+      },
     },
   });
 

@@ -24,6 +24,10 @@ model Order {
   timestamp       DateTime
   timestampRaw    String   @map("timestamp_raw")
 
+  // 주문자 정보 (Phase 3: ordererName/ordererEmail 추가)
+  ordererName     String?  @map("orderer_name")
+  ordererEmail    String?  @map("orderer_email")
+
   // 발송인 정보
   senderName      String   @map("sender_name")
   senderAddress   String   @map("sender_address")
@@ -44,6 +48,9 @@ model Order {
   // 상태 (Phase 3: 3단계 상태 체계)
   // '신규주문' | '입금확인' | '배송완료' (하위 호환: '' → 신규주문, '확인' → 배송완료)
   status           String  @default("신규주문")
+
+  // 송장번호 (배송완료 시 입력)
+  trackingNumber   String? @map("tracking_number")
 
   // Soft Delete (Phase 3)
   deletedAt        DateTime? @map("deleted_at")

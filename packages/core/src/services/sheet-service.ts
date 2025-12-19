@@ -673,11 +673,26 @@ export class SheetService {
   /**
    * 배송완료 처리 (Phase 3)
    * @param rowNumbers - 처리할 행 번호 배열
+   * @param trackingNumber - 송장번호 (선택)
    */
-  async markDelivered(rowNumbers: number[]): Promise<void> {
+  async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
     try {
+      const headers = await this.getHeaders();
+
       for (const rowNum of rowNumbers) {
         await this.updateOrderStatus(rowNum, '배송완료');
+
+        // 송장번호가 제공된 경우 저장
+        if (trackingNumber) {
+          const 송장번호ColIndex = headers.findIndex(h => h === '송장번호');
+
+          if (송장번호ColIndex !== -1) {
+            const 송장번호Col = 송장번호ColIndex + 1; // 1-based
+            await this.updateCell(rowNum, 송장번호Col, trackingNumber);
+          } else {
+            console.warn("[SheetService] '송장번호' column not found. Tracking number not saved.");
+          }
+        }
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

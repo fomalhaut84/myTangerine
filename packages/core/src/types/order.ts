@@ -158,6 +158,15 @@ export interface SheetRow {
   /** Soft Delete 타임스탬프 (Phase 3, 삭제된 경우 ISO 문자열) */
   '삭제됨'?: string;
 
+  /** 송장번호 (배송완료 시 입력) */
+  '송장번호'?: string;
+
+  /** 주문자 성함 (폼 응답에서 직접 입력) */
+  '주문자 성함'?: string;
+
+  /** 이메일 주소 (폼 응답에서 직접 입력) */
+  '이메일 주소'?: string;
+
   /** Soft Delete 여부 (내부 사용) */
   _isDeleted?: boolean;
 }
@@ -175,6 +184,12 @@ export interface Order {
 
   /** 주문 상태 */
   status: OrderStatus;
+
+  /** 주문자 성함 (스프레드시트 '주문자 성함' 컬럼) */
+  ordererName?: string;
+
+  /** 주문자 이메일 (스프레드시트 '이메일 주소' 컬럼) */
+  ordererEmail?: string;
 
   /** 발송인 정보 */
   sender: Sender;
@@ -202,6 +217,9 @@ export interface Order {
 
   /** 삭제된 시간 (Phase 3, 삭제된 경우만) */
   deletedAt?: Date;
+
+  /** 송장번호 (배송완료 시 입력) */
+  trackingNumber?: string;
 
   /** 원본 시트 행 데이터 (디버깅용) */
   _raw?: SheetRow;
@@ -460,6 +478,8 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     timestamp,
     timestampRaw: row['타임스탬프'],
     status: normalizeOrderStatus(row['비고']),
+    ordererName: row['주문자 성함'] || undefined,
+    ordererEmail: row['이메일 주소'] || undefined,
     sender,
     recipient: {
       name: row['받으실분 성함'],
@@ -473,6 +493,7 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     validationError,
     isDeleted,
     deletedAt,
+    trackingNumber: row['송장번호'] || undefined,
     _raw: row,
   };
 }

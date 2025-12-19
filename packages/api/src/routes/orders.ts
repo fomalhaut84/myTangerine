@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -250,6 +250,12 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         quantity: order.quantity,
         rowNumber: order.rowNumber,
         validationError: order.validationError,
+        orderType: order.orderType,
+        isDeleted: order.isDeleted,
+        deletedAt: order.deletedAt?.toISOString(),
+        trackingNumber: order.trackingNumber,
+        ordererName: order.ordererName,
+        ordererEmail: order.ordererEmail,
       })),
     };
   });
@@ -1057,6 +1063,12 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           quantity: order.quantity,
           rowNumber: order.rowNumber,
           validationError: order.validationError,
+          orderType: order.orderType,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
+          ordererName: order.ordererName,
+          ordererEmail: order.ordererEmail,
         },
       };
     }
@@ -1231,6 +1243,17 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // P2 Fix: 상태 전이 검증 - 신규주문만 입금확인으로 변경 가능
+      const currentStatus = normalizeOrderStatus(order['비고']);
+      if (currentStatus !== '신규주문') {
+        return reply.code(400).send({
+          success: false,
+          error: `Cannot confirm payment for order with status "${currentStatus}". Only "신규주문" orders can be confirmed.`,
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // 입금확인 처리
       await dataService.markPaymentConfirmed([rowNumber]);
 
@@ -1250,13 +1273,14 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
    */
   fastify.post<{
     Params: { rowNumber: string };
+    Body: { trackingNumber?: string };
   }>(
     '/api/orders/:rowNumber/mark-delivered',
     {
       schema: {
         tags: ['orders'],
         summary: '배송 완료 처리',
-        description: '주문을 "배송완료" 상태로 변경합니다.',
+        description: '주문을 "배송완료" 상태로 변경합니다. 송장번호를 함께 저장할 수 있습니다.',
         params: {
           type: 'object',
           required: ['rowNumber'],
@@ -1265,6 +1289,16 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
               type: 'string',
               description: '스프레드시트 행 번호',
               example: '5',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            trackingNumber: {
+              type: 'string',
+              description: '송장번호 (택배사 운송장 번호)',
+              example: '1234567890123',
             },
           },
         },
@@ -1290,6 +1324,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     async (request, reply) => {
       const { dataService } = fastify.core;
       const rowNumber = parseInt(request.params.rowNumber, 10);
+      const { trackingNumber } = request.body || {};
 
       if (isNaN(rowNumber) || rowNumber < 2) {
         return reply.code(400).send({
@@ -1322,15 +1357,28 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
-      // 배송완료 처리
-      await dataService.markDelivered([rowNumber]);
+      // P2 Fix: 상태 전이 검증 - 입금확인만 배송완료로 변경 가능
+      const currentStatus = normalizeOrderStatus(order['비고']);
+      if (currentStatus !== '입금확인') {
+        return reply.code(400).send({
+          success: false,
+          error: `Cannot mark as delivered for order with status "${currentStatus}". Only "입금확인" orders can be marked as delivered.`,
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 배송완료 처리 (송장번호 포함)
+      await dataService.markDelivered([rowNumber], trackingNumber);
 
       // 통계 캐시 무효화
       statsCache.invalidate(/^stats:/);
 
       return {
         success: true,
-        message: '배송이 완료되었습니다.',
+        message: trackingNumber
+          ? `배송이 완료되었습니다. (송장번호: ${trackingNumber})`
+          : '배송이 완료되었습니다.',
       };
     }
   );
@@ -1555,8 +1603,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           quantity: order.quantity,
           rowNumber: order.rowNumber,
           validationError: order.validationError,
+          orderType: order.orderType,
           isDeleted: order.isDeleted,
           deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
         })),
       };
     }

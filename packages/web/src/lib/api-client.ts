@@ -61,10 +61,15 @@ export const api = ky.create({
 });
 
 /**
- * 주문 목록 조회
- * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
+ * 주문 상태 필터 타입 (3단계 상태 지원)
  */
-export async function getOrders(status?: 'new' | 'completed' | 'all'): Promise<OrdersResponse> {
+export type OrderStatusFilter = 'new' | 'pending_payment' | 'completed' | 'all';
+
+/**
+ * 주문 목록 조회
+ * @param status - 'new' (신규), 'pending_payment' (입금확인), 'completed' (배송완료), 'all' (전체)
+ */
+export async function getOrders(status?: OrderStatusFilter): Promise<OrdersResponse> {
   const searchParams = status ? { status } : {};
   return api.get('api/orders', { searchParams }).json<OrdersResponse>();
 }
@@ -92,7 +97,7 @@ export async function confirmOrders(): Promise<ConfirmResponse> {
 }
 
 /**
- * 개별 주문 확인 처리
+ * 개별 주문 확인 처리 (기존 호환성 유지)
  */
 export async function confirmSingleOrder(rowNumber: number): Promise<{
   success: boolean;
@@ -105,10 +110,73 @@ export async function confirmSingleOrder(rowNumber: number): Promise<{
 }
 
 /**
- * 라벨 텍스트 조회
- * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
+ * 입금 확인 처리 (신규주문 → 입금확인)
  */
-export async function getLabels(status?: 'new' | 'completed' | 'all'): Promise<string> {
+export async function confirmPayment(rowNumber: number): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/confirm-payment`, { json: {} }).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
+ * 배송 완료 처리 (입금확인 → 배송완료)
+ * @param rowNumber - 스프레드시트 행 번호
+ * @param trackingNumber - 송장번호 (선택)
+ */
+export async function markDelivered(rowNumber: number, trackingNumber?: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/mark-delivered`, {
+    json: trackingNumber ? { trackingNumber } : {}
+  }).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
+ * 주문 삭제 (Soft Delete)
+ */
+export async function deleteOrder(rowNumber: number): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/delete`, { json: {} }).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
+ * 주문 복원 (Soft Delete 취소)
+ */
+export async function restoreOrder(rowNumber: number): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/restore`, { json: {} }).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
+ * 삭제된 주문 목록 조회
+ */
+export async function getDeletedOrders(): Promise<OrdersResponse> {
+  return api.get('api/orders/deleted').json<OrdersResponse>();
+}
+
+/**
+ * 라벨 텍스트 조회
+ * @param status - 상태 필터
+ */
+export async function getLabels(status?: OrderStatusFilter): Promise<string> {
   const searchParams = status ? { status } : {};
   return api.get('api/labels', { searchParams }).text();
 }
@@ -122,9 +190,9 @@ export async function getMonthlyStats(): Promise<MonthlyStatsResponse> {
 
 /**
  * 그룹화된 라벨 데이터 조회 (날짜/발신자별)
- * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
+ * @param status - 상태 필터
  */
-export async function getGroupedLabels(status?: 'new' | 'completed' | 'all'): Promise<GroupedLabelsResponse> {
+export async function getGroupedLabels(status?: OrderStatusFilter): Promise<GroupedLabelsResponse> {
   const searchParams = status ? { status } : {};
   return api.get('api/labels/grouped', { searchParams }).json<GroupedLabelsResponse>();
 }

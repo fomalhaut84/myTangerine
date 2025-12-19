@@ -167,6 +167,9 @@ export async function createTestServer(): Promise<{
       orderType: { type: 'string', enum: ['customer', 'gift'] },
       isDeleted: { type: 'boolean' },
       deletedAt: { type: 'string', format: 'date-time' },
+      trackingNumber: { type: 'string' },
+      ordererName: { type: 'string' },
+      ordererEmail: { type: 'string' },
     },
   });
 
