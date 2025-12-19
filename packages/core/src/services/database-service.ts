@@ -9,7 +9,7 @@
 
 import { PrismaClient } from '@prisma/client';
 import type { SheetRow, OrderStatus } from '../types/order.js';
-import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normalizeOrderStatus } from '../types/order.js';
+import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normalizeOrderStatus, parseOrderType } from '../types/order.js';
 import type { Config } from '../config/config.js';
 
 // Prisma Order 타입 정의 (runtime에서 자동 추론됨)
@@ -55,6 +55,8 @@ export class DatabaseService {
       '상품 선택': order.productSelection,
       '5kg 수량': order.quantity5kg,
       '10kg 수량': order.quantity10kg,
+      // Issue #131: 주문유형 추가 (선물/판매 구분)
+      '주문유형': order.orderType === 'gift' ? '선물' : undefined,
       _rowNumber: order.sheetRowNumber || undefined,
       _validationError: order.validationError || undefined,
       _syncAttemptCount: order.syncAttemptCount,
@@ -120,6 +122,9 @@ export class DatabaseService {
     }
     // else: deletedAt = undefined (기존 DB 값 유지)
 
+    // Issue #131: 주문유형 파싱 (선물/판매 구분)
+    const orderType = parseOrderType(row['주문유형']);
+
     return {
       sheetRowNumber: row._rowNumber,
       timestamp,
@@ -137,6 +142,8 @@ export class DatabaseService {
       quantity5kg: String(row['5kg 수량'] || ''),
       quantity10kg: String(row['10kg 수량'] || ''),
       quantity,
+      // Issue #131: 주문유형 저장
+      orderType,
       // P2 Fix: DB 저장 시 status 정규화하여 필터링과 일치
       // 공백 포함된 값(예: '확인 ')도 올바르게 분류
       status: normalizeOrderStatus(row['비고']),

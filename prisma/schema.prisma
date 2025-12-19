@@ -45,6 +45,11 @@ model Order {
   quantity10kg     String  @default("") @map("quantity_10kg")
   quantity         Int     @default(1)  // 추출된 수량
 
+  // 주문 유형 (Issue #131: 선물/판매 구분)
+  // 'customer': 고객 주문 (판매, 매출에 포함)
+  // 'gift': 선물용 주문 (매출에서 제외)
+  orderType        String  @default("customer") @map("order_type")
+
   // 상태 (Phase 3: 3단계 상태 체계)
   // '신규주문' | '입금확인' | '배송완료' (하위 호환: '' → 신규주문, '확인' → 배송완료)
   status           String  @default("신규주문")
@@ -74,6 +79,7 @@ model Order {
   @@index([status, timestamp])  // 실제 쿼리 패턴에 맞춤 (status로 필터 + timestamp로 정렬)
   @@index([deletedAt, status, timestamp])  // Phase 3: Soft Delete 필터 + 상태/시간 정렬
   @@index([syncStatus, syncAttemptCount])
+  @@index([orderType])  // Issue #131: 주문유형 필터링 인덱스
   @@map("orders")
 }
 
