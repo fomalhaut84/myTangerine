@@ -82,15 +82,16 @@ export class SyncEngine {
     const changes: Record<string, FieldChange> = {};
 
     // 비교할 필드 매핑 (시트 컬럼명 → DB 필드명)
+    // SheetRow 인터페이스의 실제 컬럼명 사용
     const fieldMapping: Record<string, string> = {
-      '받으실분': 'recipientName',
-      '수취인 연락처': 'recipientPhone',
-      '우편번호': 'postalCode',
-      '주소': 'address',
-      '배송메모': 'deliveryMemo',
+      '받으실분 성함': 'recipientName',
+      '받으실분 연락처 (핸드폰번호)': 'recipientPhone',
+      '받으실분 주소 (도로명 주소로 부탁드려요)': 'address',
+      '보내는분 성함': 'senderName',
+      '보내는분 연락처 (핸드폰번호)': 'senderPhone',
+      '보내는분 주소 (도로명 주소로 부탁드려요)': 'senderAddress',
       '5kg 수량': 'quantity5kg',
       '10kg 수량': 'quantity10kg',
-      '가격': 'price',
     };
 
     for (const [sheetCol, dbField] of Object.entries(fieldMapping)) {

@@ -342,14 +342,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markPaymentConfirmed(rowNumbers);
+      return this.databaseService.markPaymentConfirmed(rowNumbers, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markPaymentConfirmed(rowNumbers);
+      await this.databaseService.markPaymentConfirmed(rowNumbers, 'web');
       this.logger?.info(`[hybrid] markPaymentConfirmed DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -381,14 +381,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markDelivered(rowNumbers, trackingNumber);
+      return this.databaseService.markDelivered(rowNumbers, trackingNumber, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markDelivered(rowNumbers, trackingNumber);
+      await this.databaseService.markDelivered(rowNumbers, trackingNumber, 'web');
       this.logger?.info(`[hybrid] markDelivered DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -419,14 +419,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.softDelete(rowNumbers);
+      return this.databaseService.softDelete(rowNumbers, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.softDelete(rowNumbers);
+      await this.databaseService.softDelete(rowNumbers, 'web');
       this.logger?.info(`[hybrid] softDelete DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -457,14 +457,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.restore(rowNumbers);
+      return this.databaseService.restore(rowNumbers, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.restore(rowNumbers);
+      await this.databaseService.restore(rowNumbers, 'web');
       this.logger?.info(`[hybrid] restore DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);

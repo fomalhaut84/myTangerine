@@ -369,9 +369,18 @@ export class DatabaseService {
   /**
    * 입금확인 처리 (Phase 3)
    * @param rowNumbers - 처리할 행 번호 배열
+   * @param changedBy - 변경 주체
    */
-  async markPaymentConfirmed(rowNumbers: number[]): Promise<void> {
+  async markPaymentConfirmed(rowNumbers: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
+      // 변경 전 주문 조회 (이력 기록용)
+      const beforeOrders = await this._prisma.order.findMany({
+        where: {
+          sheetRowNumber: { in: rowNumbers },
+          deletedAt: null,
+        },
+      });
+
       await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: { in: rowNumbers },
@@ -382,6 +391,22 @@ export class DatabaseService {
           updatedAt: new Date(),
         },
       });
+
+      // 각 주문에 대해 이력 기록
+      for (const order of beforeOrders) {
+        if (order.status !== '입금확인') {
+          await this.changeLogService.logChange({
+            orderId: order.id,
+            sheetRowNumber: order.sheetRowNumber,
+            changedBy,
+            action: 'status_change',
+            fieldChanges: {
+              status: { old: order.status, new: '입금확인' },
+            },
+            previousVersion: order.version ?? 1,
+          });
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to mark payment confirmed (rows: ${rowNumbers.join(', ')}): ${message}`);
@@ -392,9 +417,18 @@ export class DatabaseService {
    * 배송완료 처리 (Phase 3)
    * @param rowNumbers - 처리할 행 번호 배열
    * @param trackingNumber - 송장번호 (선택)
+   * @param changedBy - 변경 주체
    */
-  async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
+  async markDelivered(rowNumbers: number[], trackingNumber?: string, changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
+      // 변경 전 주문 조회 (이력 기록용)
+      const beforeOrders = await this._prisma.order.findMany({
+        where: {
+          sheetRowNumber: { in: rowNumbers },
+          deletedAt: null,
+        },
+      });
+
       await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: { in: rowNumbers },
@@ -406,6 +440,29 @@ export class DatabaseService {
           updatedAt: new Date(),
         },
       });
+
+      // 각 주문에 대해 이력 기록
+      for (const order of beforeOrders) {
+        const fieldChanges: Record<string, { old: unknown; new: unknown }> = {};
+
+        if (order.status !== '배송완료') {
+          fieldChanges.status = { old: order.status, new: '배송완료' };
+        }
+        if (trackingNumber && order.trackingNumber !== trackingNumber) {
+          fieldChanges.trackingNumber = { old: order.trackingNumber, new: trackingNumber };
+        }
+
+        if (Object.keys(fieldChanges).length > 0) {
+          await this.changeLogService.logChange({
+            orderId: order.id,
+            sheetRowNumber: order.sheetRowNumber,
+            changedBy,
+            action: 'status_change',
+            fieldChanges,
+            previousVersion: order.version ?? 1,
+          });
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to mark as delivered (rows: ${rowNumbers.join(', ')}): ${message}`);
@@ -415,19 +472,44 @@ export class DatabaseService {
   /**
    * Soft Delete (Phase 3)
    * @param rowNumbers - 삭제할 행 번호 배열
+   * @param changedBy - 변경 주체
    */
-  async softDelete(rowNumbers: number[]): Promise<void> {
+  async softDelete(rowNumbers: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
+      // 변경 전 주문 조회 (이력 기록용)
+      const beforeOrders = await this._prisma.order.findMany({
+        where: {
+          sheetRowNumber: { in: rowNumbers },
+          deletedAt: null,
+        },
+      });
+
+      const deletedAt = new Date();
+
       await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: { in: rowNumbers },
           deletedAt: null, // 이미 삭제된 주문은 건너뜀
         },
         data: {
-          deletedAt: new Date(),
+          deletedAt,
           updatedAt: new Date(),
         },
       });
+
+      // 각 주문에 대해 이력 기록
+      for (const order of beforeOrders) {
+        await this.changeLogService.logChange({
+          orderId: order.id,
+          sheetRowNumber: order.sheetRowNumber,
+          changedBy,
+          action: 'delete',
+          fieldChanges: {
+            deletedAt: { old: null, new: deletedAt.toISOString() },
+          },
+          previousVersion: order.version ?? 1,
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to soft delete orders (rows: ${rowNumbers.join(', ')}): ${message}`);
@@ -437,9 +519,18 @@ export class DatabaseService {
   /**
    * Soft Delete 복원 (Phase 3)
    * @param rowNumbers - 복원할 행 번호 배열
+   * @param changedBy - 변경 주체
    */
-  async restore(rowNumbers: number[]): Promise<void> {
+  async restore(rowNumbers: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
+      // 변경 전 주문 조회 (이력 기록용)
+      const beforeOrders = await this._prisma.order.findMany({
+        where: {
+          sheetRowNumber: { in: rowNumbers },
+          deletedAt: { not: null },
+        },
+      });
+
       await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: { in: rowNumbers },
@@ -450,6 +541,20 @@ export class DatabaseService {
           updatedAt: new Date(),
         },
       });
+
+      // 각 주문에 대해 이력 기록
+      for (const order of beforeOrders) {
+        await this.changeLogService.logChange({
+          orderId: order.id,
+          sheetRowNumber: order.sheetRowNumber,
+          changedBy,
+          action: 'restore',
+          fieldChanges: {
+            deletedAt: { old: order.deletedAt?.toISOString() ?? null, new: null },
+          },
+          previousVersion: order.version ?? 1,
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to restore orders (rows: ${rowNumbers.join(', ')}): ${message}`);
