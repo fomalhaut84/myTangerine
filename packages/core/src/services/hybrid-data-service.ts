@@ -304,14 +304,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.updateOrderStatus(rowNumber, newStatus);
+      return this.databaseService.updateOrderStatus(rowNumber, newStatus, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.updateOrderStatus(rowNumber, newStatus);
+      await this.databaseService.updateOrderStatus(rowNumber, newStatus, 'web');
       this.logger?.info(`[hybrid] updateOrderStatus DB success: row ${rowNumber}, status ${newStatus}`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -532,14 +532,16 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.updateOrder(rowNumber, updates);
+      // Web에서 호출되므로 changedBy='web'
+      return this.databaseService.updateOrder(rowNumber, updates, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.updateOrder(rowNumber, updates);
+      // Web에서 호출되므로 changedBy='web'
+      await this.databaseService.updateOrder(rowNumber, updates, 'web');
       this.logger?.info(`[hybrid] updateOrder DB success: row ${rowNumber}`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -558,5 +560,12 @@ export class HybridDataService {
     if (errors.length === 2) {
       throw new Error(`Hybrid updateOrder failed: ${errors.join('; ')}`);
     }
+  }
+
+  /**
+   * ChangeLogService getter (DatabaseService를 통해 접근)
+   */
+  get changeLogService() {
+    return this.databaseService.changeLogService;
   }
 }

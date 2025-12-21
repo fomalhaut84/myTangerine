@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, ChangeLogService } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -2232,6 +2232,335 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         data: result,
       };
+    }
+  );
+
+  // =========================================
+  // Phase 2: 변경 이력 + 충돌 감지 API
+  // =========================================
+
+  /**
+   * GET /api/orders/:rowNumber/history
+   * 주문 변경 이력 조회 (Phase 2)
+   */
+  fastify.get<{
+    Params: { rowNumber: string };
+    Querystring: { limit?: number; offset?: number };
+  }>(
+    '/api/orders/:rowNumber/history',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 변경 이력 조회',
+        description: '특정 주문의 변경 이력을 조회합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'history'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              history: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'integer' },
+                    changedAt: { type: 'string', format: 'date-time' },
+                    changedBy: { type: 'string', enum: ['web', 'sync', 'api'] },
+                    action: { type: 'string' },
+                    fieldChanges: { type: 'object' },
+                    previousVersion: { type: 'integer' },
+                    newVersion: { type: 'integer' },
+                    conflictDetected: { type: 'boolean' },
+                    conflictResolution: { type: ['string', 'null'] },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+      const { limit = 50, offset = 0 } = request.query;
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      // 변경 이력 조회
+      const changeLogs = await changeLogService.getChangeLogsByRowNumber(rowNumber, { limit, offset });
+
+      return {
+        success: true,
+        history: changeLogs.map((log) => ({
+          id: log.id,
+          changedAt: log.changedAt.toISOString(),
+          changedBy: log.changedBy,
+          action: log.action,
+          fieldChanges: log.fieldChanges as Record<string, unknown>,
+          previousVersion: log.previousVersion,
+          newVersion: log.newVersion,
+          conflictDetected: log.conflictDetected,
+          conflictResolution: log.conflictResolution,
+        })),
+      };
+    }
+  );
+
+  /**
+   * GET /api/orders/conflicts
+   * 충돌 목록 조회 (Phase 2)
+   */
+  fastify.get<{
+    Querystring: { resolved?: string; limit?: number; offset?: number };
+  }>(
+    '/api/orders/conflicts',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '충돌 목록 조회',
+        description: 'sync 과정에서 감지된 충돌 목록을 조회합니다.',
+        querystring: {
+          type: 'object',
+          properties: {
+            resolved: {
+              type: 'string',
+              enum: ['true', 'false', 'all'],
+              default: 'all',
+              description: '해결 상태 필터 (true: 해결됨, false: 미해결, all: 전체)',
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'conflicts'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              count: { type: 'integer' },
+              conflicts: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'integer' },
+                    orderId: { type: 'integer' },
+                    sheetRowNumber: { type: 'integer' },
+                    changedAt: { type: 'string', format: 'date-time' },
+                    changedBy: { type: 'string' },
+                    action: { type: 'string' },
+                    fieldChanges: { type: 'object' },
+                    conflictResolution: { type: ['string', 'null'] },
+                    order: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'integer' },
+                        recipientName: { type: ['string', 'null'] },
+                        status: { type: ['string', 'null'] },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request) => {
+      const { resolved = 'all', limit = 50, offset = 0 } = request.query;
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      // 해결 상태 필터 변환
+      let resolvedFilter: boolean | undefined;
+      if (resolved === 'true') resolvedFilter = true;
+      else if (resolved === 'false') resolvedFilter = false;
+      // 'all'인 경우 undefined
+
+      // 충돌 목록 조회
+      const conflicts = await changeLogService.getConflicts({
+        resolved: resolvedFilter,
+        limit,
+        offset,
+      });
+
+      return {
+        success: true,
+        count: conflicts.length,
+        conflicts: conflicts.map((log) => ({
+          id: log.id,
+          orderId: log.orderId,
+          sheetRowNumber: log.sheetRowNumber,
+          changedAt: log.changedAt.toISOString(),
+          changedBy: log.changedBy,
+          action: log.action,
+          fieldChanges: log.fieldChanges as Record<string, unknown>,
+          conflictResolution: log.conflictResolution,
+          order: log.order ? {
+            id: log.order.id,
+            recipientName: log.order.recipientName,
+            status: log.order.status,
+          } : undefined,
+        })),
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/conflicts/:conflictId/resolve
+   * 충돌 해결 처리 (Phase 2)
+   */
+  fastify.post<{
+    Params: { conflictId: string };
+    Body: { resolution: 'db_wins' | 'sheet_wins' | 'manual' };
+  }>(
+    '/api/orders/conflicts/:conflictId/resolve',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '충돌 해결',
+        description: '충돌을 해결 상태로 표시합니다.',
+        params: {
+          type: 'object',
+          required: ['conflictId'],
+          properties: {
+            conflictId: {
+              type: 'string',
+              description: '충돌 로그 ID',
+              example: '1',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['resolution'],
+          properties: {
+            resolution: {
+              type: 'string',
+              enum: ['db_wins', 'sheet_wins', 'manual'],
+              description: '해결 방법 (db_wins: DB 우선, sheet_wins: 시트 우선, manual: 수동 해결)',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: { type: 'string' },
+              conflict: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  conflictResolution: { type: 'string' },
+                },
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const conflictId = parseInt(request.params.conflictId, 10);
+      const { resolution } = request.body;
+
+      if (isNaN(conflictId) || conflictId < 1) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid conflict ID. ID must be a positive integer.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      try {
+        const updatedConflict = await changeLogService.resolveConflict(conflictId, resolution);
+
+        return {
+          success: true,
+          message: `충돌이 '${resolution}' 방식으로 해결되었습니다.`,
+          conflict: {
+            id: updatedConflict.id,
+            conflictResolution: updatedConflict.conflictResolution,
+          },
+        };
+      } catch (error) {
+        // Prisma P2025: Record not found
+        if (error instanceof Error && error.message.includes('Record to update not found')) {
+          return reply.code(404).send({
+            success: false,
+            error: `Conflict not found with ID ${conflictId}`,
+            statusCode: 404,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        throw error;
+      }
     }
   );
 };

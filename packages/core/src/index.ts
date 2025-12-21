@@ -27,6 +27,13 @@ export {
   withDistributedLock,
   type DistributedLockOptions,
 } from './services/distributed-lock.js';
+export {
+  ChangeLogService,
+  type FieldChange,
+  type LogChangeParams,
+  type GetChangeLogsOptions,
+  type GetConflictsOptions,
+} from './services/change-log-service.js';
 
 // Formatters
 export { LabelFormatter } from './formatters/label-formatter.js';

@@ -11,6 +11,7 @@ import { PrismaClient } from '@prisma/client';
 import type { SheetRow, OrderStatus } from '../types/order.js';
 import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normalizeOrderStatus, parseOrderType } from '../types/order.js';
 import type { Config } from '../config/config.js';
+import { ChangeLogService, type FieldChange } from './change-log-service.js';
 
 // Prisma Order 타입 정의 (runtime에서 자동 추론됨)
 type PrismaOrder = Awaited<ReturnType<PrismaClient['order']['findUnique']>> & object;
@@ -20,20 +21,38 @@ type PrismaOrder = Awaited<ReturnType<PrismaClient['order']['findUnique']>> & ob
  * SheetService와 동일한 인터페이스 제공
  */
 export class DatabaseService {
-  private prisma: PrismaClient;
+  private _prisma: PrismaClient;
   private ownsPrisma: boolean;
+  private _changeLogService: ChangeLogService | null = null;
 
   constructor(_config: Config, prisma?: PrismaClient) {
     // config는 미래 확장용으로 보관
 
     // PrismaClient 자체 생성 또는 주입 (테스트 용이성)
     if (prisma) {
-      this.prisma = prisma;
+      this._prisma = prisma;
       this.ownsPrisma = false;
     } else {
-      this.prisma = new PrismaClient();
+      this._prisma = new PrismaClient();
       this.ownsPrisma = true;
     }
+  }
+
+  /**
+   * PrismaClient getter (외부 서비스에서 필요 시 사용)
+   */
+  get prisma(): PrismaClient {
+    return this._prisma;
+  }
+
+  /**
+   * ChangeLogService getter (lazy initialization)
+   */
+  get changeLogService(): ChangeLogService {
+    if (!this._changeLogService) {
+      this._changeLogService = new ChangeLogService(this._prisma);
+    }
+    return this._changeLogService;
   }
 
   /**
@@ -199,7 +218,7 @@ export class DatabaseService {
           break;
       }
 
-      const orders = await this.prisma.order.findMany({
+      const orders = await this._prisma.order.findMany({
         where: { ...baseWhere, ...statusWhere },
         orderBy: { timestamp: 'desc' },
       });
@@ -231,7 +250,7 @@ export class DatabaseService {
    */
   async getOrderByRowNumber(rowNumber: number): Promise<SheetRow | null> {
     try {
-      const order = await this.prisma.order.findUnique({
+      const order = await this._prisma.order.findUnique({
         where: { sheetRowNumber: rowNumber },
       });
 
@@ -255,7 +274,7 @@ export class DatabaseService {
     try {
       if (rowNumbers && rowNumbers.length > 0) {
         // 특정 행만 배송완료 처리
-        await this.prisma.order.updateMany({
+        await this._prisma.order.updateMany({
           where: {
             sheetRowNumber: { in: rowNumbers },
             deletedAt: null, // Soft Delete된 주문 제외
@@ -267,7 +286,7 @@ export class DatabaseService {
         });
       } else {
         // 모든 미완료 주문 배송완료 처리 (하위 호환성)
-        await this.prisma.order.updateMany({
+        await this._prisma.order.updateMany({
           where: {
             status: { notIn: ['배송완료', '확인'] },
             deletedAt: null,
@@ -298,9 +317,28 @@ export class DatabaseService {
    * @param rowNumber - 행 번호
    * @param newStatus - 새 상태 ('신규주문' | '입금확인' | '배송완료')
    */
-  async updateOrderStatus(rowNumber: number, newStatus: OrderStatus): Promise<void> {
+  async updateOrderStatus(
+    rowNumber: number,
+    newStatus: OrderStatus,
+    changedBy: 'web' | 'sync' | 'api' = 'api'
+  ): Promise<void> {
     try {
-      await this.prisma.order.updateMany({
+      // 변경 전 주문 조회
+      const beforeOrder = await this._prisma.order.findFirst({
+        where: { sheetRowNumber: rowNumber, deletedAt: null },
+      });
+
+      if (!beforeOrder) {
+        throw new Error(`Order not found at row ${rowNumber}`);
+      }
+
+      // 상태가 동일하면 스킵
+      if (beforeOrder.status === newStatus) {
+        return;
+      }
+
+      // 상태 업데이트
+      await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: rowNumber,
           deletedAt: null,
@@ -309,6 +347,18 @@ export class DatabaseService {
           status: newStatus,
           updatedAt: new Date(),
         },
+      });
+
+      // 변경 이력 로깅
+      await this.changeLogService.logChange({
+        orderId: beforeOrder.id,
+        sheetRowNumber: rowNumber,
+        changedBy,
+        action: 'status_change',
+        fieldChanges: {
+          status: { old: beforeOrder.status, new: newStatus },
+        },
+        previousVersion: beforeOrder.version,
       });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -322,7 +372,7 @@ export class DatabaseService {
    */
   async markPaymentConfirmed(rowNumbers: number[]): Promise<void> {
     try {
-      await this.prisma.order.updateMany({
+      await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: { in: rowNumbers },
           deletedAt: null,
@@ -345,7 +395,7 @@ export class DatabaseService {
    */
   async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
     try {
-      await this.prisma.order.updateMany({
+      await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: { in: rowNumbers },
           deletedAt: null,
@@ -368,7 +418,7 @@ export class DatabaseService {
    */
   async softDelete(rowNumbers: number[]): Promise<void> {
     try {
-      await this.prisma.order.updateMany({
+      await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: { in: rowNumbers },
           deletedAt: null, // 이미 삭제된 주문은 건너뜀
@@ -390,7 +440,7 @@ export class DatabaseService {
    */
   async restore(rowNumbers: number[]): Promise<void> {
     try {
-      await this.prisma.order.updateMany({
+      await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: { in: rowNumbers },
           deletedAt: { not: null }, // 삭제된 주문만
@@ -411,7 +461,7 @@ export class DatabaseService {
    */
   async getDeletedOrders(): Promise<SheetRow[]> {
     try {
-      const orders = await this.prisma.order.findMany({
+      const orders = await this._prisma.order.findMany({
         where: { deletedAt: { not: null } },
         orderBy: { deletedAt: 'desc' },
       });
@@ -442,7 +492,7 @@ export class DatabaseService {
       const dbField = columnMap[columnName] || columnName;
 
       // 동적 업데이트 (타입 안전성 제한적)
-      await this.prisma.order.updateMany({
+      await this._prisma.order.updateMany({
         where: { sheetRowNumber: rowNumber },
         data: {
           [dbField]: value,
@@ -492,7 +542,7 @@ export class DatabaseService {
         updateData = { ...dataWithoutDeletedAt, deletedAt, ...syncData, syncedAt: new Date() };
       }
 
-      const result = await this.prisma.order.upsert({
+      const result = await this._prisma.order.upsert({
         where: { sheetRowNumber: data.sheetRowNumber },
         create: {
           ...data,
@@ -514,6 +564,7 @@ export class DatabaseService {
    * 주문 정보 수정 (Issue #136)
    * @param rowNumber - 행 번호 (1-based)
    * @param updates - 업데이트할 필드들
+   * @param changedBy - 변경 주체 ('web' | 'sync' | 'api')
    */
   async updateOrder(
     rowNumber: number,
@@ -524,9 +575,19 @@ export class DatabaseService {
       quantity?: number;
       orderType?: 'customer' | 'gift';
       trackingNumber?: string;
-    }
+    },
+    changedBy: 'web' | 'sync' | 'api' = 'api'
   ): Promise<void> {
     try {
+      // 1. 변경 전 주문 조회
+      const beforeOrder = await this._prisma.order.findFirst({
+        where: { sheetRowNumber: rowNumber, deletedAt: null },
+      });
+
+      if (!beforeOrder) {
+        throw new Error(`Order not found at row ${rowNumber}`);
+      }
+
       // Prisma 업데이트 데이터 구성
       const data: Record<string, unknown> = {
         updatedAt: new Date(),
@@ -565,19 +626,13 @@ export class DatabaseService {
 
       // 수량 (5kg 또는 10kg 수량 필드에 저장)
       if (updates.quantity !== undefined) {
-        // 현재 주문 조회하여 상품 타입 확인
-        const currentOrder = await this.prisma.order.findFirst({
-          where: { sheetRowNumber: rowNumber },
-        });
-        if (currentOrder) {
-          const productType = updates.productType || currentOrder.productType;
-          if (productType?.includes('5kg')) {
-            data.quantity5kg = updates.quantity;
-            data.quantity10kg = 0;
-          } else if (productType?.includes('10kg')) {
-            data.quantity10kg = updates.quantity;
-            data.quantity5kg = 0;
-          }
+        const productType = updates.productType || beforeOrder.productType;
+        if (productType?.includes('5kg')) {
+          data.quantity5kg = updates.quantity;
+          data.quantity10kg = 0;
+        } else if (productType?.includes('10kg')) {
+          data.quantity10kg = updates.quantity;
+          data.quantity5kg = 0;
         }
       }
 
@@ -596,14 +651,64 @@ export class DatabaseService {
         return;
       }
 
-      // 업데이트 실행
-      await this.prisma.order.updateMany({
+      // 2. 업데이트 실행
+      await this._prisma.order.updateMany({
         where: {
           sheetRowNumber: rowNumber,
           deletedAt: null,
         },
         data,
       });
+
+      // 3. 변경 이력 계산 및 로깅
+      const fieldChanges: Record<string, FieldChange> = {};
+
+      // 발송인 정보 변경 감지
+      if (updates.sender?.name !== undefined && updates.sender.name !== beforeOrder.senderName) {
+        fieldChanges.senderName = { old: beforeOrder.senderName, new: updates.sender.name };
+      }
+      if (updates.sender?.phone !== undefined && updates.sender.phone !== beforeOrder.senderPhone) {
+        fieldChanges.senderPhone = { old: beforeOrder.senderPhone, new: updates.sender.phone };
+      }
+      if (updates.sender?.address !== undefined && updates.sender.address !== beforeOrder.senderAddress) {
+        fieldChanges.senderAddress = { old: beforeOrder.senderAddress, new: updates.sender.address };
+      }
+
+      // 수취인 정보 변경 감지
+      if (updates.recipient?.name !== undefined && updates.recipient.name !== beforeOrder.recipientName) {
+        fieldChanges.recipientName = { old: beforeOrder.recipientName, new: updates.recipient.name };
+      }
+      if (updates.recipient?.phone !== undefined && updates.recipient.phone !== beforeOrder.recipientPhone) {
+        fieldChanges.recipientPhone = { old: beforeOrder.recipientPhone, new: updates.recipient.phone };
+      }
+      if (updates.recipient?.address !== undefined && updates.recipient.address !== beforeOrder.recipientAddress) {
+        fieldChanges.recipientAddress = { old: beforeOrder.recipientAddress, new: updates.recipient.address };
+      }
+
+      // 주문 유형 변경 감지
+      if (updates.orderType !== undefined && updates.orderType !== beforeOrder.orderType) {
+        fieldChanges.orderType = { old: beforeOrder.orderType, new: updates.orderType };
+      }
+
+      // 송장번호 변경 감지
+      if (updates.trackingNumber !== undefined) {
+        const newTracking = updates.trackingNumber === '' ? null : updates.trackingNumber;
+        if (newTracking !== beforeOrder.trackingNumber) {
+          fieldChanges.trackingNumber = { old: beforeOrder.trackingNumber, new: newTracking };
+        }
+      }
+
+      // 변경사항이 있으면 로그 기록
+      if (Object.keys(fieldChanges).length > 0) {
+        await this.changeLogService.logChange({
+          orderId: beforeOrder.id,
+          sheetRowNumber: rowNumber,
+          changedBy,
+          action: 'update',
+          fieldChanges,
+          previousVersion: beforeOrder.version,
+        });
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to update order (row: ${rowNumber}): ${message}`);
@@ -616,7 +721,7 @@ export class DatabaseService {
    */
   async disconnect(): Promise<void> {
     if (this.ownsPrisma) {
-      await this.prisma.$disconnect();
+      await this._prisma.$disconnect();
     }
   }
 }

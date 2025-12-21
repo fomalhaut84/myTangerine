@@ -256,3 +256,117 @@ export async function syncData(): Promise<{
 
   return response.json();
 }
+
+// =========================================
+// Phase 2: 변경 이력 + 충돌 감지 API
+// =========================================
+
+/**
+ * 변경 이력 항목 타입
+ */
+export interface ChangeLogEntry {
+  id: number;
+  changedAt: string;
+  changedBy: 'web' | 'sync' | 'api';
+  action: string;
+  fieldChanges: Record<string, { old: unknown; new: unknown }>;
+  previousVersion: number;
+  newVersion: number;
+  conflictDetected: boolean;
+  conflictResolution: string | null;
+}
+
+/**
+ * 변경 이력 응답 타입
+ */
+export interface OrderHistoryResponse {
+  success: boolean;
+  history: ChangeLogEntry[];
+}
+
+/**
+ * 충돌 항목 타입
+ */
+export interface ConflictEntry {
+  id: number;
+  orderId: number;
+  sheetRowNumber: number;
+  changedAt: string;
+  changedBy: string;
+  action: string;
+  fieldChanges: Record<string, { old: unknown; new: unknown }>;
+  conflictResolution: string | null;
+  order?: {
+    id: number;
+    recipientName: string | null;
+    status: string | null;
+  };
+}
+
+/**
+ * 충돌 목록 응답 타입
+ */
+export interface ConflictsResponse {
+  success: boolean;
+  count: number;
+  conflicts: ConflictEntry[];
+}
+
+/**
+ * 주문 변경 이력 조회 (Phase 2)
+ * @param rowNumber - 스프레드시트 행 번호
+ * @param limit - 최대 결과 수
+ * @param offset - 건너뛸 결과 수
+ */
+export async function getOrderHistory(
+  rowNumber: number,
+  limit?: number,
+  offset?: number
+): Promise<OrderHistoryResponse> {
+  const searchParams: Record<string, string> = {};
+  if (limit) searchParams.limit = String(limit);
+  if (offset) searchParams.offset = String(offset);
+
+  return api.get(`api/orders/${rowNumber}/history`, { searchParams }).json<OrderHistoryResponse>();
+}
+
+/**
+ * 충돌 목록 조회 (Phase 2)
+ * @param resolved - 해결 상태 필터 ('true', 'false', 'all')
+ * @param limit - 최대 결과 수
+ * @param offset - 건너뛸 결과 수
+ */
+export async function getConflicts(
+  resolved?: 'true' | 'false' | 'all',
+  limit?: number,
+  offset?: number
+): Promise<ConflictsResponse> {
+  const searchParams: Record<string, string> = {};
+  if (resolved) searchParams.resolved = resolved;
+  if (limit) searchParams.limit = String(limit);
+  if (offset) searchParams.offset = String(offset);
+
+  return api.get('api/orders/conflicts', { searchParams }).json<ConflictsResponse>();
+}
+
+/**
+ * 충돌 해결 (Phase 2)
+ * @param conflictId - 충돌 로그 ID
+ * @param resolution - 해결 방법
+ */
+export async function resolveConflict(
+  conflictId: number,
+  resolution: 'db_wins' | 'sheet_wins' | 'manual'
+): Promise<{
+  success: boolean;
+  message: string;
+  conflict: { id: number; conflictResolution: string };
+}> {
+  return api.post(`api/orders/conflicts/${conflictId}/resolve`, {
+    json: { resolution }
+  }).json<{
+    success: boolean;
+    message: string;
+    conflict: { id: number; conflictResolution: string };
+  }>();
+}

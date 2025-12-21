@@ -16,6 +16,7 @@ import {
 } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
 import { StatusBadge } from '@/components/orders/StatusBadge';
+import { ChangeHistoryTab } from '@/components/orders/ChangeHistoryTab';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -721,6 +722,13 @@ export default function OrderDetailPage() {
             </>
           )}
         </div>
+
+        {/* 변경 이력 (Phase 2) */}
+        {!isEditMode && (
+          <Card title="" className="mt-6">
+            <ChangeHistoryTab rowNumber={orderId} />
+          </Card>
+        )}
 
         {/* 송장번호 입력 모달 */}
         {showTrackingModal && (
