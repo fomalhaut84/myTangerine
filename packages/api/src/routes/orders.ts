@@ -1221,13 +1221,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           });
         }
 
-        // normalize: 빈 문자열이면 undefined로 변환 (삭제), 아니면 앞뒤 공백 제거
-        if (trimmedTracking === '') {
-          // 입금확인 상태: 송장번호 삭제 허용
-          (updates as Record<string, unknown>).trackingNumber = null; // null로 설정하여 삭제
-        } else {
-          updates.trackingNumber = trimmedTracking;
-        }
+        // normalize: 빈 문자열이면 빈 문자열 유지 (삭제), 아니면 앞뒤 공백 제거
+        // 빈 문자열은 시트에서 빈 셀로, DB에서는 null로 처리됨
+        updates.trackingNumber = trimmedTracking;
       }
 
       // 배송완료 상태에서는 송장번호만 수정 가능

@@ -586,9 +586,9 @@ export class DatabaseService {
         data.orderType = updates.orderType;
       }
 
-      // 송장번호
+      // 송장번호 (빈 문자열은 null로 변환하여 삭제)
       if (updates.trackingNumber !== undefined) {
-        data.trackingNumber = updates.trackingNumber;
+        data.trackingNumber = updates.trackingNumber === '' ? null : updates.trackingNumber;
       }
 
       // 업데이트할 필드가 updatedAt만 있으면 종료
