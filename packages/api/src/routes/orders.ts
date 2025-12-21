@@ -1083,8 +1083,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     Body: {
       sender?: { name?: string; phone?: string; address?: string };
       recipient?: { name?: string; phone?: string; address?: string };
-      productType?: '5kg' | '10kg' | '비상품';
-      quantity?: number;
+      // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
       orderType?: 'customer' | 'gift';
       trackingNumber?: string;
     };
@@ -1094,7 +1093,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['orders'],
         summary: '주문 정보 수정',
-        description: '주문의 수취인/발송인 정보, 상품 정보, 주문 유형 등을 수정합니다.',
+        description: '주문의 수취인/발송인 정보, 주문 유형, 송장번호를 수정합니다. 상품 타입/수량은 수정 불가.',
         params: {
           type: 'object',
           required: ['rowNumber'],
@@ -1129,16 +1128,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                 address: { type: 'string', description: '수취인 주소' },
               },
             },
-            productType: {
-              type: 'string',
-              enum: ['5kg', '10kg', '비상품'],
-              description: '상품 타입',
-            },
-            quantity: {
-              type: 'integer',
-              minimum: 1,
-              description: '수량',
-            },
+            // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
             orderType: {
               type: 'string',
               enum: ['customer', 'gift'],
@@ -1207,29 +1197,37 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       // 상태별 제약 검증
       const currentStatus = normalizeOrderStatus(sheetRow['비고']);
 
-      // 송장번호 검증: 빈 문자열/공백만 있는 경우 거부
+      // 송장번호 검증
       if (updates.trackingNumber !== undefined) {
         const trimmedTracking = updates.trackingNumber.trim();
-        if (trimmedTracking === '') {
-          return reply.code(400).send({
+
+        // 신규주문 상태에서는 송장번호 수정 불가
+        if (currentStatus === '신규주문') {
+          return reply.code(409).send({
             success: false,
-            error: '송장번호는 빈 값일 수 없습니다. 송장번호를 입력하거나 필드를 제외하세요.',
-            statusCode: 400,
+            error: '신규주문 상태에서는 송장번호를 수정할 수 없습니다. 먼저 입금확인 처리를 해주세요.',
+            statusCode: 409,
             timestamp: new Date().toISOString(),
           });
         }
-        // normalize: 앞뒤 공백 제거
-        updates.trackingNumber = trimmedTracking;
-      }
 
-      // 송장번호는 신규주문 상태에서 수정 불가
-      if (updates.trackingNumber !== undefined && currentStatus === '신규주문') {
-        return reply.code(409).send({
-          success: false,
-          error: 'Cannot set tracking number for order with status "신규주문". Please confirm payment first.',
-          statusCode: 409,
-          timestamp: new Date().toISOString(),
-        });
+        // 배송완료 상태에서는 송장번호 삭제 불가 (수정만 가능)
+        if (currentStatus === '배송완료' && trimmedTracking === '') {
+          return reply.code(409).send({
+            success: false,
+            error: '배송완료 상태에서는 송장번호를 삭제할 수 없습니다.',
+            statusCode: 409,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // normalize: 빈 문자열이면 undefined로 변환 (삭제), 아니면 앞뒤 공백 제거
+        if (trimmedTracking === '') {
+          // 입금확인 상태: 송장번호 삭제 허용
+          (updates as Record<string, unknown>).trackingNumber = null; // null로 설정하여 삭제
+        } else {
+          updates.trackingNumber = trimmedTracking;
+        }
       }
 
       // 배송완료 상태에서는 송장번호만 수정 가능
@@ -1261,10 +1259,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // 수량 검증
-      if (updates.quantity !== undefined && (updates.quantity < 1 || !Number.isInteger(updates.quantity))) {
-        validationErrors.push('수량은 1 이상의 정수여야 합니다.');
-      }
+      // 상품 타입/수량은 스키마에서 제외되어 있으므로 검증 불필요
 
       if (validationErrors.length > 0) {
         return reply.code(400).send({

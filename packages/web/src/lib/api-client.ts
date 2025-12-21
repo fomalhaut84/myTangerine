@@ -167,12 +167,11 @@ export async function restoreOrder(rowNumber: number): Promise<{
 
 /**
  * 주문 수정용 데이터 타입
+ * Note: productType, quantity는 수정 불가 (Issue #136 정책)
  */
 export interface OrderUpdateData {
   sender?: { name?: string; phone?: string; address?: string };
   recipient?: { name?: string; phone?: string; address?: string };
-  productType?: '5kg' | '10kg' | '비상품';
-  quantity?: number;
   orderType?: 'customer' | 'gift';
   trackingNumber?: string;
 }

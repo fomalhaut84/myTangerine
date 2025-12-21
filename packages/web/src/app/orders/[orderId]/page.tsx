@@ -151,8 +151,6 @@ export default function OrderDetailPage() {
     setEditForm({
       sender: isDelivered ? undefined : { ...order.sender },
       recipient: isDelivered ? undefined : { ...order.recipient },
-      productType: isDelivered ? undefined : (order.productType as '5kg' | '10kg' | '비상품' | undefined),
-      quantity: isDelivered ? undefined : order.quantity,
       orderType: isDelivered ? undefined : order.orderType,
       // trackingNumber는 실제 값이 있을 때만 포함 (빈 문자열이면 undefined)
       trackingNumber: order.trackingNumber || undefined,
@@ -180,7 +178,6 @@ export default function OrderDetailPage() {
       if (editForm.recipient?.name?.trim() === '') errors.push('수취인 이름은 필수입니다.');
       if (editForm.recipient?.phone?.trim() === '') errors.push('수취인 전화번호는 필수입니다.');
       if (editForm.recipient?.address?.trim() === '') errors.push('수취인 주소는 필수입니다.');
-      if (editForm.quantity !== undefined && editForm.quantity < 1) errors.push('수량은 1 이상이어야 합니다.');
     }
 
     if (errors.length > 0) {
@@ -194,13 +191,19 @@ export default function OrderDetailPage() {
     if (!isDelivered) {
       if (editForm.sender) cleanedData.sender = editForm.sender;
       if (editForm.recipient) cleanedData.recipient = editForm.recipient;
-      if (editForm.productType) cleanedData.productType = editForm.productType;
-      if (editForm.quantity !== undefined) cleanedData.quantity = editForm.quantity;
       if (editForm.orderType) cleanedData.orderType = editForm.orderType;
     }
-    // trackingNumber는 실제 값이 있을 때만 포함
-    if (editForm.trackingNumber?.trim()) {
-      cleanedData.trackingNumber = editForm.trackingNumber.trim();
+    // trackingNumber 처리
+    // - 값이 있으면: 수정
+    // - 빈 문자열이면: 삭제 (API가 null로 변환) - 입금확인 상태에서만 허용
+    if (editForm.trackingNumber !== undefined) {
+      const trimmedTracking = editForm.trackingNumber.trim();
+      if (trimmedTracking) {
+        cleanedData.trackingNumber = trimmedTracking;
+      } else if (order.status === '입금확인') {
+        // 입금확인 상태에서만 송장번호 삭제 가능
+        cleanedData.trackingNumber = '';
+      }
     }
 
     // 변경사항이 없으면 경고
@@ -424,13 +427,22 @@ export default function OrderDetailPage() {
               <div>
                 <dt className="text-sm font-medium text-gray-500">
                   송장번호
+                  {isEditMode && order.status === '입금확인' && editForm.trackingNumber && (
+                    <button
+                      type="button"
+                      onClick={() => setEditForm({ ...editForm, trackingNumber: '' })}
+                      className="ml-2 text-xs text-red-600 hover:text-red-700"
+                    >
+                      삭제
+                    </button>
+                  )}
                 </dt>
                 <dd className="mt-1">
                   {isEditMode && order.status !== '신규주문' ? (
                     <Input
                       value={editForm.trackingNumber || ''}
                       onChange={(e) => setEditForm({ ...editForm, trackingNumber: e.target.value })}
-                      placeholder="송장번호 입력"
+                      placeholder={order.status === '배송완료' ? '송장번호 수정' : '송장번호 입력'}
                       className="w-full font-mono"
                     />
                   ) : (
@@ -438,13 +450,18 @@ export default function OrderDetailPage() {
                       {order.trackingNumber}
                     </span>
                   )}
+                  {isEditMode && order.status === '배송완료' && (
+                    <p className="mt-1 text-xs text-gray-500">
+                      배송완료 상태에서는 송장번호를 삭제할 수 없습니다.
+                    </p>
+                  )}
                 </dd>
               </div>
             )}
           </dl>
         </Card>
 
-        {/* 상품 정보 - 배송완료 상태에서는 수정 불가 */}
+        {/* 상품 정보 - 상품 타입/수량은 수정 불가 (정책) */}
         <Card title="상품 정보" className="mb-6">
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -452,18 +469,7 @@ export default function OrderDetailPage() {
                 상품 타입
               </dt>
               <dd className="mt-1">
-                {isEditMode && order.status !== '배송완료' ? (
-                  <select
-                    value={editForm.productType || ''}
-                    onChange={(e) => setEditForm({ ...editForm, productType: e.target.value as '5kg' | '10kg' | '비상품' })}
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
-                  >
-                    <option value="">선택</option>
-                    <option value="5kg">5kg</option>
-                    <option value="10kg">10kg</option>
-                    <option value="비상품">비상품</option>
-                  </select>
-                ) : order.validationError ? (
+                {order.validationError ? (
                   <div>
                     <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700">
                       오류
@@ -494,20 +500,11 @@ export default function OrderDetailPage() {
                 수량
               </dt>
               <dd className="mt-1">
-                {isEditMode && order.status !== '배송완료' ? (
-                  <Input
-                    type="number"
-                    min={1}
-                    value={editForm.quantity || 1}
-                    onChange={(e) => setEditForm({ ...editForm, quantity: parseInt(e.target.value, 10) || 1 })}
-                    className="w-full"
-                  />
-                ) : (
-                  <span className="text-sm text-gray-900">{order.quantity}개</span>
-                )}
+                <span className="text-sm text-gray-900">{order.quantity}개</span>
               </dd>
             </div>
-            {isEditMode && order.status !== '배송완료' && (
+            {/* 주문 유형 - 배송완료가 아닌 경우 수정 가능 */}
+            {isEditMode && order.status !== '배송완료' ? (
               <div>
                 <dt className="text-sm font-medium text-gray-500">
                   주문 유형
@@ -523,7 +520,24 @@ export default function OrderDetailPage() {
                   </select>
                 </dd>
               </div>
-            )}
+            ) : order.orderType ? (
+              <div>
+                <dt className="text-sm font-medium text-gray-500">
+                  주문 유형
+                </dt>
+                <dd className="mt-1">
+                  <span
+                    className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                      order.orderType === 'gift'
+                        ? 'bg-purple-100 text-purple-800'
+                        : 'bg-blue-100 text-blue-800'
+                    }`}
+                  >
+                    {order.orderType === 'gift' ? '선물' : '판매'}
+                  </span>
+                </dd>
+              </div>
+            ) : null}
           </dl>
         </Card>
 
