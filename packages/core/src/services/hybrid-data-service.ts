@@ -509,4 +509,54 @@ export class HybridDataService {
       throw dbError;
     }
   }
+
+  /**
+   * 주문 정보 수정 (Issue #136)
+   * hybrid 모드: DB + Sheets 동시 업데이트
+   * @param rowNumber - 행 번호 (1-based)
+   * @param updates - 업데이트할 필드들
+   */
+  async updateOrder(
+    rowNumber: number,
+    updates: {
+      sender?: { name?: string; phone?: string; address?: string };
+      recipient?: { name?: string; phone?: string; address?: string };
+      productType?: '5kg' | '10kg' | '비상품';
+      quantity?: number;
+      orderType?: 'customer' | 'gift';
+      trackingNumber?: string;
+    }
+  ): Promise<void> {
+    if (this.mode === 'sheets') {
+      return this.sheetService!.updateOrder(rowNumber, updates);
+    }
+
+    if (this.mode === 'database') {
+      return this.databaseService.updateOrder(rowNumber, updates);
+    }
+
+    // hybrid: DB + Sheets 동시 업데이트
+    const errors: string[] = [];
+
+    try {
+      await this.databaseService.updateOrder(rowNumber, updates);
+      this.logger?.info(`[hybrid] updateOrder DB success: row ${rowNumber}`);
+    } catch (dbError) {
+      errors.push(`DB: ${dbError}`);
+      this.logger?.error(`[hybrid] updateOrder DB failed: ${dbError}`);
+    }
+
+    try {
+      await this.sheetService!.updateOrder(rowNumber, updates);
+      this.logger?.info(`[hybrid] updateOrder Sheets success: row ${rowNumber}`);
+    } catch (sheetsError) {
+      errors.push(`Sheets: ${sheetsError}`);
+      this.logger?.error(`[hybrid] updateOrder Sheets failed: ${sheetsError}`);
+    }
+
+    // 둘 다 실패하면 에러 throw
+    if (errors.length === 2) {
+      throw new Error(`Hybrid updateOrder failed: ${errors.join('; ')}`);
+    }
+  }
 }

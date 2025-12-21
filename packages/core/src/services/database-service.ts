@@ -511,6 +511,106 @@ export class DatabaseService {
   }
 
   /**
+   * 주문 정보 수정 (Issue #136)
+   * @param rowNumber - 행 번호 (1-based)
+   * @param updates - 업데이트할 필드들
+   */
+  async updateOrder(
+    rowNumber: number,
+    updates: {
+      sender?: { name?: string; phone?: string; address?: string };
+      recipient?: { name?: string; phone?: string; address?: string };
+      productType?: '5kg' | '10kg' | '비상품';
+      quantity?: number;
+      orderType?: 'customer' | 'gift';
+      trackingNumber?: string;
+    }
+  ): Promise<void> {
+    try {
+      // Prisma 업데이트 데이터 구성
+      const data: Record<string, unknown> = {
+        updatedAt: new Date(),
+      };
+
+      // 발송인 정보
+      if (updates.sender) {
+        if (updates.sender.name !== undefined) {
+          data.senderName = updates.sender.name;
+        }
+        if (updates.sender.phone !== undefined) {
+          data.senderPhone = updates.sender.phone;
+        }
+        if (updates.sender.address !== undefined) {
+          data.senderAddress = updates.sender.address;
+        }
+      }
+
+      // 수취인 정보
+      if (updates.recipient) {
+        if (updates.recipient.name !== undefined) {
+          data.recipientName = updates.recipient.name;
+        }
+        if (updates.recipient.phone !== undefined) {
+          data.recipientPhone = updates.recipient.phone;
+        }
+        if (updates.recipient.address !== undefined) {
+          data.recipientAddress = updates.recipient.address;
+        }
+      }
+
+      // 상품 정보
+      if (updates.productType !== undefined) {
+        data.productType = updates.productType;
+      }
+
+      // 수량 (5kg 또는 10kg 수량 필드에 저장)
+      if (updates.quantity !== undefined) {
+        // 현재 주문 조회하여 상품 타입 확인
+        const currentOrder = await this.prisma.order.findFirst({
+          where: { sheetRowNumber: rowNumber },
+        });
+        if (currentOrder) {
+          const productType = updates.productType || currentOrder.productType;
+          if (productType?.includes('5kg')) {
+            data.quantity5kg = updates.quantity;
+            data.quantity10kg = 0;
+          } else if (productType?.includes('10kg')) {
+            data.quantity10kg = updates.quantity;
+            data.quantity5kg = 0;
+          }
+        }
+      }
+
+      // 주문 유형
+      if (updates.orderType !== undefined) {
+        data.orderType = updates.orderType;
+      }
+
+      // 송장번호
+      if (updates.trackingNumber !== undefined) {
+        data.trackingNumber = updates.trackingNumber;
+      }
+
+      // 업데이트할 필드가 updatedAt만 있으면 종료
+      if (Object.keys(data).length === 1) {
+        return;
+      }
+
+      // 업데이트 실행
+      await this.prisma.order.updateMany({
+        where: {
+          sheetRowNumber: rowNumber,
+          deletedAt: null,
+        },
+        data,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update order (row: ${rowNumber}): ${message}`);
+    }
+  }
+
+  /**
    * 연결 종료 (앱 종료 시)
    * 자체 생성한 PrismaClient만 종료
    */
