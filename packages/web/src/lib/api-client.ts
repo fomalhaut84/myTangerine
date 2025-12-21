@@ -166,6 +166,27 @@ export async function restoreOrder(rowNumber: number): Promise<{
 }
 
 /**
+ * 주문 수정용 데이터 타입
+ */
+export interface OrderUpdateData {
+  sender?: { name?: string; phone?: string; address?: string };
+  recipient?: { name?: string; phone?: string; address?: string };
+  productType?: '5kg' | '10kg' | '비상품';
+  quantity?: number;
+  orderType?: 'customer' | 'gift';
+  trackingNumber?: string;
+}
+
+/**
+ * 주문 정보 수정 (Issue #136)
+ * @param rowNumber - 스프레드시트 행 번호
+ * @param data - 수정할 필드들
+ */
+export async function updateOrder(rowNumber: number, data: OrderUpdateData): Promise<OrderResponse> {
+  return api.patch(`api/orders/${rowNumber}`, { json: data }).json<OrderResponse>();
+}
+
+/**
  * 삭제된 주문 목록 조회
  */
 export async function getDeletedOrders(): Promise<OrdersResponse> {

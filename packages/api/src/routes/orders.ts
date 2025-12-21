@@ -1075,6 +1075,241 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   /**
+   * PATCH /api/orders/:rowNumber
+   * 주문 정보 수정 (Issue #136)
+   */
+  fastify.patch<{
+    Params: { rowNumber: string };
+    Body: {
+      sender?: { name?: string; phone?: string; address?: string };
+      recipient?: { name?: string; phone?: string; address?: string };
+      productType?: '5kg' | '10kg' | '비상품';
+      quantity?: number;
+      orderType?: 'customer' | 'gift';
+      trackingNumber?: string;
+    };
+  }>(
+    '/api/orders/:rowNumber',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 정보 수정',
+        description: '주문의 수취인/발송인 정보, 상품 정보, 주문 유형 등을 수정합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          minProperties: 1,
+          additionalProperties: false,
+          properties: {
+            sender: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', description: '발송인 이름' },
+                phone: { type: 'string', description: '발송인 전화번호' },
+                address: { type: 'string', description: '발송인 주소' },
+              },
+            },
+            recipient: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', description: '수취인 이름' },
+                phone: { type: 'string', description: '수취인 전화번호' },
+                address: { type: 'string', description: '수취인 주소' },
+              },
+            },
+            productType: {
+              type: 'string',
+              enum: ['5kg', '10kg', '비상품'],
+              description: '상품 타입',
+            },
+            quantity: {
+              type: 'integer',
+              minimum: 1,
+              description: '수량',
+            },
+            orderType: {
+              type: 'string',
+              enum: ['customer', 'gift'],
+              description: '주문 유형 (customer: 판매, gift: 선물)',
+            },
+            trackingNumber: {
+              type: 'string',
+              description: '송장번호 (입금확인/배송완료 상태에서만 수정 가능)',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message', 'order'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: { type: 'string', example: '주문이 수정되었습니다.' },
+              order: { $ref: 'Order#' },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          409: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService, config } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+      const updates = request.body;
+
+      // 행 번호 검증
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인
+      const sheetRow = await dataService.getOrderByRowNumber(rowNumber);
+      if (!sheetRow) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 수정 불가
+      const isDeleted = sheetRow._isDeleted || (sheetRow['삭제됨'] && sheetRow['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot modify deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 상태별 제약 검증
+      const currentStatus = normalizeOrderStatus(sheetRow['비고']);
+
+      // 송장번호 검증: 빈 문자열/공백만 있는 경우 거부
+      if (updates.trackingNumber !== undefined) {
+        const trimmedTracking = updates.trackingNumber.trim();
+        if (trimmedTracking === '') {
+          return reply.code(400).send({
+            success: false,
+            error: '송장번호는 빈 값일 수 없습니다. 송장번호를 입력하거나 필드를 제외하세요.',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        // normalize: 앞뒤 공백 제거
+        updates.trackingNumber = trimmedTracking;
+      }
+
+      // 송장번호는 신규주문 상태에서 수정 불가
+      if (updates.trackingNumber !== undefined && currentStatus === '신규주문') {
+        return reply.code(409).send({
+          success: false,
+          error: 'Cannot set tracking number for order with status "신규주문". Please confirm payment first.',
+          statusCode: 409,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 배송완료 상태에서는 송장번호만 수정 가능
+      if (currentStatus === '배송완료') {
+        const nonTrackingUpdates = Object.keys(updates).filter((key) => key !== 'trackingNumber');
+        if (nonTrackingUpdates.length > 0) {
+          return reply.code(409).send({
+            success: false,
+            error: `배송완료 상태에서는 송장번호만 수정할 수 있습니다. 수정 시도한 필드: ${nonTrackingUpdates.join(', ')}`,
+            statusCode: 409,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+
+      // 필드 검증
+      const validationErrors: string[] = [];
+
+      // 수취인 정보 검증
+      if (updates.recipient) {
+        if (updates.recipient.name !== undefined && updates.recipient.name.trim() === '') {
+          validationErrors.push('수취인 이름은 필수입니다.');
+        }
+        if (updates.recipient.phone !== undefined && updates.recipient.phone.trim() === '') {
+          validationErrors.push('수취인 전화번호는 필수입니다.');
+        }
+        if (updates.recipient.address !== undefined && updates.recipient.address.trim() === '') {
+          validationErrors.push('수취인 주소는 필수입니다.');
+        }
+      }
+
+      // 수량 검증
+      if (updates.quantity !== undefined && (updates.quantity < 1 || !Number.isInteger(updates.quantity))) {
+        validationErrors.push('수량은 1 이상의 정수여야 합니다.');
+      }
+
+      if (validationErrors.length > 0) {
+        return reply.code(400).send({
+          success: false,
+          error: validationErrors.join(' '),
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 업데이트 실행
+      await dataService.updateOrder(rowNumber, updates);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      // 업데이트된 주문 조회
+      const updatedSheetRow = await dataService.getOrderByRowNumber(rowNumber);
+      const order = sheetRowToOrder(updatedSheetRow!, config);
+
+      return {
+        success: true,
+        message: '주문이 수정되었습니다.',
+        order: {
+          timestamp: order.timestamp.toISOString(),
+          timestampRaw: order.timestampRaw,
+          status: order.status,
+          sender: order.sender,
+          recipient: order.recipient,
+          productType: order.productType,
+          quantity: order.quantity,
+          rowNumber: order.rowNumber,
+          validationError: order.validationError,
+          orderType: order.orderType,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
+          ordererName: order.ordererName,
+          ordererEmail: order.ordererEmail,
+        },
+      };
+    }
+  );
+
+  /**
    * POST /api/orders/:rowNumber/confirm
    * 특정 주문을 "확인" 상태로 표시
    */

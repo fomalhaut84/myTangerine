@@ -16,7 +16,9 @@ import {
   deleteOrder,
   restoreOrder,
   getDeletedOrders,
+  updateOrder,
   type OrderStatusFilter,
+  type OrderUpdateData,
 } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -166,5 +168,25 @@ export function useDeletedOrders(options?: { enabled?: boolean }) {
     queryKey: [...queryKeys.orders.list(), 'deleted'],
     queryFn: getDeletedOrders,
     enabled: options?.enabled ?? true,
+  });
+}
+
+/**
+ * 주문 정보 수정 훅 (Issue #136)
+ */
+export function useUpdateOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ rowNumber, data }: { rowNumber: number; data: OrderUpdateData }) =>
+      updateOrder(rowNumber, data),
+    onSuccess: (_, { rowNumber }) => {
+      // 주문 목록 및 요약 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      // 라벨도 주문 기반이므로 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      // 해당 주문의 상세 데이터도 갱신
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+    },
   });
 }

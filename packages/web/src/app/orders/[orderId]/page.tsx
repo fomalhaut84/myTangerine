@@ -1,5 +1,6 @@
 /**
  * 주문 상세 페이지
+ * Issue #136: 수정 기능 추가
  */
 
 'use client';
@@ -11,14 +12,16 @@ import {
   useMarkDelivered,
   useDeleteOrder,
   useRestoreOrder,
+  useUpdateOrder,
 } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
 import { StatusBadge } from '@/components/orders/StatusBadge';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
+import type { OrderUpdateData } from '@/lib/api-client';
 
 export default function OrderDetailPage() {
   const params = useParams();
@@ -43,9 +46,15 @@ export default function OrderDetailPage() {
   const markDeliveredMutation = useMarkDelivered();
   const deleteMutation = useDeleteOrder();
   const restoreMutation = useRestoreOrder();
+  const updateMutation = useUpdateOrder();
   const [isProcessing, setIsProcessing] = useState(false);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
+
+  // 수정 모드 상태 (Issue #136)
+  const [isEditMode, setIsEditMode] = useState(false);
+  const [editForm, setEditForm] = useState<OrderUpdateData>({});
+  const [formErrors, setFormErrors] = useState<string[]>([]);
 
   // API에서 직접 주문을 가져옴 (더 이상 클라이언트에서 필터링하지 않음)
   const order = data?.order ?? null;
@@ -132,6 +141,107 @@ export default function OrderDetailPage() {
       '주문 복원 중 오류가 발생했습니다.'
     );
 
+  // 수정 모드 시작 (Issue #136)
+  const handleStartEdit = () => {
+    if (!order) return;
+
+    // 배송완료 상태에서는 송장번호만 수정 가능
+    const isDelivered = order.status === '배송완료';
+
+    setEditForm({
+      sender: isDelivered ? undefined : { ...order.sender },
+      recipient: isDelivered ? undefined : { ...order.recipient },
+      productType: isDelivered ? undefined : (order.productType as '5kg' | '10kg' | '비상품' | undefined),
+      quantity: isDelivered ? undefined : order.quantity,
+      orderType: isDelivered ? undefined : order.orderType,
+      // trackingNumber는 실제 값이 있을 때만 포함 (빈 문자열이면 undefined)
+      trackingNumber: order.trackingNumber || undefined,
+    });
+    setFormErrors([]);
+    setIsEditMode(true);
+  };
+
+  // 수정 취소
+  const handleCancelEdit = () => {
+    setIsEditMode(false);
+    setEditForm({});
+    setFormErrors([]);
+  };
+
+  // 수정 저장
+  const handleSaveEdit = async () => {
+    if (!order) return;
+
+    const isDelivered = order.status === '배송완료';
+
+    // 클라이언트 검증 (배송완료가 아닌 경우에만 필수 필드 검증)
+    const errors: string[] = [];
+    if (!isDelivered) {
+      if (editForm.recipient?.name?.trim() === '') errors.push('수취인 이름은 필수입니다.');
+      if (editForm.recipient?.phone?.trim() === '') errors.push('수취인 전화번호는 필수입니다.');
+      if (editForm.recipient?.address?.trim() === '') errors.push('수취인 주소는 필수입니다.');
+      if (editForm.quantity !== undefined && editForm.quantity < 1) errors.push('수량은 1 이상이어야 합니다.');
+    }
+
+    if (errors.length > 0) {
+      setFormErrors(errors);
+      return;
+    }
+
+    // 빈 값 정리: undefined 필드와 빈 문자열 제거
+    const cleanedData: OrderUpdateData = {};
+
+    if (!isDelivered) {
+      if (editForm.sender) cleanedData.sender = editForm.sender;
+      if (editForm.recipient) cleanedData.recipient = editForm.recipient;
+      if (editForm.productType) cleanedData.productType = editForm.productType;
+      if (editForm.quantity !== undefined) cleanedData.quantity = editForm.quantity;
+      if (editForm.orderType) cleanedData.orderType = editForm.orderType;
+    }
+    // trackingNumber는 실제 값이 있을 때만 포함
+    if (editForm.trackingNumber?.trim()) {
+      cleanedData.trackingNumber = editForm.trackingNumber.trim();
+    }
+
+    // 변경사항이 없으면 경고
+    if (Object.keys(cleanedData).length === 0) {
+      toast.warning('변경된 내용이 없습니다.');
+      return;
+    }
+
+    setIsProcessing(true);
+    try {
+      await updateMutation.mutateAsync({
+        rowNumber: order.rowNumber,
+        data: cleanedData,
+      });
+      toast.success('주문이 수정되었습니다.');
+      setIsEditMode(false);
+      setEditForm({});
+      refetch();
+    } catch (err) {
+      const message = err instanceof Error ? err.message : '주문 수정 중 오류가 발생했습니다.';
+      toast.error(message);
+    } finally {
+      setIsProcessing(false);
+    }
+  };
+
+  // 폼 필드 업데이트 헬퍼
+  const updateFormField = (
+    category: 'sender' | 'recipient',
+    field: 'name' | 'phone' | 'address',
+    value: string
+  ) => {
+    setEditForm((prev) => ({
+      ...prev,
+      [category]: {
+        ...prev[category],
+        [field]: value,
+      },
+    }));
+  };
+
   // orderId가 유효하지 않은 경우 (API 호출 전에 체크)
   if (!isValidOrderId) {
     return (
@@ -212,10 +322,31 @@ export default function OrderDetailPage() {
           >
             ← 주문 목록으로 돌아가기
           </Link>
-          <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
-            주문 상세 정보
-          </h1>
+          <div className="flex items-center justify-between">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
+              {isEditMode ? '주문 수정' : '주문 상세 정보'}
+            </h1>
+            {!order.isDeleted && !isEditMode && (
+              <button
+                onClick={handleStartEdit}
+                className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
+              >
+                수정
+              </button>
+            )}
+          </div>
         </div>
+
+        {/* 수정 모드 에러 표시 */}
+        {formErrors.length > 0 && (
+          <div className="mb-6 p-4 bg-red-50 border border-red-200 rounded-lg">
+            <ul className="list-disc list-inside text-sm text-red-600 space-y-1">
+              {formErrors.map((error, index) => (
+                <li key={index}>{error}</li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* 삭제된 주문 알림 배너 */}
         {order.isDeleted && (
@@ -289,20 +420,31 @@ export default function OrderDetailPage() {
                 </dd>
               </div>
             )}
-            {order.trackingNumber && (
+            {(order.trackingNumber || (isEditMode && order.status !== '신규주문')) && (
               <div>
                 <dt className="text-sm font-medium text-gray-500">
                   송장번호
                 </dt>
-                <dd className="mt-1 text-sm text-gray-900 font-mono">
-                  {order.trackingNumber}
+                <dd className="mt-1">
+                  {isEditMode && order.status !== '신규주문' ? (
+                    <Input
+                      value={editForm.trackingNumber || ''}
+                      onChange={(e) => setEditForm({ ...editForm, trackingNumber: e.target.value })}
+                      placeholder="송장번호 입력"
+                      className="w-full font-mono"
+                    />
+                  ) : (
+                    <span className="text-sm text-gray-900 font-mono">
+                      {order.trackingNumber}
+                    </span>
+                  )}
                 </dd>
               </div>
             )}
           </dl>
         </Card>
 
-        {/* 상품 정보 */}
+        {/* 상품 정보 - 배송완료 상태에서는 수정 불가 */}
         <Card title="상품 정보" className="mb-6">
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -310,7 +452,18 @@ export default function OrderDetailPage() {
                 상품 타입
               </dt>
               <dd className="mt-1">
-                {order.validationError ? (
+                {isEditMode && order.status !== '배송완료' ? (
+                  <select
+                    value={editForm.productType || ''}
+                    onChange={(e) => setEditForm({ ...editForm, productType: e.target.value as '5kg' | '10kg' | '비상품' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="">선택</option>
+                    <option value="5kg">5kg</option>
+                    <option value="10kg">10kg</option>
+                    <option value="비상품">비상품</option>
+                  </select>
+                ) : order.validationError ? (
                   <div>
                     <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700">
                       오류
@@ -340,68 +493,149 @@ export default function OrderDetailPage() {
               <dt className="text-sm font-medium text-gray-500">
                 수량
               </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {order.quantity}개
+              <dd className="mt-1">
+                {isEditMode && order.status !== '배송완료' ? (
+                  <Input
+                    type="number"
+                    min={1}
+                    value={editForm.quantity || 1}
+                    onChange={(e) => setEditForm({ ...editForm, quantity: parseInt(e.target.value, 10) || 1 })}
+                    className="w-full"
+                  />
+                ) : (
+                  <span className="text-sm text-gray-900">{order.quantity}개</span>
+                )}
               </dd>
             </div>
+            {isEditMode && order.status !== '배송완료' && (
+              <div>
+                <dt className="text-sm font-medium text-gray-500">
+                  주문 유형
+                </dt>
+                <dd className="mt-1">
+                  <select
+                    value={editForm.orderType || 'customer'}
+                    onChange={(e) => setEditForm({ ...editForm, orderType: e.target.value as 'customer' | 'gift' })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
+                  >
+                    <option value="customer">판매</option>
+                    <option value="gift">선물</option>
+                  </select>
+                </dd>
+              </div>
+            )}
           </dl>
         </Card>
 
-        {/* 수취인 정보 */}
+        {/* 수취인 정보 - 배송완료 상태에서는 수정 불가 */}
         <Card title="수취인 정보" className="mb-6">
           <dl className="space-y-4">
             <div>
               <dt className="text-sm font-medium text-gray-500">
                 이름
               </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {order.recipient.name}
+              <dd className="mt-1">
+                {isEditMode && order.status !== '배송완료' ? (
+                  <Input
+                    value={editForm.recipient?.name || ''}
+                    onChange={(e) => updateFormField('recipient', 'name', e.target.value)}
+                    placeholder="수취인 이름"
+                    className="w-full"
+                  />
+                ) : (
+                  <span className="text-sm text-gray-900">{order.recipient.name}</span>
+                )}
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-gray-500">
                 전화번호
               </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {order.recipient.phone}
+              <dd className="mt-1">
+                {isEditMode && order.status !== '배송완료' ? (
+                  <Input
+                    value={editForm.recipient?.phone || ''}
+                    onChange={(e) => updateFormField('recipient', 'phone', e.target.value)}
+                    placeholder="010-0000-0000"
+                    className="w-full"
+                  />
+                ) : (
+                  <span className="text-sm text-gray-900">{order.recipient.phone}</span>
+                )}
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-gray-500">
                 주소
               </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {order.recipient.address}
+              <dd className="mt-1">
+                {isEditMode && order.status !== '배송완료' ? (
+                  <Input
+                    value={editForm.recipient?.address || ''}
+                    onChange={(e) => updateFormField('recipient', 'address', e.target.value)}
+                    placeholder="도로명 주소"
+                    className="w-full"
+                  />
+                ) : (
+                  <span className="text-sm text-gray-900">{order.recipient.address}</span>
+                )}
               </dd>
             </div>
           </dl>
         </Card>
 
-        {/* 발송인 정보 */}
+        {/* 발송인 정보 - 배송완료 상태에서는 수정 불가 */}
         <Card title="발송인 정보" className="mb-6">
           <dl className="space-y-4">
             <div>
               <dt className="text-sm font-medium text-gray-500">
                 이름
               </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {order.sender.name}
+              <dd className="mt-1">
+                {isEditMode && order.status !== '배송완료' ? (
+                  <Input
+                    value={editForm.sender?.name || ''}
+                    onChange={(e) => updateFormField('sender', 'name', e.target.value)}
+                    placeholder="발송인 이름"
+                    className="w-full"
+                  />
+                ) : (
+                  <span className="text-sm text-gray-900">{order.sender.name}</span>
+                )}
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-gray-500">
                 전화번호
               </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {order.sender.phone}
+              <dd className="mt-1">
+                {isEditMode && order.status !== '배송완료' ? (
+                  <Input
+                    value={editForm.sender?.phone || ''}
+                    onChange={(e) => updateFormField('sender', 'phone', e.target.value)}
+                    placeholder="010-0000-0000"
+                    className="w-full"
+                  />
+                ) : (
+                  <span className="text-sm text-gray-900">{order.sender.phone}</span>
+                )}
               </dd>
             </div>
             <div>
               <dt className="text-sm font-medium text-gray-500">
                 주소
               </dt>
-              <dd className="mt-1 text-sm text-gray-900">
-                {order.sender.address}
+              <dd className="mt-1">
+                {isEditMode && order.status !== '배송완료' ? (
+                  <Input
+                    value={editForm.sender?.address || ''}
+                    onChange={(e) => updateFormField('sender', 'address', e.target.value)}
+                    placeholder="도로명 주소"
+                    className="w-full"
+                  />
+                ) : (
+                  <span className="text-sm text-gray-900">{order.sender.address}</span>
+                )}
               </dd>
             </div>
           </dl>
@@ -409,8 +643,26 @@ export default function OrderDetailPage() {
 
         {/* 액션 버튼 */}
         <div className="flex flex-wrap justify-end gap-2 sm:gap-3">
-          {/* 삭제된 주문인 경우 복원 버튼만 표시 */}
-          {order.isDeleted ? (
+          {/* 수정 모드일 때 저장/취소 버튼 */}
+          {isEditMode ? (
+            <>
+              <button
+                className="px-4 sm:px-6 py-2 bg-gray-200 hover:bg-gray-300 disabled:bg-gray-100 text-gray-700 rounded-lg text-sm sm:text-base font-medium transition-colors"
+                onClick={handleCancelEdit}
+                disabled={isProcessing}
+              >
+                취소
+              </button>
+              <button
+                className="px-4 sm:px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
+                onClick={handleSaveEdit}
+                disabled={isProcessing}
+              >
+                {isProcessing ? '저장 중...' : '저장'}
+              </button>
+            </>
+          ) : order.isDeleted ? (
+            /* 삭제된 주문인 경우 복원 버튼만 표시 */
             <button
               className="px-4 sm:px-6 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
               onClick={handleRestore}
