@@ -266,12 +266,37 @@ export class DatabaseService {
   }
 
   /**
+   * 특정 행 번호로 Raw Prisma Order 조회 (충돌 감지용)
+   * Phase 2: 충돌 감지에 필요한 메타 필드 (lastModifiedBy, lastModifiedAt, version) 포함
+   */
+  async getRawOrderByRowNumber(rowNumber: number): Promise<PrismaOrder | null> {
+    try {
+      const order = await this._prisma.order.findUnique({
+        where: { sheetRowNumber: rowNumber },
+      });
+
+      return order;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get raw order by row number ${rowNumber}: ${message}`);
+    }
+  }
+
+  /**
    * 주문 배송완료 처리
    * Phase 3: '확인' → '배송완료'로 변경 (하위 호환성 유지)
    * @param rowNumbers - 처리할 행 번호 배열 (선택). 미제공 시 모든 신규 주문 처리
+   * @param changedBy - 변경 주체
    */
-  async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
+  async markAsConfirmed(rowNumbers?: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
+      // 변경 전 주문 조회 (이력 기록용)
+      const whereClause = rowNumbers && rowNumbers.length > 0
+        ? { sheetRowNumber: { in: rowNumbers }, deletedAt: null }
+        : { status: { notIn: ['배송완료', '확인'] }, deletedAt: null };
+
+      const beforeOrders = await this._prisma.order.findMany({ where: whereClause });
+
       if (rowNumbers && rowNumbers.length > 0) {
         // 특정 행만 배송완료 처리
         await this._prisma.order.updateMany({
@@ -297,6 +322,22 @@ export class DatabaseService {
           },
         });
       }
+
+      // 각 주문에 대해 이력 기록
+      for (const order of beforeOrders) {
+        if (order.status !== '배송완료') {
+          await this.changeLogService.logChange({
+            orderId: order.id,
+            sheetRowNumber: order.sheetRowNumber,
+            changedBy,
+            action: 'status_change',
+            fieldChanges: {
+              status: { old: order.status, new: '배송완료' },
+            },
+            previousVersion: order.version ?? 1,
+          });
+        }
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const context = rowNumbers ? `rows ${rowNumbers.join(', ')}` : 'all incomplete orders';
@@ -307,9 +348,10 @@ export class DatabaseService {
   /**
    * 단일 주문 배송완료 처리 (SheetService 호환)
    * @param rowNumber - 처리할 행 번호
+   * @param changedBy - 변경 주체
    */
-  async markSingleAsConfirmed(rowNumber: number): Promise<void> {
-    return this.markAsConfirmed([rowNumber]);
+  async markSingleAsConfirmed(rowNumber: number, changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
+    return this.markAsConfirmed([rowNumber], changedBy);
   }
 
   /**
@@ -730,14 +772,15 @@ export class DatabaseService {
       }
 
       // 수량 (5kg 또는 10kg 수량 필드에 저장)
+      // 8차 리뷰: Prisma 스키마의 String 타입에 맞게 문자열로 저장
       if (updates.quantity !== undefined) {
         const productType = updates.productType || beforeOrder.productType;
         if (productType?.includes('5kg')) {
-          data.quantity5kg = updates.quantity;
-          data.quantity10kg = 0;
+          data.quantity5kg = String(updates.quantity);
+          data.quantity10kg = '0';
         } else if (productType?.includes('10kg')) {
-          data.quantity10kg = updates.quantity;
-          data.quantity5kg = 0;
+          data.quantity10kg = String(updates.quantity);
+          data.quantity5kg = '0';
         }
       }
 
@@ -800,6 +843,48 @@ export class DatabaseService {
         const newTracking = updates.trackingNumber === '' ? null : updates.trackingNumber;
         if (newTracking !== beforeOrder.trackingNumber) {
           fieldChanges.trackingNumber = { old: beforeOrder.trackingNumber, new: newTracking };
+        }
+      }
+
+      // 상품 타입 변경 감지 (6차 리뷰)
+      if (updates.productType !== undefined && updates.productType !== beforeOrder.productType) {
+        fieldChanges.productType = { old: beforeOrder.productType, new: updates.productType };
+      }
+
+      // 수량 변경 감지 (6차 + 7차 + 8차 리뷰)
+      // productType 변경 시 반대 수량 필드 리셋도 기록
+      // 8차 리뷰: 로그에도 String 타입으로 일관성 유지
+      if (updates.quantity !== undefined) {
+        const productType = updates.productType || beforeOrder.productType;
+        const isProductTypeChanging = updates.productType !== undefined && updates.productType !== beforeOrder.productType;
+        const newQtyStr = String(updates.quantity);
+
+        if (productType?.includes('5kg')) {
+          // 새 값이 5kg 수량으로 설정됨
+          const old5kg = beforeOrder.quantity5kg ?? '';
+          if (newQtyStr !== old5kg) {
+            fieldChanges.quantity5kg = { old: old5kg, new: newQtyStr };
+          }
+          // productType 변경 시 10kg 수량이 0으로 리셋되는 것도 기록
+          if (isProductTypeChanging) {
+            const old10kg = beforeOrder.quantity10kg ?? '';
+            if (old10kg !== '0' && old10kg !== '') {
+              fieldChanges.quantity10kg = { old: old10kg, new: '0' };
+            }
+          }
+        } else if (productType?.includes('10kg')) {
+          // 새 값이 10kg 수량으로 설정됨
+          const old10kg = beforeOrder.quantity10kg ?? '';
+          if (newQtyStr !== old10kg) {
+            fieldChanges.quantity10kg = { old: old10kg, new: newQtyStr };
+          }
+          // productType 변경 시 5kg 수량이 0으로 리셋되는 것도 기록
+          if (isProductTypeChanging) {
+            const old5kg = beforeOrder.quantity5kg ?? '';
+            if (old5kg !== '0' && old5kg !== '') {
+              fieldChanges.quantity5kg = { old: old5kg, new: '0' };
+            }
+          }
         }
       }
 

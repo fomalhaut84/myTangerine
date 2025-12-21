@@ -2550,8 +2550,11 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           },
         };
       } catch (error) {
-        // Prisma P2025: Record not found
-        if (error instanceof Error && error.message.includes('Record to update not found')) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // 9차 리뷰: 커스텀 에러 매핑 추가
+        // 로그를 찾을 수 없는 경우
+        if (errorMessage.includes('Change log not found')) {
           return reply.code(404).send({
             success: false,
             error: `Conflict not found with ID ${conflictId}`,
@@ -2559,6 +2562,27 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             timestamp: new Date().toISOString(),
           });
         }
+
+        // 충돌 로그가 아닌 경우
+        if (errorMessage.includes('Cannot resolve non-conflict log')) {
+          return reply.code(400).send({
+            success: false,
+            error: `ID ${conflictId} is not a conflict log. Only conflict logs can be resolved.`,
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // Prisma P2025: Record not found (레거시 지원)
+        if (errorMessage.includes('Record to update not found')) {
+          return reply.code(404).send({
+            success: false,
+            error: `Conflict not found with ID ${conflictId}`,
+            statusCode: 404,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
         throw error;
       }
     }

@@ -81,12 +81,12 @@ export class SyncEngine {
   ): Record<string, FieldChange> {
     const changes: Record<string, FieldChange> = {};
 
-    // 비교할 필드 매핑 (시트 컬럼명 → DB 필드명)
-    // SheetRow 인터페이스의 실제 컬럼명 사용
+    // 비교할 필드 매핑 (시트 컬럼명 → Prisma Order 필드명)
+    // 5차 리뷰: address → recipientAddress 수정 (Prisma 스키마와 일치)
     const fieldMapping: Record<string, string> = {
       '받으실분 성함': 'recipientName',
       '받으실분 연락처 (핸드폰번호)': 'recipientPhone',
-      '받으실분 주소 (도로명 주소로 부탁드려요)': 'address',
+      '받으실분 주소 (도로명 주소로 부탁드려요)': 'recipientAddress',
       '보내는분 성함': 'senderName',
       '보내는분 연락처 (핸드폰번호)': 'senderPhone',
       '보내는분 주소 (도로명 주소로 부탁드려요)': 'senderAddress',
@@ -98,9 +98,22 @@ export class SyncEngine {
       const sheetValue = sheetRow[sheetCol];
       const dbValue = dbOrder[dbField];
 
-      // 값이 다른 경우만 기록
-      const normalizedSheet = sheetValue === undefined || sheetValue === '' ? null : sheetValue;
-      const normalizedDb = dbValue === undefined || dbValue === '' ? null : dbValue;
+      // 9차 + 10차 리뷰: quantity 필드는 '', '0', 0, null, undefined를 동등하게 처리
+      // DB는 '0'으로 저장하고 Sheets는 ''로 저장할 수 있으므로 정규화 필요
+      // 10차 리뷰: 숫자 타입도 문자열로 정규화하여 타입 차이로 인한 false positive 방지
+      const isQuantityField = dbField === 'quantity5kg' || dbField === 'quantity10kg';
+
+      let normalizedSheet = sheetValue === undefined || sheetValue === '' ? null : sheetValue;
+      let normalizedDb = dbValue === undefined || dbValue === '' ? null : dbValue;
+
+      // quantity 필드에서 '0', 0도 null로 처리하고, 숫자는 문자열로 변환
+      if (isQuantityField) {
+        if (normalizedSheet === '0' || normalizedSheet === 0) normalizedSheet = null;
+        else if (typeof normalizedSheet === 'number') normalizedSheet = String(normalizedSheet);
+
+        if (normalizedDb === '0' || normalizedDb === 0) normalizedDb = null;
+        else if (typeof normalizedDb === 'number') normalizedDb = String(normalizedDb);
+      }
 
       if (JSON.stringify(normalizedSheet) !== JSON.stringify(normalizedDb)) {
         changes[dbField] = {
@@ -185,11 +198,12 @@ export class SyncEngine {
     }
 
     try {
-      // 기존 주문 조회 (syncAttemptCount 확인용 + 충돌 감지)
-      const existingOrder = await this.databaseService.getOrderByRowNumber(rowNumber);
-      const attemptCount = existingOrder ? (existingOrder['_syncAttemptCount'] || 0) + 1 : 1;
+      // Phase 2: Raw Prisma Order 조회 (충돌 감지에 필요한 메타 필드 포함)
+      const existingOrder = await this.databaseService.getRawOrderByRowNumber(rowNumber);
+      const attemptCount = existingOrder ? (existingOrder.syncAttemptCount || 0) + 1 : 1;
 
       // 충돌 감지: DB가 'web'에서 수정되었고, 시트보다 최신인 경우
+      // 참고: 'api' 수정은 충돌 감지 대상이 아님 (api는 권위있는 소스로 간주하여 시트 덮어쓰기 허용)
       if (existingOrder?.lastModifiedBy === 'web' && existingOrder.lastModifiedAt) {
         const sheetSyncAt = this.parseKstTimestamp(row['DB_SYNC_AT'] as string);
 
@@ -202,20 +216,31 @@ export class SyncEngine {
             'Conflict detected: DB was modified by web after last sync'
           );
 
-          // 충돌 로그 기록 (ChangeLogService가 있는 경우)
+          // 11차 리뷰: 미해결 충돌 로그가 이미 있으면 중복 생성 방지
           if (this.changeLogService) {
-            const fieldChanges = this.calculateSheetDbDifferences(row, existingOrder as unknown as Record<string, unknown>);
+            const hasUnresolvedConflict = await this.changeLogService.hasUnresolvedConflict(existingOrder.id);
 
-            await this.changeLogService.logChange({
-              orderId: existingOrder.id,
-              sheetRowNumber: rowNumber,
-              changedBy: 'sync',
-              action: 'conflict_detected',
-              fieldChanges,
-              previousVersion: existingOrder.version ?? 1,
-              conflictDetected: true,
-              conflictResolution: 'db_wins', // 기본 정책: DB 우선
-            });
+            if (!hasUnresolvedConflict) {
+              // Phase 2: Prisma Order를 Record로 변환하여 차이 계산
+              const fieldChanges = this.calculateSheetDbDifferences(row, existingOrder as unknown as Record<string, unknown>);
+
+              await this.changeLogService.logChange({
+                orderId: existingOrder.id,
+                sheetRowNumber: rowNumber,
+                changedBy: 'sync',
+                action: 'conflict_detected',
+                fieldChanges,
+                previousVersion: existingOrder.version ?? 1,
+                conflictDetected: true,
+                // conflictResolution은 null로 시작 (미해결 상태)
+                // API를 통해 수동으로 해결 처리 필요
+              });
+            } else {
+              this.logger?.debug(
+                { rowNumber, orderId: existingOrder.id },
+                'Skipping conflict log: unresolved conflict already exists'
+              );
+            }
           }
 
           return {

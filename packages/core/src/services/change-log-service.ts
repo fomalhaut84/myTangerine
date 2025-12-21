@@ -165,11 +165,41 @@ export class ChangeLogService {
   }
 
   /**
+   * 특정 주문에 대한 미해결 충돌 존재 여부 확인 (11차 리뷰)
+   * @param orderId - 주문 ID
+   * @returns 미해결 충돌이 존재하면 true
+   */
+  async hasUnresolvedConflict(orderId: number): Promise<boolean> {
+    const count = await this.prisma.orderChangeLog.count({
+      where: {
+        orderId,
+        conflictDetected: true,
+        conflictResolution: null,
+      },
+    });
+    return count > 0;
+  }
+
+  /**
    * 충돌 해결 처리
    * @param changeLogId - 변경 로그 ID
    * @param resolution - 해결 방법
+   * @throws 충돌 로그가 아닌 경우 에러
    */
   async resolveConflict(changeLogId: number, resolution: 'db_wins' | 'sheet_wins' | 'manual'): Promise<OrderChangeLog> {
+    // 8차 리뷰: 실제 충돌 로그만 해결할 수 있도록 가드 추가
+    const log = await this.prisma.orderChangeLog.findUnique({
+      where: { id: changeLogId },
+    });
+
+    if (!log) {
+      throw new Error(`Change log not found: ${changeLogId}`);
+    }
+
+    if (!log.conflictDetected) {
+      throw new Error(`Cannot resolve non-conflict log: ${changeLogId}`);
+    }
+
     return this.prisma.orderChangeLog.update({
       where: { id: changeLogId },
       data: { conflictResolution: resolution },

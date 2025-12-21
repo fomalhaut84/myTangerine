@@ -32,18 +32,21 @@ const actionLabels: Record<string, { label: string; color: string }> = {
 };
 
 /**
- * 필드명 한글화
+ * 필드명 한글화 (6차 리뷰: recipientAddress, productType 추가)
  */
 const fieldLabels: Record<string, string> = {
   recipientName: '수취인 이름',
   recipientPhone: '수취인 전화번호',
+  recipientAddress: '수취인 주소',
   postalCode: '우편번호',
   address: '주소',
   deliveryMemo: '배송 메모',
   quantity5kg: '5kg 수량',
   quantity10kg: '10kg 수량',
+  productType: '상품 타입',
   price: '가격',
   status: '상태',
+  deletedAt: '삭제 일시',
   senderName: '발송인 이름',
   senderPhone: '발송인 전화번호',
   senderAddress: '발송인 주소',

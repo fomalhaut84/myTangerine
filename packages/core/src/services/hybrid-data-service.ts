@@ -188,14 +188,16 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markAsConfirmed(rowNumbers);
+      // Web에서 호출되므로 changedBy='web'
+      return this.databaseService.markAsConfirmed(rowNumbers, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markAsConfirmed(rowNumbers);
+      // Web에서 호출되므로 changedBy='web'
+      await this.databaseService.markAsConfirmed(rowNumbers, 'web');
       this.logger?.info(`[hybrid] markAsConfirmed DB success: ${rowNumbers?.length ?? 'all'} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -226,14 +228,16 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markSingleAsConfirmed(rowNumber);
+      // Web에서 호출되므로 changedBy='web'
+      return this.databaseService.markSingleAsConfirmed(rowNumber, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markSingleAsConfirmed(rowNumber);
+      // Web에서 호출되므로 changedBy='web'
+      await this.databaseService.markSingleAsConfirmed(rowNumber, 'web');
       this.logger?.info(`[hybrid] markSingleAsConfirmed DB success: row ${rowNumber}`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
