@@ -19,7 +19,7 @@ import { StatusBadge } from '@/components/orders/StatusBadge';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { toast } from 'sonner';
 import type { OrderUpdateData } from '@/lib/api-client';
 
