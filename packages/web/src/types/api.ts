@@ -9,16 +9,32 @@ export interface PersonInfo {
   address: string;
 }
 
+/**
+ * 주문 상태 (3단계)
+ */
+export type OrderStatus = '신규주문' | '입금확인' | '배송완료';
+
+/**
+ * 주문 유형
+ */
+export type OrderType = 'customer' | 'gift';
+
 export interface Order {
   timestamp: string;
   timestampRaw: string;
-  status: string;
+  status: OrderStatus;
   sender: PersonInfo;
   recipient: PersonInfo;
   productType: '비상품' | '5kg' | '10kg' | null;
   quantity: number;
   rowNumber: number;
+  orderType: OrderType;
   validationError?: string;
+  isDeleted: boolean;
+  deletedAt?: string;
+  trackingNumber?: string;
+  ordererName?: string;
+  ordererEmail?: string;
 }
 
 export interface ProductSummary {
@@ -104,8 +120,12 @@ export interface GroupedLabelsResponse {
 
 /**
  * 통합 통계 타입
+ * - 'completed': 배송완료 주문
+ * - 'new': 신규주문
+ * - 'pending_payment': 입금확인 주문 (Issue #130)
+ * - 'all': 전체 주문
  */
-export type StatsScope = 'completed' | 'new' | 'all';
+export type StatsScope = 'completed' | 'new' | 'pending_payment' | 'all';
 export type StatsRange = '6m' | '12m' | 'custom';
 export type StatsGrouping = 'monthly';
 export type StatsMetric = 'quantity' | 'amount';

@@ -1,5 +1,6 @@
 /**
  * 월별 매출 Bar Chart (스택)
+ * Issue #134: 모바일 반응형 차트 개선
  */
 
 'use client';
@@ -8,6 +9,7 @@ import { useState, useEffect } from 'react';
 import { Card } from '@/components/common/Card';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import type { MonthlyStatsSeries } from '@/types/api';
+import { useMediaQuery } from '@/hooks/use-media-query';
 
 interface BarChartStatsProps {
   data: MonthlyStatsSeries[];
@@ -17,6 +19,7 @@ interface BarChartStatsProps {
 export function BarChartStats({ data, metric }: BarChartStatsProps) {
   const [mounted, setMounted] = useState(false);
   const isQuantity = metric === 'quantity';
+  const isMobile = useMediaQuery('(max-width: 639px)');
 
   useEffect(() => {
     // DOM이 완전히 준비된 후 차트 렌더링
@@ -44,24 +47,33 @@ export function BarChartStats({ data, metric }: BarChartStatsProps) {
   });
 
   return (
-    <Card className="p-6">
-      <div className="mb-4">
-        <h3 className="text-lg font-semibold text-gray-900">
+    <Card className="p-4 sm:p-6">
+      <div className="mb-3 sm:mb-4">
+        <h3 className="text-base sm:text-lg font-semibold text-gray-900">
           월별 매출 추이 {isQuantity ? '(수량)' : '(금액)'}
         </h3>
-        <p className="text-sm text-gray-500">비상품, 5kg, 10kg 누적 {isQuantity ? '수량' : '매출'}</p>
+        <p className="text-xs sm:text-sm text-gray-500">비상품, 5kg, 10kg 누적 {isQuantity ? '수량' : '매출'}</p>
       </div>
-      <div className="h-80">
+      <div className="h-64 sm:h-80">
         {mounted ? (
-          <ResponsiveContainer width="100%" height={320}>
-            <BarChart data={chartData} margin={{ top: 5, right: 30, left: 20, bottom: 5 }}>
+          <ResponsiveContainer width="100%" height="100%">
+            <BarChart
+              data={chartData}
+              margin={isMobile
+                ? { top: 5, right: 10, left: 0, bottom: 5 }
+                : { top: 5, right: 30, left: 20, bottom: 5 }
+              }
+            >
               <CartesianGrid strokeDasharray="3 3" />
               <XAxis
                 dataKey="month"
-                label={{ value: '월', position: 'insideBottomRight', offset: -10 }}
+                tick={{ fontSize: isMobile ? 10 : 12 }}
+                label={isMobile ? undefined : { value: '월', position: 'insideBottomRight', offset: -10 }}
               />
               <YAxis
-                label={{
+                tick={{ fontSize: isMobile ? 10 : 12 }}
+                width={isMobile ? 35 : 60}
+                label={isMobile ? undefined : {
                   value: isQuantity ? '수량 (박스)' : '금액 (만원)',
                   angle: -90,
                   position: 'insideLeft',
@@ -74,9 +86,10 @@ export function BarChartStats({ data, metric }: BarChartStatsProps) {
                 }}
               />
               <Tooltip
-                formatter={(value: number, name: string) => {
-                  const formattedValue = isQuantity ? `${value}박스` : `${value.toLocaleString()}원`;
-                  return [formattedValue, name];
+                formatter={(value, name) => {
+                  const v = value ?? 0;
+                  const formattedValue = isQuantity ? `${v}박스` : `${v.toLocaleString()}원`;
+                  return [formattedValue, name ?? ''];
                 }}
                 labelFormatter={(label, payload) => {
                   if (payload && payload.length > 0 && payload[0].payload) {
@@ -86,7 +99,7 @@ export function BarChartStats({ data, metric }: BarChartStatsProps) {
                   return label;
                 }}
               />
-              <Legend />
+              <Legend wrapperStyle={{ fontSize: isMobile ? 12 : 14 }} />
               <Bar
                 dataKey={isQuantity ? 'totalNonProductQty' : 'totalNonProductAmount'}
                 stackId="a"

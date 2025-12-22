@@ -5,41 +5,23 @@
 'use client';
 
 import Link from 'next/link';
-import { useConfirmOrders } from '@/hooks/use-orders';
 import { useSyncData } from '@/hooks/use-sync';
 import { Card } from '@/components/common/Card';
 import { useState, useEffect, useRef } from 'react';
 
 export function QuickActions() {
-  const confirmMutation = useConfirmOrders();
   const syncMutation = useSyncData();
-  const [message, setMessage] = useState<string | null>(null);
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
   const [syncErrors, setSyncErrors] = useState<Array<{ rowNumber: number; error: string }> | null>(null);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   useEffect(() => {
     return () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-      }
       if (syncTimeoutRef.current) {
         clearTimeout(syncTimeoutRef.current);
       }
     };
   }, []);
-
-  const handleConfirm = async () => {
-    try {
-      const result = await confirmMutation.mutateAsync();
-      setMessage(result.message);
-      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
-    } catch (error) {
-      setMessage('주문 확인 처리 중 오류가 발생했습니다.');
-      timeoutRef.current = setTimeout(() => setMessage(null), 3000);
-    }
-  };
 
   const handleSync = async () => {
     try {
@@ -82,32 +64,12 @@ export function QuickActions() {
         </Link>
 
         <button
-          onClick={handleConfirm}
-          disabled={confirmMutation.isPending}
-          className="w-full py-3 px-4 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-        >
-          {confirmMutation.isPending ? '처리 중...' : '모든 주문 확인'}
-        </button>
-
-        <button
           onClick={handleSync}
           disabled={syncMutation.isPending}
           className="w-full py-3 px-4 bg-purple-600 hover:bg-purple-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
         >
           {syncMutation.isPending ? '동기화 중...' : '데이터 동기화'}
         </button>
-
-        {message && (
-          <div
-            className={`p-3 rounded-lg text-sm text-center ${
-              message.includes('오류')
-                ? 'bg-red-100 text-red-700'
-                : 'bg-green-100 text-green-700'
-            }`}
-          >
-            {message}
-          </div>
-        )}
 
         {syncMessage && (
           <div

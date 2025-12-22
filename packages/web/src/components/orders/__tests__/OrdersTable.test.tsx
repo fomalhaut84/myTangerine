@@ -19,7 +19,7 @@ describe('OrdersTable', () => {
     rowNumber: 1,
     timestamp: '2025-01-01T10:00:00Z',
     timestampRaw: '2025. 1. 1. 오전 10:00:00',
-    status: '미확인',
+    status: '신규주문',
     sender: {
       name: '발송자',
       phone: '010-1234-5678',
@@ -32,6 +32,8 @@ describe('OrdersTable', () => {
     },
     quantity: 2,
     productType: '5kg',
+    orderType: 'customer',
+    isDeleted: false,
   };
 
   it('should render empty state when no orders', () => {

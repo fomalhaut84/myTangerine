@@ -1,6 +1,7 @@
 /**
  * 주문 통계 패널 컴포넌트 (범용)
  * scope에 따라 신규/완료/전체 주문 통계를 표시
+ * Issue #134: 모바일 반응형 UI 개선
  */
 
 'use client';
@@ -77,11 +78,11 @@ export function OrderStatsPanel({
     : 0;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3 sm:space-y-4">
       {/* 헤더 및 필터 */}
-      <div className="flex items-center justify-between flex-wrap gap-2">
-        <div className="flex items-center gap-3">
-          <h2 className="text-xl font-bold text-gray-900">{title}</h2>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="flex items-center gap-2 sm:gap-3">
+          <h2 className="text-lg sm:text-xl font-bold text-gray-900">{title}</h2>
           {showGiftStats && giftRatio > 0 && (
             <span className="px-2 py-1 text-xs font-medium bg-purple-100 text-purple-700 rounded-full">
               선물 {giftRatio}%
@@ -102,7 +103,7 @@ export function OrderStatsPanel({
             }}
             disabled={isFetching}
             aria-label="조회 기간 선택"
-            className="px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="px-2 sm:px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-xs sm:text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             <option value="6m">6개월</option>
             <option value="12m">12개월</option>
@@ -117,7 +118,7 @@ export function OrderStatsPanel({
             }}
             disabled={isFetching}
             aria-label="조회 지표 선택"
-            className="px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            className="px-2 sm:px-3 py-1.5 border border-gray-300 rounded-lg bg-white text-xs sm:text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-50"
           >
             <option value="quantity">수량</option>
             <option value="amount">금액</option>
@@ -126,7 +127,7 @@ export function OrderStatsPanel({
       </div>
 
       {/* KPI 카드들 */}
-      <div className={`grid gap-3 ${compact ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'}`}>
+      <div className={`grid gap-2 sm:gap-3 ${compact ? 'grid-cols-2' : 'grid-cols-2 lg:grid-cols-4'}`}>
         <KPICard
           title="총 매출"
           value={summary.totalRevenue}
@@ -161,19 +162,19 @@ export function OrderStatsPanel({
 
       {/* 선물/판매 비율 표시 */}
       {showGiftStats && sections && (
-        <div className="grid grid-cols-2 gap-3">
-          <div className="p-3 bg-blue-50 rounded-lg">
+        <div className="grid grid-cols-2 gap-2 sm:gap-3">
+          <div className="p-2 sm:p-3 bg-blue-50 rounded-lg">
             <p className="text-xs text-gray-600">판매 주문</p>
-            <p className="text-lg font-bold text-blue-600">
+            <p className="text-base sm:text-lg font-bold text-blue-600">
               {sections.sales.orderCount}건
             </p>
-            <p className="text-xs text-gray-500">
+            <p className="text-xs text-gray-500 truncate">
               {sections.sales.totalRevenue.toLocaleString()}원
             </p>
           </div>
-          <div className="p-3 bg-purple-50 rounded-lg">
+          <div className="p-2 sm:p-3 bg-purple-50 rounded-lg">
             <p className="text-xs text-gray-600">선물 주문</p>
-            <p className="text-lg font-bold text-purple-600">
+            <p className="text-base sm:text-lg font-bold text-purple-600">
               {sections.gifts.orderCount}건
             </p>
             <p className="text-xs text-gray-500">
@@ -186,7 +187,7 @@ export function OrderStatsPanel({
       {/* 차트 */}
       {showCharts && !compact && (
         <>
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
             <LineChartStats data={series} metric={metric} />
             {totalsByProduct.length > 0 && (
               <DonutChartStats data={totalsByProduct} metric={metric} />

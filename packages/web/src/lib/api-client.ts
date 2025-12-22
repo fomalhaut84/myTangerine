@@ -61,10 +61,15 @@ export const api = ky.create({
 });
 
 /**
- * 주문 목록 조회
- * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
+ * 주문 상태 필터 타입 (3단계 상태 지원)
  */
-export async function getOrders(status?: 'new' | 'completed' | 'all'): Promise<OrdersResponse> {
+export type OrderStatusFilter = 'new' | 'pending_payment' | 'completed' | 'all';
+
+/**
+ * 주문 목록 조회
+ * @param status - 'new' (신규), 'pending_payment' (입금확인), 'completed' (배송완료), 'all' (전체)
+ */
+export async function getOrders(status?: OrderStatusFilter): Promise<OrdersResponse> {
   const searchParams = status ? { status } : {};
   return api.get('api/orders', { searchParams }).json<OrdersResponse>();
 }
@@ -92,7 +97,7 @@ export async function confirmOrders(): Promise<ConfirmResponse> {
 }
 
 /**
- * 개별 주문 확인 처리
+ * 개별 주문 확인 처리 (기존 호환성 유지)
  */
 export async function confirmSingleOrder(rowNumber: number): Promise<{
   success: boolean;
@@ -105,10 +110,93 @@ export async function confirmSingleOrder(rowNumber: number): Promise<{
 }
 
 /**
- * 라벨 텍스트 조회
- * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
+ * 입금 확인 처리 (신규주문 → 입금확인)
  */
-export async function getLabels(status?: 'new' | 'completed' | 'all'): Promise<string> {
+export async function confirmPayment(rowNumber: number): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/confirm-payment`, { json: {} }).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
+ * 배송 완료 처리 (입금확인 → 배송완료)
+ * @param rowNumber - 스프레드시트 행 번호
+ * @param trackingNumber - 송장번호 (선택)
+ */
+export async function markDelivered(rowNumber: number, trackingNumber?: string): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/mark-delivered`, {
+    json: trackingNumber ? { trackingNumber } : {}
+  }).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
+ * 주문 삭제 (Soft Delete)
+ */
+export async function deleteOrder(rowNumber: number): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/delete`, { json: {} }).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
+ * 주문 복원 (Soft Delete 취소)
+ */
+export async function restoreOrder(rowNumber: number): Promise<{
+  success: boolean;
+  message: string;
+}> {
+  return api.post(`api/orders/${rowNumber}/restore`, { json: {} }).json<{
+    success: boolean;
+    message: string;
+  }>();
+}
+
+/**
+ * 주문 수정용 데이터 타입
+ * Note: productType, quantity는 수정 불가 (Issue #136 정책)
+ */
+export interface OrderUpdateData {
+  sender?: { name?: string; phone?: string; address?: string };
+  recipient?: { name?: string; phone?: string; address?: string };
+  orderType?: 'customer' | 'gift';
+  trackingNumber?: string;
+}
+
+/**
+ * 주문 정보 수정 (Issue #136)
+ * @param rowNumber - 스프레드시트 행 번호
+ * @param data - 수정할 필드들
+ */
+export async function updateOrder(rowNumber: number, data: OrderUpdateData): Promise<OrderResponse> {
+  return api.patch(`api/orders/${rowNumber}`, { json: data }).json<OrderResponse>();
+}
+
+/**
+ * 삭제된 주문 목록 조회
+ */
+export async function getDeletedOrders(): Promise<OrdersResponse> {
+  return api.get('api/orders/deleted').json<OrdersResponse>();
+}
+
+/**
+ * 라벨 텍스트 조회
+ * @param status - 상태 필터
+ */
+export async function getLabels(status?: OrderStatusFilter): Promise<string> {
   const searchParams = status ? { status } : {};
   return api.get('api/labels', { searchParams }).text();
 }
@@ -122,9 +210,9 @@ export async function getMonthlyStats(): Promise<MonthlyStatsResponse> {
 
 /**
  * 그룹화된 라벨 데이터 조회 (날짜/발신자별)
- * @param status - 'new' (신규), 'completed' (완료), 'all' (전체)
+ * @param status - 상태 필터
  */
-export async function getGroupedLabels(status?: 'new' | 'completed' | 'all'): Promise<GroupedLabelsResponse> {
+export async function getGroupedLabels(status?: OrderStatusFilter): Promise<GroupedLabelsResponse> {
   const searchParams = status ? { status } : {};
   return api.get('api/labels/grouped', { searchParams }).json<GroupedLabelsResponse>();
 }
@@ -167,4 +255,118 @@ export async function syncData(): Promise<{
   }
 
   return response.json();
+}
+
+// =========================================
+// Phase 2: 변경 이력 + 충돌 감지 API
+// =========================================
+
+/**
+ * 변경 이력 항목 타입
+ */
+export interface ChangeLogEntry {
+  id: number;
+  changedAt: string;
+  changedBy: 'web' | 'sync' | 'api';
+  action: string;
+  fieldChanges: Record<string, { old: unknown; new: unknown }>;
+  previousVersion: number;
+  newVersion: number;
+  conflictDetected: boolean;
+  conflictResolution: string | null;
+}
+
+/**
+ * 변경 이력 응답 타입
+ */
+export interface OrderHistoryResponse {
+  success: boolean;
+  history: ChangeLogEntry[];
+}
+
+/**
+ * 충돌 항목 타입
+ */
+export interface ConflictEntry {
+  id: number;
+  orderId: number;
+  sheetRowNumber: number;
+  changedAt: string;
+  changedBy: string;
+  action: string;
+  fieldChanges: Record<string, { old: unknown; new: unknown }>;
+  conflictResolution: string | null;
+  order?: {
+    id: number;
+    recipientName: string | null;
+    status: string | null;
+  };
+}
+
+/**
+ * 충돌 목록 응답 타입
+ */
+export interface ConflictsResponse {
+  success: boolean;
+  count: number;
+  conflicts: ConflictEntry[];
+}
+
+/**
+ * 주문 변경 이력 조회 (Phase 2)
+ * @param rowNumber - 스프레드시트 행 번호
+ * @param limit - 최대 결과 수
+ * @param offset - 건너뛸 결과 수
+ */
+export async function getOrderHistory(
+  rowNumber: number,
+  limit?: number,
+  offset?: number
+): Promise<OrderHistoryResponse> {
+  const searchParams: Record<string, string> = {};
+  if (limit) searchParams.limit = String(limit);
+  if (offset) searchParams.offset = String(offset);
+
+  return api.get(`api/orders/${rowNumber}/history`, { searchParams }).json<OrderHistoryResponse>();
+}
+
+/**
+ * 충돌 목록 조회 (Phase 2)
+ * @param resolved - 해결 상태 필터 ('true', 'false', 'all')
+ * @param limit - 최대 결과 수
+ * @param offset - 건너뛸 결과 수
+ */
+export async function getConflicts(
+  resolved?: 'true' | 'false' | 'all',
+  limit?: number,
+  offset?: number
+): Promise<ConflictsResponse> {
+  const searchParams: Record<string, string> = {};
+  if (resolved) searchParams.resolved = resolved;
+  if (limit) searchParams.limit = String(limit);
+  if (offset) searchParams.offset = String(offset);
+
+  return api.get('api/orders/conflicts', { searchParams }).json<ConflictsResponse>();
+}
+
+/**
+ * 충돌 해결 (Phase 2)
+ * @param conflictId - 충돌 로그 ID
+ * @param resolution - 해결 방법
+ */
+export async function resolveConflict(
+  conflictId: number,
+  resolution: 'db_wins' | 'sheet_wins' | 'manual'
+): Promise<{
+  success: boolean;
+  message: string;
+  conflict: { id: number; conflictResolution: string };
+}> {
+  return api.post(`api/orders/conflicts/${conflictId}/resolve`, {
+    json: { resolution }
+  }).json<{
+    success: boolean;
+    message: string;
+    conflict: { id: number; conflictResolution: string };
+  }>();
 }

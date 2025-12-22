@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, ChangeLogService } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -191,21 +191,21 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
    * 주문 조회 (상태별 필터링 지원)
    */
   fastify.get<{
-    Querystring: { status?: 'new' | 'completed' | 'all' };
+    Querystring: { status?: 'new' | 'pending_payment' | 'completed' | 'all' };
   }>(
     '/api/orders',
     {
       schema: {
         tags: ['orders'],
         summary: '주문 목록 조회',
-        description: 'Status별로 주문들을 조회합니다. 기본값은 새로운 주문(비고 != "확인")입니다.',
+        description: 'Status별로 주문들을 조회합니다. 기본값은 새로운 주문입니다.',
         querystring: {
           type: 'object',
           properties: {
             status: {
               type: 'string',
-              enum: ['new', 'completed', 'all'],
-              description: '주문 상태 필터 (new: 신규, completed: 완료, all: 전체)',
+              enum: ['new', 'pending_payment', 'completed', 'all'],
+              description: '주문 상태 필터 (new: 신규주문, pending_payment: 입금확인, completed: 배송완료, all: 전체)',
               default: 'new',
             },
           },
@@ -228,11 +228,11 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-    const { sheetService, config } = fastify.core;
+    const { dataService, config } = fastify.core;
     const status = request.query.status || 'new';
 
     // Status별 주문 가져오기
-    const sheetRows = await sheetService.getOrdersByStatus(status);
+    const sheetRows = await dataService.getOrdersByStatus(status);
 
     // SheetRow를 Order로 변환
     const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
@@ -250,6 +250,12 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         quantity: order.quantity,
         rowNumber: order.rowNumber,
         validationError: order.validationError,
+        orderType: order.orderType,
+        isDeleted: order.isDeleted,
+        deletedAt: order.deletedAt?.toISOString(),
+        trackingNumber: order.trackingNumber,
+        ordererName: order.ordererName,
+        ordererEmail: order.ordererEmail,
       })),
     };
   });
@@ -279,10 +285,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-    const { sheetService, config } = fastify.core;
+    const { dataService, config } = fastify.core;
 
     // 새로운 주문 가져오기
-    const sheetRows = await sheetService.getNewOrders();
+    const sheetRows = await dataService.getNewOrders();
 
     // SheetRow를 Order로 변환
     const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
@@ -353,10 +359,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-    const { sheetService } = fastify.core;
+    const { dataService } = fastify.core;
 
     // 먼저 새로운 주문을 가져오기
-    const newOrders = await sheetService.getNewOrders();
+    const newOrders = await dataService.getNewOrders();
 
     if (newOrders.length === 0) {
       return {
@@ -372,7 +378,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       .filter((n): n is number => n !== undefined && n > 0);
 
     // 주문을 확인 상태로 표시 (명시적으로 행 번호 전달)
-    await sheetService.markAsConfirmed(rowNumbers);
+    await dataService.markAsConfirmed(rowNumbers);
 
     // 통계 캐시 무효화 (새 주문이 완료됨으로 변경되었으므로)
     statsCache.invalidate(/^stats:/);
@@ -500,7 +506,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
+        const allRows = await fastify.core.dataService.getAllRows();
         const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 공통 헬퍼 함수로 주문 처리
@@ -641,7 +647,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
+        const allRows = await fastify.core.dataService.getAllRows();
         const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 공통 헬퍼 함수로 주문 처리
@@ -798,7 +804,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
+        const allRows = await fastify.core.dataService.getAllRows();
         const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 공통 헬퍼 함수로 주문 처리
@@ -937,7 +943,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
 
         // SheetService에서 모든 주문 가져오기
-        const allRows = await fastify.core.sheetService.getAllRows();
+        const allRows = await fastify.core.dataService.getAllRows();
         const allOrders = allRows.map((row) => sheetRowToOrder(row, fastify.core.config));
 
         // 공통 헬퍼 함수로 주문 처리
@@ -1016,7 +1022,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { sheetService, config } = fastify.core;
+      const { dataService, config } = fastify.core;
 
       // 엄격한 숫자 검증: "2foo" 같은 값을 거부
       const rowNumber = Number(request.params.rowNumber);
@@ -1031,7 +1037,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 특정 주문 조회
-      const sheetRow = await sheetService.getOrderByRowNumber(rowNumber);
+      const sheetRow = await dataService.getOrderByRowNumber(rowNumber);
 
       if (!sheetRow) {
         return reply.code(404).send({
@@ -1057,6 +1063,238 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           quantity: order.quantity,
           rowNumber: order.rowNumber,
           validationError: order.validationError,
+          orderType: order.orderType,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
+          ordererName: order.ordererName,
+          ordererEmail: order.ordererEmail,
+        },
+      };
+    }
+  );
+
+  /**
+   * PATCH /api/orders/:rowNumber
+   * 주문 정보 수정 (Issue #136)
+   */
+  fastify.patch<{
+    Params: { rowNumber: string };
+    Body: {
+      sender?: { name?: string; phone?: string; address?: string };
+      recipient?: { name?: string; phone?: string; address?: string };
+      // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
+      orderType?: 'customer' | 'gift';
+      trackingNumber?: string;
+    };
+  }>(
+    '/api/orders/:rowNumber',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 정보 수정',
+        description: '주문의 수취인/발송인 정보, 주문 유형, 송장번호를 수정합니다. 상품 타입/수량은 수정 불가.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          minProperties: 1,
+          additionalProperties: false,
+          properties: {
+            sender: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', description: '발송인 이름' },
+                phone: { type: 'string', description: '발송인 전화번호' },
+                address: { type: 'string', description: '발송인 주소' },
+              },
+            },
+            recipient: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', description: '수취인 이름' },
+                phone: { type: 'string', description: '수취인 전화번호' },
+                address: { type: 'string', description: '수취인 주소' },
+              },
+            },
+            // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
+            orderType: {
+              type: 'string',
+              enum: ['customer', 'gift'],
+              description: '주문 유형 (customer: 판매, gift: 선물)',
+            },
+            trackingNumber: {
+              type: 'string',
+              description: '송장번호 (입금확인/배송완료 상태에서만 수정 가능)',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message', 'order'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: { type: 'string', example: '주문이 수정되었습니다.' },
+              order: { $ref: 'Order#' },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          409: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService, config } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+      const updates = request.body;
+
+      // 행 번호 검증
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인
+      const sheetRow = await dataService.getOrderByRowNumber(rowNumber);
+      if (!sheetRow) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 수정 불가
+      const isDeleted = sheetRow._isDeleted || (sheetRow['삭제됨'] && sheetRow['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot modify deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 상태별 제약 검증
+      const currentStatus = normalizeOrderStatus(sheetRow['비고']);
+
+      // 송장번호 검증
+      if (updates.trackingNumber !== undefined) {
+        const trimmedTracking = updates.trackingNumber.trim();
+
+        // 신규주문 상태에서는 송장번호 수정 불가
+        if (currentStatus === '신규주문') {
+          return reply.code(409).send({
+            success: false,
+            error: '신규주문 상태에서는 송장번호를 수정할 수 없습니다. 먼저 입금확인 처리를 해주세요.',
+            statusCode: 409,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // 배송완료 상태에서는 송장번호 삭제 불가 (수정만 가능)
+        if (currentStatus === '배송완료' && trimmedTracking === '') {
+          return reply.code(409).send({
+            success: false,
+            error: '배송완료 상태에서는 송장번호를 삭제할 수 없습니다.',
+            statusCode: 409,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // normalize: 빈 문자열이면 빈 문자열 유지 (삭제), 아니면 앞뒤 공백 제거
+        // 빈 문자열은 시트에서 빈 셀로, DB에서는 null로 처리됨
+        updates.trackingNumber = trimmedTracking;
+      }
+
+      // 배송완료 상태에서는 송장번호만 수정 가능
+      if (currentStatus === '배송완료') {
+        const nonTrackingUpdates = Object.keys(updates).filter((key) => key !== 'trackingNumber');
+        if (nonTrackingUpdates.length > 0) {
+          return reply.code(409).send({
+            success: false,
+            error: `배송완료 상태에서는 송장번호만 수정할 수 있습니다. 수정 시도한 필드: ${nonTrackingUpdates.join(', ')}`,
+            statusCode: 409,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+
+      // 필드 검증
+      const validationErrors: string[] = [];
+
+      // 수취인 정보 검증
+      if (updates.recipient) {
+        if (updates.recipient.name !== undefined && updates.recipient.name.trim() === '') {
+          validationErrors.push('수취인 이름은 필수입니다.');
+        }
+        if (updates.recipient.phone !== undefined && updates.recipient.phone.trim() === '') {
+          validationErrors.push('수취인 전화번호는 필수입니다.');
+        }
+        if (updates.recipient.address !== undefined && updates.recipient.address.trim() === '') {
+          validationErrors.push('수취인 주소는 필수입니다.');
+        }
+      }
+
+      // 상품 타입/수량은 스키마에서 제외되어 있으므로 검증 불필요
+
+      if (validationErrors.length > 0) {
+        return reply.code(400).send({
+          success: false,
+          error: validationErrors.join(' '),
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 업데이트 실행
+      await dataService.updateOrder(rowNumber, updates);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      // 업데이트된 주문 조회
+      const updatedSheetRow = await dataService.getOrderByRowNumber(rowNumber);
+      const order = sheetRowToOrder(updatedSheetRow!, config);
+
+      return {
+        success: true,
+        message: '주문이 수정되었습니다.',
+        order: {
+          timestamp: order.timestamp.toISOString(),
+          timestampRaw: order.timestampRaw,
+          status: order.status,
+          sender: order.sender,
+          recipient: order.recipient,
+          productType: order.productType,
+          quantity: order.quantity,
+          rowNumber: order.rowNumber,
+          validationError: order.validationError,
+          orderType: order.orderType,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
+          ordererName: order.ordererName,
+          ordererEmail: order.ordererEmail,
         },
       };
     }
@@ -1100,12 +1338,13 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             },
           },
           400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
           500: { $ref: 'ErrorResponse#' },
         },
       },
     },
     async (request, reply) => {
-      const { sheetService } = fastify.core;
+      const { dataService } = fastify.core;
       const rowNumber = parseInt(request.params.rowNumber, 10);
 
       if (isNaN(rowNumber) || rowNumber < 2) {
@@ -1117,8 +1356,30 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // 주문 존재 여부 확인
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // 특정 주문을 확인 상태로 표시
-      await sheetService.markSingleAsConfirmed(rowNumber);
+      await dataService.markSingleAsConfirmed(rowNumber);
 
       // 통계 캐시 무효화 (주문이 완료됨으로 변경되었으므로)
       statsCache.invalidate(/^stats:/);
@@ -1131,8 +1392,455 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   /**
+   * POST /api/orders/:rowNumber/confirm-payment
+   * 주문을 "입금확인" 상태로 변경 (Phase 3)
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber/confirm-payment',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '입금 확인 처리',
+        description: '주문을 "입금확인" 상태로 변경합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '처리 결과 메시지',
+                example: '입금이 확인되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // P2 Fix: 상태 전이 검증 - 신규주문만 입금확인으로 변경 가능
+      const currentStatus = normalizeOrderStatus(order['비고']);
+      if (currentStatus !== '신규주문') {
+        return reply.code(400).send({
+          success: false,
+          error: `Cannot confirm payment for order with status "${currentStatus}". Only "신규주문" orders can be confirmed.`,
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 입금확인 처리
+      await dataService.markPaymentConfirmed([rowNumber]);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      return {
+        success: true,
+        message: '입금이 확인되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/:rowNumber/mark-delivered
+   * 주문을 "배송완료" 상태로 변경 (Phase 3)
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+    Body: { trackingNumber?: string };
+  }>(
+    '/api/orders/:rowNumber/mark-delivered',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '배송 완료 처리',
+        description: '주문을 "배송완료" 상태로 변경합니다. 송장번호를 함께 저장할 수 있습니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          properties: {
+            trackingNumber: {
+              type: 'string',
+              description: '송장번호 (택배사 운송장 번호)',
+              example: '1234567890123',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '처리 결과 메시지',
+                example: '배송이 완료되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+      const { trackingNumber } = request.body || {};
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 상태 변경 불가 (공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot change status of deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // P2 Fix: 상태 전이 검증 - 입금확인만 배송완료로 변경 가능
+      const currentStatus = normalizeOrderStatus(order['비고']);
+      if (currentStatus !== '입금확인') {
+        return reply.code(400).send({
+          success: false,
+          error: `Cannot mark as delivered for order with status "${currentStatus}". Only "입금확인" orders can be marked as delivered.`,
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 배송완료 처리 (송장번호 포함)
+      await dataService.markDelivered([rowNumber], trackingNumber);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      return {
+        success: true,
+        message: trackingNumber
+          ? `배송이 완료되었습니다. (송장번호: ${trackingNumber})`
+          : '배송이 완료되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/:rowNumber/delete
+   * 주문 Soft Delete (Phase 3)
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber/delete',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 삭제 (Soft Delete)',
+        description: '주문을 삭제합니다. 실제로 데이터는 삭제되지 않고 삭제 표시만 됩니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '처리 결과 메시지',
+                example: '주문이 삭제되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인 (삭제된 주문 포함)
+      const order = await dataService.getOrderByRowNumber(rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 이미 삭제된 주문인 경우 idempotent 처리 (성공 응답, 공백 문자열 제외)
+      const isDeleted = order._isDeleted || (order['삭제됨'] && order['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return {
+          success: true,
+          message: '주문이 이미 삭제되어 있습니다.',
+        };
+      }
+
+      // Soft Delete 처리
+      await dataService.softDelete([rowNumber]);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      return {
+        success: true,
+        message: '주문이 삭제되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/:rowNumber/restore
+   * 삭제된 주문 복원 (Phase 3)
+   */
+  fastify.post<{
+    Params: { rowNumber: string };
+  }>(
+    '/api/orders/:rowNumber/restore',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '삭제된 주문 복원',
+        description: 'Soft Delete된 주문을 복원합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: {
+                type: 'string',
+                description: '처리 결과 메시지',
+                example: '주문이 복원되었습니다.',
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인 (삭제된 주문도 조회)
+      const deletedOrders = await dataService.getDeletedOrders();
+      const order = deletedOrders.find((o) => o._rowNumber === rowNumber);
+      if (!order) {
+        return reply.code(404).send({
+          success: false,
+          error: `Deleted order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 복원 처리
+      await dataService.restore([rowNumber]);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      return {
+        success: true,
+        message: '주문이 복원되었습니다.',
+      };
+    }
+  );
+
+  /**
+   * GET /api/orders/deleted
+   * 삭제된 주문 목록 조회 (Phase 3)
+   */
+  fastify.get(
+    '/api/orders/deleted',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '삭제된 주문 목록 조회',
+        description: 'Soft Delete된 주문들을 조회합니다.',
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'count', 'orders'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              count: { type: 'integer', minimum: 0, description: '삭제된 주문 개수', example: 3 },
+              orders: {
+                type: 'array',
+                items: { $ref: 'Order#' },
+              },
+            },
+          },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async () => {
+      const { dataService, config } = fastify.core;
+
+      // 삭제된 주문 가져오기
+      const sheetRows = await dataService.getDeletedOrders();
+
+      // SheetRow를 Order로 변환
+      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+
+      return {
+        success: true,
+        count: orders.length,
+        orders: orders.map((order) => ({
+          timestamp: order.timestamp.toISOString(),
+          timestampRaw: order.timestampRaw,
+          status: order.status,
+          sender: order.sender,
+          recipient: order.recipient,
+          productType: order.productType,
+          quantity: order.quantity,
+          rowNumber: order.rowNumber,
+          validationError: order.validationError,
+          orderType: order.orderType,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
+        })),
+      };
+    }
+  );
+
+  /**
    * GET /api/orders/stats
-   * 통합 통계 조회 (완료/신규/전체 주문별, 기간별)
+   * 통합 통계 조회 (신규/입금확인/배송완료/전체 주문별, 기간별)
    */
   fastify.get<{
     Querystring: {
@@ -1151,14 +1859,14 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['orders'],
         summary: '통합 주문 통계 조회',
-        description: '완료된 주문 기반 통계를 조회합니다. 기간, 범위, 지표 등을 선택할 수 있습니다.',
+        description: '주문 통계를 조회합니다. scope로 상태별(신규/입금확인/배송완료/전체) 필터링이 가능합니다.',
         querystring: {
           type: 'object',
           properties: {
             scope: {
               type: 'string',
-              enum: ['completed', 'new', 'all'],
-              description: '통계 범위 (completed: 완료 주문, new: 신규 주문, all: 전체)',
+              enum: ['completed', 'new', 'pending_payment', 'all'],
+              description: '통계 범위 (completed: 배송완료, new: 신규주문, pending_payment: 입금확인, all: 전체)',
               default: 'completed',
             },
             range: {
@@ -1344,7 +2052,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request, reply) => {
-      const { sheetService, config } = fastify.core;
+      const { dataService, config } = fastify.core;
 
       // Query parameter 기본값 설정
       const scope: StatsScope = request.query.scope || 'completed';
@@ -1410,7 +2118,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 캐시 미스 - 데이터 조회 및 계산
-      const sheetRows = await sheetService.getOrdersByStatus(scope);
+      const sheetRows = await dataService.getOrdersByStatus(scope);
       const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
       // 통계 계산
@@ -1477,10 +2185,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async () => {
-      const { sheetService, config } = fastify.core;
+      const { dataService, config } = fastify.core;
 
       // 모든 주문 가져오기 (확인된 주문 포함)
-      const sheetRows = await sheetService.getAllRows();
+      const sheetRows = await dataService.getAllRows();
       const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
       // 월별로 그룹화
@@ -1524,6 +2232,359 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         data: result,
       };
+    }
+  );
+
+  // =========================================
+  // Phase 2: 변경 이력 + 충돌 감지 API
+  // =========================================
+
+  /**
+   * GET /api/orders/:rowNumber/history
+   * 주문 변경 이력 조회 (Phase 2)
+   */
+  fastify.get<{
+    Params: { rowNumber: string };
+    Querystring: { limit?: number; offset?: number };
+  }>(
+    '/api/orders/:rowNumber/history',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 변경 이력 조회',
+        description: '특정 주문의 변경 이력을 조회합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'history'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              history: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'integer' },
+                    changedAt: { type: 'string', format: 'date-time' },
+                    changedBy: { type: 'string', enum: ['web', 'sync', 'api'] },
+                    action: { type: 'string' },
+                    fieldChanges: { type: 'object' },
+                    previousVersion: { type: 'integer' },
+                    newVersion: { type: 'integer' },
+                    conflictDetected: { type: 'boolean' },
+                    conflictResolution: { type: ['string', 'null'] },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+      const { limit = 50, offset = 0 } = request.query;
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      // 변경 이력 조회
+      const changeLogs = await changeLogService.getChangeLogsByRowNumber(rowNumber, { limit, offset });
+
+      return {
+        success: true,
+        history: changeLogs.map((log) => ({
+          id: log.id,
+          changedAt: log.changedAt.toISOString(),
+          changedBy: log.changedBy,
+          action: log.action,
+          fieldChanges: log.fieldChanges as Record<string, unknown>,
+          previousVersion: log.previousVersion,
+          newVersion: log.newVersion,
+          conflictDetected: log.conflictDetected,
+          conflictResolution: log.conflictResolution,
+        })),
+      };
+    }
+  );
+
+  /**
+   * GET /api/orders/conflicts
+   * 충돌 목록 조회 (Phase 2)
+   */
+  fastify.get<{
+    Querystring: { resolved?: string; limit?: number; offset?: number };
+  }>(
+    '/api/orders/conflicts',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '충돌 목록 조회',
+        description: 'sync 과정에서 감지된 충돌 목록을 조회합니다.',
+        querystring: {
+          type: 'object',
+          properties: {
+            resolved: {
+              type: 'string',
+              enum: ['true', 'false', 'all'],
+              default: 'all',
+              description: '해결 상태 필터 (true: 해결됨, false: 미해결, all: 전체)',
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'conflicts'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              count: { type: 'integer' },
+              conflicts: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'integer' },
+                    orderId: { type: 'integer' },
+                    sheetRowNumber: { type: 'integer' },
+                    changedAt: { type: 'string', format: 'date-time' },
+                    changedBy: { type: 'string' },
+                    action: { type: 'string' },
+                    fieldChanges: { type: 'object' },
+                    conflictResolution: { type: ['string', 'null'] },
+                    order: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'integer' },
+                        recipientName: { type: ['string', 'null'] },
+                        status: { type: ['string', 'null'] },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request) => {
+      const { resolved = 'all', limit = 50, offset = 0 } = request.query;
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      // 해결 상태 필터 변환
+      let resolvedFilter: boolean | undefined;
+      if (resolved === 'true') resolvedFilter = true;
+      else if (resolved === 'false') resolvedFilter = false;
+      // 'all'인 경우 undefined
+
+      // 충돌 목록 조회
+      const conflicts = await changeLogService.getConflicts({
+        resolved: resolvedFilter,
+        limit,
+        offset,
+      });
+
+      return {
+        success: true,
+        count: conflicts.length,
+        conflicts: conflicts.map((log) => ({
+          id: log.id,
+          orderId: log.orderId,
+          sheetRowNumber: log.sheetRowNumber,
+          changedAt: log.changedAt.toISOString(),
+          changedBy: log.changedBy,
+          action: log.action,
+          fieldChanges: log.fieldChanges as Record<string, unknown>,
+          conflictResolution: log.conflictResolution,
+          order: log.order ? {
+            id: log.order.id,
+            recipientName: log.order.recipientName,
+            status: log.order.status,
+          } : undefined,
+        })),
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/conflicts/:conflictId/resolve
+   * 충돌 해결 처리 (Phase 2)
+   */
+  fastify.post<{
+    Params: { conflictId: string };
+    Body: { resolution: 'db_wins' | 'sheet_wins' | 'manual' };
+  }>(
+    '/api/orders/conflicts/:conflictId/resolve',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '충돌 해결',
+        description: '충돌을 해결 상태로 표시합니다.',
+        params: {
+          type: 'object',
+          required: ['conflictId'],
+          properties: {
+            conflictId: {
+              type: 'string',
+              description: '충돌 로그 ID',
+              example: '1',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['resolution'],
+          properties: {
+            resolution: {
+              type: 'string',
+              enum: ['db_wins', 'sheet_wins', 'manual'],
+              description: '해결 방법 (db_wins: DB 우선, sheet_wins: 시트 우선, manual: 수동 해결)',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: { type: 'string' },
+              conflict: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  conflictResolution: { type: 'string' },
+                },
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const conflictId = parseInt(request.params.conflictId, 10);
+      const { resolution } = request.body;
+
+      if (isNaN(conflictId) || conflictId < 1) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid conflict ID. ID must be a positive integer.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      try {
+        const updatedConflict = await changeLogService.resolveConflict(conflictId, resolution);
+
+        return {
+          success: true,
+          message: `충돌이 '${resolution}' 방식으로 해결되었습니다.`,
+          conflict: {
+            id: updatedConflict.id,
+            conflictResolution: updatedConflict.conflictResolution,
+          },
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // 9차 리뷰: 커스텀 에러 매핑 추가
+        // 로그를 찾을 수 없는 경우
+        if (errorMessage.includes('Change log not found')) {
+          return reply.code(404).send({
+            success: false,
+            error: `Conflict not found with ID ${conflictId}`,
+            statusCode: 404,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // 충돌 로그가 아닌 경우
+        if (errorMessage.includes('Cannot resolve non-conflict log')) {
+          return reply.code(400).send({
+            success: false,
+            error: `ID ${conflictId} is not a conflict log. Only conflict logs can be resolved.`,
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // Prisma P2025: Record not found (레거시 지원)
+        if (errorMessage.includes('Record to update not found')) {
+          return reply.code(404).send({
+            success: false,
+            error: `Conflict not found with ID ${conflictId}`,
+            statusCode: 404,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        throw error;
+      }
     }
   );
 };

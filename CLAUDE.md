@@ -24,6 +24,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 - **모든 작업은 GitHub 이슈로 먼저 생성**
 - 진행사항은 이슈에서 트래킹 및 관리
 - **피쳐 머지는 반드시 PR을 통해서만 진행**
+- ⚠️ **PR 머지는 사용자가 직접 수행** - Claude Code는 PR 생성까지만 담당
+- ⚠️ **이슈/PR 본문은 반드시 codex-cli가 작성** - Claude Code가 직접 작성하지 않음
+  - 이슈 생성 시: codex-cli에게 본문 작성 요청 → 결과를 `gh issue create`로 등록
+  - PR 생성 시: codex-cli에게 본문 작성 요청 → 결과를 `gh pr create`로 등록
 - **GitHub 이슈/PR/코멘트에서 codex-cli 언급 시**:
   - ⚠️ `@` 기호를 **사용하지 말 것** (GitHub에서 멘션으로 인식됨)
   - ✅ 올바른 표기: "codex-cli 코드 리뷰 통과"
@@ -77,6 +81,9 @@ Claude Code는 다음 프로세스를 자동으로 수행합니다:
 1. **리뷰 요청**
    - 작업이 마무리되면 Claude Code가 스스로 codex-cli에게 코드 리뷰를 요청
    - 리뷰 요청 시 작업 내용과 맥락을 명확히 전달
+   - ⚠️ **codex-cli 호출 방법**: `mcp__codex-cli__codex` (prompt) 사용
+     - ✅ 올바른 방법: `mcp__codex-cli__codex` with prompt 파라미터
+     - ❌ 잘못된 방법: `mcp__codex-cli__review` (동작하지 않음)
 
 2. **리뷰 반영**
    - codex-cli의 리뷰가 나오면 Claude Code가 스스로 피드백을 분석

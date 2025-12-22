@@ -414,7 +414,8 @@ describe('Orders API', () => {
       const payload = JSON.parse(response.payload);
       expect(payload.success).toBe(true);
       expect(payload.order.rowNumber).toBe(11);
-      expect(payload.order.status).toBe('확인');
+      // Phase 3: '확인'은 '배송완료'로 정규화됨 (하위 호환성)
+      expect(payload.order.status).toBe('배송완료');
     });
   });
 
