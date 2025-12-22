@@ -142,11 +142,12 @@ export function ProductRatioChart() {
                 border: '1px solid #e5e7eb',
                 borderRadius: '8px',
               }}
-              formatter={(value: number, name: string, props: { payload?: { amount: number } }) => {
-                const amount = props.payload?.amount ?? 0;
+              formatter={(value, name, props) => {
+                const amount = (props.payload as { amount?: number } | undefined)?.amount ?? 0;
+                const displayValue = value ?? 0;
                 return [
-                  `${value}개 (${amount.toLocaleString()}원)`,
-                  name,
+                  `${displayValue}개 (${amount.toLocaleString()}원)`,
+                  name ?? '',
                 ];
               }}
             />

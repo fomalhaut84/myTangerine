@@ -73,9 +73,10 @@ export function DonutChartStats({ data, metric }: DonutChartStatsProps) {
                 ))}
               </Pie>
               <Tooltip
-                formatter={(value: number, name: string) => {
-                  const formattedValue = isQuantity ? `${value}박스` : `${value.toLocaleString()}원`;
-                  return [formattedValue, name];
+                formatter={(value, name) => {
+                  const v = value ?? 0;
+                  const formattedValue = isQuantity ? `${v}박스` : `${v.toLocaleString()}원`;
+                  return [formattedValue, name ?? ''];
                 }}
               />
               <Legend wrapperStyle={{ fontSize: isMobile ? 12 : 14 }} />
