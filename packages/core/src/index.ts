@@ -16,12 +16,24 @@ export { findProjectRoot } from './utils/find-root.js';
 // Services
 export { SheetService } from './services/sheet-service.js';
 export { DatabaseService } from './services/database-service.js';
+export {
+  HybridDataService,
+  type DataSourceMode,
+  type HybridDataServiceOptions,
+} from './services/hybrid-data-service.js';
 export { SyncEngine, type SyncResult, type Logger } from './services/sync-engine.js';
 export {
   DistributedLockService,
   withDistributedLock,
   type DistributedLockOptions,
 } from './services/distributed-lock.js';
+export {
+  ChangeLogService,
+  type FieldChange,
+  type LogChangeParams,
+  type GetChangeLogsOptions,
+  type GetConflictsOptions,
+} from './services/change-log-service.js';
 
 // Formatters
 export { LabelFormatter } from './formatters/label-formatter.js';

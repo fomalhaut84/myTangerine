@@ -89,22 +89,22 @@ describe('Integration: SheetService + LabelFormatter', () => {
       // 4. 검증: 구조 확인
       expect(result).toContain('=== 2024-12-05 ===');
 
-      // 발송인 1: 김철수
-      expect(result).toContain('보내는사람');
-      expect(result).toContain('서울시 강남구 테헤란로 123 김철수 010-1234-5678');
+      // 주문자 1: 김철수
+      expect(result).toContain('주문자');
+      expect(result).toContain('김철수');
       expect(result).toContain('서울시 송파구 올림픽로 456 이영희 010-9876-5432');
       expect(result).toContain('5kg / 2박스');
 
-      // 발송인 2: 박민수
-      expect(result).toContain('부산시 해운대구 해변로 789 박민수 010-5555-6666');
+      // 주문자 2: 박민수
+      expect(result).toContain('박민수');
       expect(result).toContain('대구시 수성구 범어로 321 최지훈 010-7777-8888');
       expect(result).toContain('10kg / 1박스');
 
-      // 요약
+      // 요약 (금액 제외, 수량만)
       expect(result).toContain('주문 요약');
-      expect(result).toContain('5kg 주문: 2박스 (40,000원)');
-      expect(result).toContain('10kg 주문: 1박스 (35,000원)');
-      expect(result).toContain('총 주문금액: 75,000원');
+      expect(result).toContain('5kg 주문: 2박스');
+      expect(result).toContain('10kg 주문: 1박스');
+      expect(result).toContain('총 주문: 3박스');
     });
 
     it('should handle empty sender info with defaultSender fallback', () => {
@@ -128,8 +128,10 @@ describe('Integration: SheetService + LabelFormatter', () => {
       const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
       const result = formatter.formatLabels(orders);
 
-      // 기본 발송인 정보가 사용되어야 함
-      expect(result).toContain('제주도 제주시 정실3길 113 기본발송인 010-6395-0618');
+      // 주문자 정보 표시 (주문자 정보가 없으면 defaultSender 이름 사용)
+      expect(result).toContain('주문자');
+      expect(result).toContain('기본발송인'); // defaultSender.name이 ordererName으로 사용됨
+      // 수취인 정보 확인
       expect(result).toContain('서울시 송파구 올림픽로 456 이영희 010-9876-5432');
     });
 
@@ -204,10 +206,10 @@ describe('Integration: SheetService + LabelFormatter', () => {
       expect(result).toContain('=== 2024-12-05 ===');
       expect(result).toContain('=== 2024-12-06 ===');
 
-      // 발송인 그룹화 확인: "보내는사람"이 3번 나타나야 함
-      // (날짜1-발송인1, 날짜1-발송인2, 날짜2-발송인1)
-      const senderMatches = result.match(/보내는사람/g);
-      expect(senderMatches).toHaveLength(3);
+      // 주문자 그룹화 확인: "주문자"가 3번 나타나야 함
+      // (날짜1-주문자1, 날짜1-주문자2, 날짜2-주문자1)
+      const ordererMatches = result.match(/주문자/g);
+      expect(ordererMatches).toHaveLength(3);
 
       // 김철수 섹션에 수취인1, 수취인2가 함께 있어야 함
       const day1Section = result.split('=== 2024-12-06 ===')[0];
@@ -269,11 +271,11 @@ describe('Integration: SheetService + LabelFormatter', () => {
       const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
       const result = formatter.formatLabels(orders);
 
-      // 같은 발송인이므로 보내는사람은 1번만
-      const senderMatches = result.match(/보내는사람/g);
-      expect(senderMatches).toHaveLength(1);
+      // 같은 주문자이므로 주문자는 1번만
+      const ordererMatches = result.match(/주문자/g);
+      expect(ordererMatches).toHaveLength(1);
 
-      // 모든 수취인이 같은 발송인 아래 그룹화
+      // 모든 수취인이 같은 주문자 아래 그룹화
       expect(result).toContain('수취인1');
       expect(result).toContain('수취인2');
       expect(result).toContain('수취인3');
@@ -283,10 +285,10 @@ describe('Integration: SheetService + LabelFormatter', () => {
       expect(result).toContain('10kg / 1박스');
       expect(result).toContain('5kg / 1박스');
 
-      // 요약
-      expect(result).toContain('5kg 주문: 3박스 (60,000원)');
-      expect(result).toContain('10kg 주문: 1박스 (35,000원)');
-      expect(result).toContain('총 주문금액: 95,000원');
+      // 요약 (금액 제외, 수량만)
+      expect(result).toContain('5kg 주문: 3박스');
+      expect(result).toContain('10kg 주문: 1박스');
+      expect(result).toContain('총 주문: 4박스');
     });
 
     it('should correctly parse Korean timestamps and sort chronologically', () => {
@@ -368,9 +370,10 @@ describe('Integration: SheetService + LabelFormatter', () => {
       const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
       const result = formatter.formatLabels(orders);
 
-      // 포맷팅된 전화번호 확인
-      expect(result).toContain('010-1234-5678'); // 0 추가 + 포맷팅
-      expect(result).toContain('010-9876-5432'); // 공백 제거 + 포맷팅
+      // 포맷팅된 전화번호 확인 (수취인 전화번호만 확인 - 발송인과 주문자가 같으면 보내는분 표시 안됨)
+      expect(result).toContain('주문자');
+      expect(result).toContain('김철수');
+      expect(result).toContain('010-9876-5432'); // 수취인 전화번호 - 공백 제거 + 포맷팅
     });
   });
 
@@ -405,7 +408,8 @@ describe('Integration: SheetService + LabelFormatter', () => {
       const result = formatter.formatLabels(orders);
 
       expect(result).toContain('5kg / 100박스');
-      expect(result).toContain('5kg 주문: 100박스 (2,000,000원)');
+      expect(result).toContain('5kg 주문: 100박스');
+      expect(result).toContain('총 주문: 100박스');
     });
   });
 });

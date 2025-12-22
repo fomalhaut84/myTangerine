@@ -1,3 +1,8 @@
+/**
+ * 누적 수량/매출 Area Chart
+ * Issue #134: 모바일 반응형 차트 개선
+ */
+
 'use client';
 
 import { useState, useEffect } from 'react';
@@ -11,6 +16,7 @@ import {
   Legend,
   ResponsiveContainer,
 } from 'recharts';
+import { useMediaQuery } from '@/hooks/use-media-query';
 
 interface MonthlyStats {
   period: string;
@@ -31,6 +37,7 @@ interface AreaChartStatsProps {
 export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
   const [mounted, setMounted] = useState(false);
   const isQuantity = metric === 'quantity';
+  const isMobile = useMediaQuery('(max-width: 639px)');
 
   useEffect(() => {
     // DOM이 완전히 준비된 후 차트 렌더링
@@ -75,10 +82,16 @@ export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
   }>);
 
   return (
-    <div className="h-[350px]">
+    <div className="h-64 sm:h-[350px]">
       {mounted ? (
-        <ResponsiveContainer width="100%" height={350}>
-          <AreaChart data={chartData}>
+        <ResponsiveContainer width="100%" height="100%">
+          <AreaChart
+            data={chartData}
+            margin={isMobile
+              ? { top: 5, right: 10, left: 0, bottom: 5 }
+              : { top: 5, right: 30, left: 20, bottom: 5 }
+            }
+          >
             <defs>
               <linearGradient id="color5kg" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="5%" stopColor="#f97316" stopOpacity={0.8} />
@@ -93,16 +106,18 @@ export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
             <XAxis
               dataKey="month"
               className="text-xs"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: isMobile ? 10 : 12 }}
             />
             <YAxis
               className="text-xs"
-              tick={{ fontSize: 12 }}
+              tick={{ fontSize: isMobile ? 10 : 12 }}
+              width={isMobile ? 35 : 60}
               tickFormatter={(value) => {
                 if (isQuantity) {
                   return value.toLocaleString();
                 }
-                return `${(value / 1000).toFixed(0)}K`;
+                // 금액: 만 단위로 표시 (다른 차트와 일관성)
+                return (value / 10000).toFixed(0);
               }}
             />
             <Tooltip
@@ -114,15 +129,15 @@ export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
                 const label = isQuantity ? '수량' : '매출';
 
                 return (
-                  <div className="bg-background border rounded-lg shadow-lg p-3">
-                    <p className="font-semibold text-sm mb-2">{data.fullDate}</p>
+                  <div className="bg-background border rounded-lg shadow-lg p-2 sm:p-3">
+                    <p className="font-semibold text-xs sm:text-sm mb-1 sm:mb-2">{data.fullDate}</p>
                     <div className="space-y-1 text-xs">
                       <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-orange-500" />
+                        <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-orange-500" />
                         <span>5kg 누적: {data.cumulative5kg.toLocaleString()}{unit}</span>
                       </div>
                       <div className="flex items-center gap-2">
-                        <div className="w-3 h-3 rounded-full bg-green-500" />
+                        <div className="w-2 h-2 sm:w-3 sm:h-3 rounded-full bg-green-500" />
                         <span>10kg 누적: {data.cumulative10kg.toLocaleString()}{unit}</span>
                       </div>
                       <div className="pt-1 mt-1 border-t">
@@ -139,7 +154,7 @@ export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
               }}
             />
             <Legend
-              wrapperStyle={{ fontSize: '14px' }}
+              wrapperStyle={{ fontSize: isMobile ? '12px' : '14px' }}
               formatter={(value) => {
                 const labels: Record<string, string> = {
                   cumulative5kg: '5kg 누적',

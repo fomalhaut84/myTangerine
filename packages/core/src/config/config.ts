@@ -160,9 +160,37 @@ export class Config {
     return this.env.SPREADSHEET_NAME;
   }
 
-  /** 스프레드시트 ID */
+  /**
+   * 스프레드시트 ID
+   * 우선순위: SPREADSHEET_ID > SPREADSHEET_ID_{ENV} > undefined (이름으로 검색)
+   */
   get spreadsheetId(): string | undefined {
-    return this.env.SPREADSHEET_ID;
+    // 1. SPREADSHEET_ID가 있으면 최우선 사용
+    if (this.env.SPREADSHEET_ID) {
+      return this.env.SPREADSHEET_ID;
+    }
+
+    // 2. NODE_ENV에 따라 환경별 ID 선택
+    if (this.isProduction && this.env.SPREADSHEET_ID_PROD) {
+      return this.env.SPREADSHEET_ID_PROD;
+    }
+
+    if (this.isDevelopment && this.env.SPREADSHEET_ID_DEV) {
+      return this.env.SPREADSHEET_ID_DEV;
+    }
+
+    // 3. 없으면 undefined (스프레드시트 이름으로 검색)
+    return undefined;
+  }
+
+  /** 개발 환경 스프레드시트 ID (디버그용) */
+  get spreadsheetIdDev(): string | undefined {
+    return this.env.SPREADSHEET_ID_DEV;
+  }
+
+  /** 프로덕션 환경 스프레드시트 ID (디버그용) */
+  get spreadsheetIdProd(): string | undefined {
+    return this.env.SPREADSHEET_ID_PROD;
   }
 
   /** 기본 발송인 정보 */

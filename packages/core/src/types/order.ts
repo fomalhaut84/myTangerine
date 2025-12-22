@@ -24,9 +24,79 @@ export interface Recipient {
 export type ProductType = '비상품' | '5kg' | '10kg';
 
 /**
- * 주문 상태 (한국어 원본 값)
+ * 주문 상태 (3단계 상태 체계)
+ * - 신규주문: 주문이 접수된 초기 상태
+ * - 입금확인: 입금이 확인된 상태
+ * - 배송완료: 배송이 완료된 상태
  */
-export type OrderStatus = '' | '확인' | string;
+export type OrderStatus = '신규주문' | '입금확인' | '배송완료';
+
+/**
+ * API에서 사용하는 상태 필터 값
+ * - new: 신규주문
+ * - pending_payment: 입금확인
+ * - completed: 배송완료 (하위 호환성 유지)
+ * - all: 전체
+ */
+export type OrderStatusFilter = 'new' | 'pending_payment' | 'completed' | 'all';
+
+/**
+ * 원본 상태 값을 새로운 3단계 상태로 정규화
+ * - "" (빈 문자열) → "신규주문"
+ * - "확인" → "배송완료" (기존 확인은 배송 완료로 간주)
+ * - "신규주문", "입금확인", "배송완료" → 그대로 유지
+ *
+ * 주의: 모든 비교는 trim() 처리 후 수행 (시트 입력 시 공백 포함 가능성)
+ */
+export function normalizeOrderStatus(rawStatus: string | undefined | null): OrderStatus {
+  if (!rawStatus) {
+    return '신규주문';
+  }
+
+  const trimmed = rawStatus.trim();
+
+  if (trimmed === '' || trimmed === '신규주문') {
+    return '신규주문';
+  }
+  if (trimmed === '확인' || trimmed === '배송완료') {
+    return '배송완료';
+  }
+  if (trimmed === '입금확인') {
+    return '입금확인';
+  }
+
+  // 알 수 없는 값은 경고 로그 후 신규주문으로 처리
+  console.warn(`[normalizeOrderStatus] 알 수 없는 상태값: "${rawStatus}" → "신규주문"으로 정규화`);
+  return '신규주문';
+}
+
+/**
+ * OrderStatus를 API 필터 값으로 변환
+ */
+export function orderStatusToFilter(status: OrderStatus): Exclude<OrderStatusFilter, 'all'> {
+  switch (status) {
+    case '신규주문':
+      return 'new';
+    case '입금확인':
+      return 'pending_payment';
+    case '배송완료':
+      return 'completed';
+  }
+}
+
+/**
+ * API 필터 값을 OrderStatus로 변환
+ */
+export function filterToOrderStatus(filter: Exclude<OrderStatusFilter, 'all'>): OrderStatus {
+  switch (filter) {
+    case 'new':
+      return '신규주문';
+    case 'pending_payment':
+      return '입금확인';
+    case 'completed':
+      return '배송완료';
+  }
+}
 
 /**
  * 주문 유형 (판매 vs 선물)
@@ -84,6 +154,21 @@ export interface SheetRow {
 
   /** DB 싱크 시도 횟수 (Phase 2.1+, DB에서 가져온 경우만) */
   _syncAttemptCount?: number;
+
+  /** Soft Delete 타임스탬프 (Phase 3, 삭제된 경우 ISO 문자열) */
+  '삭제됨'?: string;
+
+  /** 송장번호 (배송완료 시 입력) */
+  '송장번호'?: string;
+
+  /** 주문자 성함 (폼 응답에서 직접 입력) */
+  '주문자 성함'?: string;
+
+  /** 이메일 주소 (폼 응답에서 직접 입력) */
+  '이메일 주소'?: string;
+
+  /** Soft Delete 여부 (내부 사용) */
+  _isDeleted?: boolean;
 }
 
 /**
@@ -99,6 +184,12 @@ export interface Order {
 
   /** 주문 상태 */
   status: OrderStatus;
+
+  /** 주문자 성함 (스프레드시트 '주문자 성함' 컬럼) */
+  ordererName?: string;
+
+  /** 주문자 이메일 (스프레드시트 '이메일 주소' 컬럼) */
+  ordererEmail?: string;
 
   /** 발송인 정보 */
   sender: Sender;
@@ -120,6 +211,15 @@ export interface Order {
 
   /** 검증 에러 메시지 (검증 실패 시) */
   validationError?: string;
+
+  /** Soft Delete 여부 (Phase 3) */
+  isDeleted: boolean;
+
+  /** 삭제된 시간 (Phase 3, 삭제된 경우만) */
+  deletedAt?: Date;
+
+  /** 송장번호 (배송완료 시 입력) */
+  trackingNumber?: string;
 
   /** 원본 시트 행 데이터 (디버깅용) */
   _raw?: SheetRow;
@@ -363,10 +463,23 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     };
   }
 
+  // Soft Delete 처리 (P2 Fix: Invalid Date 방어)
+  let deletedAt: Date | undefined = undefined;
+  if (row['삭제됨']) {
+    const parsedDate = new Date(row['삭제됨']);
+    if (!isNaN(parsedDate.getTime())) {
+      deletedAt = parsedDate;
+    }
+    // Invalid Date는 무시 (deletedAt = undefined)
+  }
+  const isDeleted = row._isDeleted || deletedAt !== undefined;
+
   return {
     timestamp,
     timestampRaw: row['타임스탬프'],
-    status: row['비고'] as OrderStatus,
+    status: normalizeOrderStatus(row['비고']),
+    ordererName: row['주문자 성함'] || undefined,
+    ordererEmail: row['이메일 주소'] || undefined,
     sender,
     recipient: {
       name: row['받으실분 성함'],
@@ -378,6 +491,9 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     rowNumber: row._rowNumber || 0,
     orderType,
     validationError,
+    isDeleted,
+    deletedAt,
+    trackingNumber: row['송장번호'] || undefined,
     _raw: row,
   };
 }

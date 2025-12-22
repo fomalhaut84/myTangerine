@@ -1,8 +1,8 @@
 import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { Config } from '../config/config.js';
-import type { SheetRow } from '../types/order.js';
-import { validateProductSelection } from '../types/order.js';
+import type { SheetRow, OrderStatus } from '../types/order.js';
+import { validateProductSelection, normalizeOrderStatus } from '../types/order.js';
 import fs from 'fs';
 
 /**
@@ -194,8 +194,9 @@ export class SheetService {
 
   /**
    * 모든 행 가져오기
+   * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
-  async getAllRows(): Promise<SheetRow[]> {
+  async getAllRows(includeDeleted: boolean = false): Promise<SheetRow[]> {
     // 매 요청마다 로그 캐시 초기화 (수정된 데이터의 재검증을 위해)
     this.loggedInvalidRows.clear();
 
@@ -237,7 +238,7 @@ export class SheetService {
       // 필수 필드가 비어있는 행은 제외 (데이터 정합성 유지)
       // 타임스탬프, 받으실분 정보(이름, 주소, 전화번호)는 반드시 필요
       // 상품 선택은 검증하되, 실패해도 제외하지 않고 _validationError 필드에 저장
-      return allRows.filter((row) => {
+      const validRows = allRows.filter((row) => {
         const timestamp = row['타임스탬프'] || '';
         const recipientName = row['받으실분 성함'] || '';
         const recipientAddress = row['받으실분 주소 (도로명 주소로 부탁드려요)'] || '';
@@ -276,6 +277,20 @@ export class SheetService {
 
         return true;
       });
+
+      // Soft Delete 필터링 (Phase 3)
+      if (!includeDeleted) {
+        return validRows.filter((row) => {
+          // '삭제됨' 컬럼에 값이 있거나 _isDeleted 플래그가 true면 제외
+          const deletedValue = row['삭제됨'];
+          if (row._isDeleted || (deletedValue && deletedValue.trim() !== '')) {
+            return false;
+          }
+          return true;
+        });
+      }
+
+      return validRows;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to get all rows: ${message}`);
@@ -284,11 +299,23 @@ export class SheetService {
 
   /**
    * Status별 주문 가져오기
-   * @param status - 'new' (비고 != "확인"), 'completed' (비고 == "확인"), 'all' (모든 행)
+   *
+   * Phase 3: 3단계 상태 체계
+   * - 'new' → 신규주문 (비고 = '신규주문' 또는 빈 문자열)
+   * - 'pending_payment' → 입금확인 (비고 = '입금확인')
+   * - 'completed' → 배송완료 (비고 = '배송완료' 또는 '확인')
+   * - 'all' → 모든 상태
+   *
+   * @param status - 상태 필터
+   * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
-  async getOrdersByStatus(status: 'new' | 'completed' | 'all' = 'new'): Promise<SheetRow[]> {
+  async getOrdersByStatus(
+    status: 'new' | 'pending_payment' | 'completed' | 'all' = 'new',
+    includeDeleted: boolean = false
+  ): Promise<SheetRow[]> {
     try {
-      const allRows = await this.getAllRows();
+      // getAllRows(true)로 모든 행 가져오고 여기서 soft delete 필터링 수행
+      const allRows = await this.getAllRows(true);
 
       if (allRows.length === 0) {
         // status='new'일 때만 newOrderRows 초기화 (race condition 방지)
@@ -301,22 +328,45 @@ export class SheetService {
       // 필수 컬럼 검증
       this.validateRequiredColumns(allRows[0]);
 
+      // Soft Delete 필터링 (P2 Fix: 공백 문자열도 빈값으로 취급)
+      let baseRows = allRows;
+      if (!includeDeleted) {
+        baseRows = allRows.filter(row => {
+          const deletedValue = row['삭제됨'];
+          const isDeleted = row._isDeleted || (deletedValue && deletedValue.trim() !== '');
+          return !isDeleted;
+        });
+      }
+
       // Status에 따라 필터링
       let filteredOrders: SheetRow[];
 
       switch (status) {
         case 'completed':
-          // 비고가 "확인"인 주문
-          filteredOrders = allRows.filter(row => row['비고'] === '확인');
+          // 배송완료 (하위 호환: '확인'도 포함)
+          filteredOrders = baseRows.filter(row => {
+            const normalized = normalizeOrderStatus(row['비고']);
+            return normalized === '배송완료';
+          });
+          break;
+        case 'pending_payment':
+          // 입금확인
+          filteredOrders = baseRows.filter(row => {
+            const normalized = normalizeOrderStatus(row['비고']);
+            return normalized === '입금확인';
+          });
           break;
         case 'all':
           // 모든 주문
-          filteredOrders = allRows;
+          filteredOrders = baseRows;
           break;
         case 'new':
         default:
-          // 비고가 "확인"이 아닌 주문 (기본값)
-          filteredOrders = allRows.filter(row => row['비고'] !== '확인');
+          // 신규주문 (하위 호환: 빈 문자열도 포함)
+          filteredOrders = baseRows.filter(row => {
+            const normalized = normalizeOrderStatus(row['비고']);
+            return normalized === '신규주문';
+          });
           break;
       }
 
@@ -535,8 +585,9 @@ export class SheetService {
   }
 
   /**
-   * 처리된 주문을 "확인"으로 표시 (Python 버전과 동일한 로직)
-   * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 newOrderRows 사용 (하위 호환성)
+   * 처리된 주문을 "배송완료"로 표시
+   * Phase 3: '확인' → '배송완료'로 변경 (하위 호환성 유지)
+   * @param rowNumbers - 처리할 행 번호 배열 (선택). 미제공 시 newOrderRows 사용 (하위 호환성)
    */
   async markAsConfirmed(rowNumbers?: number[]): Promise<void> {
     try {
@@ -557,23 +608,37 @@ export class SheetService {
 
       const 비고Col = 비고ColIndex + 1; // 1-based
 
-      // 지정된 주문 행을 '확인'으로 업데이트
+      // 지정된 주문 행을 '배송완료'로 업데이트
       for (const rowNum of targetRows) {
-        await this.updateCell(rowNum, 비고Col, '확인');
+        await this.updateCell(rowNum, 비고Col, '배송완료');
       }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to mark orders as confirmed: ${message}`);
+      throw new Error(`Failed to mark orders as delivered: ${message}`);
     }
   }
 
   /**
-   * 특정 주문 행을 "확인"으로 표시
+   * 특정 주문 행을 "배송완료"로 표시
+   * Phase 3: '확인' → '배송완료'로 변경 (하위 호환성 유지)
    * @param rowNumber 스프레드시트 행 번호 (1-based, 헤더 포함)
    */
   async markSingleAsConfirmed(rowNumber: number): Promise<void> {
     try {
-      // 헤더 가져오기 (캐싱됨)
+      await this.updateOrderStatus(rowNumber, '배송완료');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark single order as delivered: ${message}`);
+    }
+  }
+
+  /**
+   * 주문 상태 변경 (Phase 3)
+   * @param rowNumber - 행 번호
+   * @param newStatus - 새 상태 ('신규주문' | '입금확인' | '배송완료')
+   */
+  async updateOrderStatus(rowNumber: number, newStatus: OrderStatus): Promise<void> {
+    try {
       const headers = await this.getHeaders();
 
       const 비고ColIndex = headers.findIndex(h => h === '비고');
@@ -583,11 +648,221 @@ export class SheetService {
 
       const 비고Col = 비고ColIndex + 1; // 1-based
 
-      // 특정 행을 '확인'으로 업데이트
-      await this.updateCell(rowNumber, 비고Col, '확인');
+      await this.updateCell(rowNumber, 비고Col, newStatus);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to mark single order as confirmed: ${message}`);
+      throw new Error(`Failed to update order status (row: ${rowNumber}, status: ${newStatus}): ${message}`);
+    }
+  }
+
+  /**
+   * 입금확인 처리 (Phase 3)
+   * @param rowNumbers - 처리할 행 번호 배열
+   */
+  async markPaymentConfirmed(rowNumbers: number[]): Promise<void> {
+    try {
+      for (const rowNum of rowNumbers) {
+        await this.updateOrderStatus(rowNum, '입금확인');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark payment confirmed (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * 배송완료 처리 (Phase 3)
+   * @param rowNumbers - 처리할 행 번호 배열
+   * @param trackingNumber - 송장번호 (선택)
+   */
+  async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
+    try {
+      const headers = await this.getHeaders();
+
+      for (const rowNum of rowNumbers) {
+        await this.updateOrderStatus(rowNum, '배송완료');
+
+        // 송장번호가 제공된 경우 저장
+        if (trackingNumber) {
+          const 송장번호ColIndex = headers.findIndex(h => h === '송장번호');
+
+          if (송장번호ColIndex !== -1) {
+            const 송장번호Col = 송장번호ColIndex + 1; // 1-based
+            await this.updateCell(rowNum, 송장번호Col, trackingNumber);
+          } else {
+            console.warn("[SheetService] '송장번호' column not found. Tracking number not saved.");
+          }
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark as delivered (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * Soft Delete (Phase 3)
+   * '삭제됨' 컬럼에 현재 시각을 기록
+   * @param rowNumbers - 삭제할 행 번호 배열
+   */
+  async softDelete(rowNumbers: number[]): Promise<void> {
+    try {
+      const headers = await this.getHeaders();
+
+      let 삭제됨ColIndex = headers.findIndex(h => h === '삭제됨');
+
+      // '삭제됨' 컬럼이 없으면 경고 (컬럼 추가는 별도 작업 필요)
+      if (삭제됨ColIndex === -1) {
+        console.warn("[SheetService] '삭제됨' column not found. Soft delete may not work properly.");
+        return;
+      }
+
+      const 삭제됨Col = 삭제됨ColIndex + 1; // 1-based
+      const now = new Date().toISOString();
+
+      for (const rowNum of rowNumbers) {
+        await this.updateCell(rowNum, 삭제됨Col, now);
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to soft delete orders (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * Soft Delete 복원 (Phase 3)
+   * '삭제됨' 컬럼을 빈 문자열로 설정
+   * @param rowNumbers - 복원할 행 번호 배열
+   */
+  async restore(rowNumbers: number[]): Promise<void> {
+    try {
+      const headers = await this.getHeaders();
+
+      let 삭제됨ColIndex = headers.findIndex(h => h === '삭제됨');
+
+      if (삭제됨ColIndex === -1) {
+        console.warn("[SheetService] '삭제됨' column not found.");
+        return;
+      }
+
+      const 삭제됨Col = 삭제됨ColIndex + 1; // 1-based
+
+      for (const rowNum of rowNumbers) {
+        await this.updateCell(rowNum, 삭제됨Col, '');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to restore orders (rows: ${rowNumbers.join(', ')}): ${message}`);
+    }
+  }
+
+  /**
+   * 삭제된 주문만 조회 (Phase 3)
+   */
+  async getDeletedOrders(): Promise<SheetRow[]> {
+    try {
+      // P1 Fix: 삭제된 행을 포함하여 조회해야 함
+      const allRows = await this.getAllRows(true);
+      // P2 Fix: 공백 문자열도 빈값으로 취급
+      return allRows.filter(row => {
+        const deletedValue = row['삭제됨'];
+        return row._isDeleted || (deletedValue && deletedValue.trim() !== '');
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to get deleted orders: ${message}`);
+    }
+  }
+
+  /**
+   * 주문 정보 수정 (Issue #136)
+   * 수정 가능한 필드만 업데이트
+   *
+   * @param rowNumber - 행 번호 (1-based)
+   * @param updates - 업데이트할 필드들
+   */
+  async updateOrder(
+    rowNumber: number,
+    updates: {
+      sender?: { name?: string; phone?: string; address?: string };
+      recipient?: { name?: string; phone?: string; address?: string };
+      productType?: '5kg' | '10kg' | '비상품';
+      quantity?: number;
+      orderType?: 'customer' | 'gift';
+      trackingNumber?: string;
+    }
+  ): Promise<void> {
+    try {
+      // 필드 매핑: Order 필드 -> 시트 컬럼명
+      const columnUpdates: Record<string, string> = {};
+
+      // 발송인 정보
+      if (updates.sender) {
+        if (updates.sender.name !== undefined) {
+          columnUpdates['보내는분 성함'] = updates.sender.name;
+        }
+        if (updates.sender.phone !== undefined) {
+          columnUpdates['보내는분 연락처 (핸드폰번호)'] = updates.sender.phone;
+        }
+        if (updates.sender.address !== undefined) {
+          columnUpdates['보내는분 주소 (도로명 주소로 부탁드려요)'] = updates.sender.address;
+        }
+      }
+
+      // 수취인 정보
+      if (updates.recipient) {
+        if (updates.recipient.name !== undefined) {
+          columnUpdates['받으실분 성함'] = updates.recipient.name;
+        }
+        if (updates.recipient.phone !== undefined) {
+          columnUpdates['받으실분 연락처 (핸드폰번호)'] = updates.recipient.phone;
+        }
+        if (updates.recipient.address !== undefined) {
+          columnUpdates['받으실분 주소 (도로명 주소로 부탁드려요)'] = updates.recipient.address;
+        }
+      }
+
+      // 상품 정보
+      if (updates.productType !== undefined) {
+        columnUpdates['상품 선택'] = updates.productType;
+      }
+
+      // 수량 (5kg 또는 10kg 수량 컬럼에 저장)
+      if (updates.quantity !== undefined) {
+        // 현재 주문 조회하여 상품 타입 확인
+        const currentOrder = await this.getOrderByRowNumber(rowNumber);
+        if (currentOrder) {
+          const productType = updates.productType || currentOrder['상품 선택'];
+          if (productType?.includes('5kg')) {
+            columnUpdates['5kg 수량'] = String(updates.quantity);
+            columnUpdates['10kg 수량'] = '';
+          } else if (productType?.includes('10kg')) {
+            columnUpdates['10kg 수량'] = String(updates.quantity);
+            columnUpdates['5kg 수량'] = '';
+          }
+        }
+      }
+
+      // 주문 유형
+      if (updates.orderType !== undefined) {
+        columnUpdates['주문유형'] = updates.orderType === 'gift' ? '선물' : '판매';
+      }
+
+      // 송장번호
+      if (updates.trackingNumber !== undefined) {
+        columnUpdates['송장번호'] = updates.trackingNumber;
+      }
+
+      // 업데이트할 필드가 없으면 종료
+      if (Object.keys(columnUpdates).length === 0) {
+        return;
+      }
+
+      // 배치 업데이트 실행
+      await this.updateRowCells(rowNumber, columnUpdates);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update order (row: ${rowNumber}): ${message}`);
     }
   }
 }

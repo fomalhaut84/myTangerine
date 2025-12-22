@@ -72,9 +72,9 @@ describe('LabelFormatter', () => {
       // 날짜 헤더 확인
       expect(result).toContain('=== 2024-12-05 ===');
 
-      // 발송인 정보 확인
-      expect(result).toContain('보내는사람');
-      expect(result).toContain('서울시 강남구 테헤란로 123 김철수 010-1234-5678');
+      // 주문자 정보 확인 (발송인과 같은 경우 주문자만 표시)
+      expect(result).toContain('주문자');
+      expect(result).toContain('김철수');
 
       // 수취인 정보 확인
       expect(result).toContain('받는사람');
@@ -84,11 +84,11 @@ describe('LabelFormatter', () => {
       expect(result).toContain('주문상품');
       expect(result).toContain('5kg / 2박스');
 
-      // 요약 확인
+      // 요약 확인 (금액 제외, 수량만)
       expect(result).toContain('주문 요약');
-      expect(result).toContain('5kg 주문: 2박스 (40,000원)');
-      expect(result).toContain('10kg 주문: 0박스 (0원)');
-      expect(result).toContain('총 주문금액: 40,000원');
+      expect(result).toContain('5kg 주문: 2박스');
+      expect(result).toContain('10kg 주문: 0박스');
+      expect(result).toContain('총 주문: 2박스');
     });
 
     it('should use defaultSender when sender info is invalid', () => {
@@ -235,9 +235,9 @@ describe('LabelFormatter', () => {
       const dateHeaders = result.match(/=== 2024-12-05 ===/g);
       expect(dateHeaders).toHaveLength(1);
 
-      // 발송인 정보가 두 번 나타나야 함 (김철수, 이영희)
-      const senderHeaders = result.match(/보내는사람/g);
-      expect(senderHeaders).toHaveLength(2);
+      // 주문자 정보가 두 번 나타나야 함 (김철수, 이영희)
+      const ordererHeaders = result.match(/주문자/g);
+      expect(ordererHeaders).toHaveLength(2);
 
       // 김철수의 주문 2개가 함께 그룹화되어야 함
       const kimSection = result.split('이영희')[0];
@@ -305,10 +305,10 @@ describe('LabelFormatter', () => {
 
       const result = formatter.formatLabels(orders);
 
-      // 요약에서 합산 확인
-      expect(result).toContain('5kg 주문: 4박스 (80,000원)'); // 3 + 1
-      expect(result).toContain('10kg 주문: 2박스 (70,000원)');
-      expect(result).toContain('총 주문금액: 150,000원'); // 80000 + 70000
+      // 요약에서 합산 확인 (금액 제외, 수량만)
+      expect(result).toContain('5kg 주문: 4박스'); // 3 + 1
+      expect(result).toContain('10kg 주문: 2박스');
+      expect(result).toContain('총 주문: 6박스'); // 4 + 2
     });
 
     it('should format complex scenario with multiple dates and senders', () => {
@@ -376,10 +376,10 @@ describe('LabelFormatter', () => {
       expect(result).toContain('=== 2024-12-06 ===');
       expect(result).toContain('주문 요약');
 
-      // 전체 합산 확인
-      expect(result).toContain('5kg 주문: 5박스 (100,000원)');
-      expect(result).toContain('10kg 주문: 1박스 (35,000원)');
-      expect(result).toContain('총 주문금액: 135,000원');
+      // 전체 합산 확인 (금액 제외, 수량만)
+      expect(result).toContain('5kg 주문: 5박스');
+      expect(result).toContain('10kg 주문: 1박스');
+      expect(result).toContain('총 주문: 6박스');
     });
 
     it('should reset totals between formatLabels calls', () => {
@@ -560,19 +560,12 @@ describe('LabelFormatter', () => {
 
       const result = formatter.formatLabels(orders);
 
-      // 요약 정보 검증
+      // 요약 정보 검증 (금액 제외, 수량만)
       // 5kg: 2024(1) + 2025(1) = 2박스
       // 10kg: 2024(1) + 2025(1) = 2박스
       expect(result).toContain('5kg 주문: 2박스');
       expect(result).toContain('10kg 주문: 2박스');
-
-      // 금액 검증
-      // 5kg: 20,000 (2024) + 23,000 (2025) = 43,000원
-      // 10kg: 35,000 (2024) + 38,000 (2025) = 73,000원
-      // 총: 116,000원
-      expect(result).toContain('5kg 주문: 2박스 (43,000원)');
-      expect(result).toContain('10kg 주문: 2박스 (73,000원)');
-      expect(result).toContain('총 주문금액: 116,000원');
+      expect(result).toContain('총 주문: 4박스');
     });
 
     it('should handle orders in reverse chronological order', () => {
@@ -618,10 +611,10 @@ describe('LabelFormatter', () => {
 
       const result = formatter.formatLabels(orders);
 
-      // 금액이 정확히 계산되어야 함 (순서와 무관하게)
-      // 5kg: 23,000 (2025) + 20,000 (2024) = 43,000원
-      expect(result).toContain('5kg 주문: 2박스 (43,000원)');
-      expect(result).toContain('총 주문금액: 43,000원');
+      // 수량 확인 (금액 제외)
+      // 5kg: 2024(1) + 2025(1) = 2박스
+      expect(result).toContain('5kg 주문: 2박스');
+      expect(result).toContain('총 주문: 2박스');
     });
 
     it('should use oldest available price for orders older than configured years', () => {
@@ -650,9 +643,9 @@ describe('LabelFormatter', () => {
 
       const result = formatter.formatLabels(orders);
 
-      // 2024년 가격이 사용되어야 함
-      expect(result).toContain('5kg 주문: 1박스 (20,000원)');
-      expect(result).toContain('총 주문금액: 20,000원');
+      // 수량 확인 (금액 제외)
+      expect(result).toContain('5kg 주문: 1박스');
+      expect(result).toContain('총 주문: 1박스');
     });
   });
 });

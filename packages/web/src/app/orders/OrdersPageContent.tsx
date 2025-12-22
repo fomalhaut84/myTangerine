@@ -4,7 +4,7 @@
 
 'use client';
 
-import { useOrders, useConfirmOrders } from '@/hooks/use-orders';
+import { useOrders, useDeletedOrders } from '@/hooks/use-orders';
 import { OrdersTable } from '@/components/orders/OrdersTable';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/ui/input';
@@ -21,10 +21,12 @@ import { useSearchParams, useRouter } from 'next/navigation';
 import { downloadCSV, downloadExcel, getExportFilename } from '@/lib/export-utils';
 import { toast } from 'sonner';
 import { useKeyboardShortcuts } from '@/hooks/use-keyboard-shortcuts';
+import type { OrderStatusFilter } from '@/lib/api-client';
 
 type SortField = 'date' | 'quantity';
 type SortOrder = 'asc' | 'desc';
-type StatusFilter = 'new' | 'completed' | 'all';
+type StatusFilter = OrderStatusFilter;
+type ViewMode = 'active' | 'deleted';
 
 const ITEMS_PER_PAGE = 20;
 const SEARCH_DEBOUNCE_MS = 500;
@@ -34,6 +36,7 @@ export function OrdersPageContent() {
   const router = useRouter();
 
   // URL 쿼리 파라미터에서 초기값 읽기
+  const viewMode = (searchParams.get('view') as ViewMode) || 'active';
   const statusFilter = (searchParams.get('status') as StatusFilter) || 'new';
   const searchTerm = (searchParams.get('search') || '').trim();
   const productTypeFilter = searchParams.get('productType') || 'all';
@@ -44,9 +47,18 @@ export function OrdersPageContent() {
   // 로컬 검색어 상태 (즉시 반응)
   const [searchInput, setSearchInput] = useState(searchTerm);
 
-  const { data, isLoading, error } = useOrders(statusFilter);
-  const confirmMutation = useConfirmOrders();
+  // 활성 주문 조회 (viewMode가 active일 때만 실행)
+  const { data, isLoading, error } = useOrders(statusFilter, { enabled: viewMode === 'active' });
+  // 삭제된 주문 조회 (viewMode가 deleted일 때만 실행)
+  const { data: deletedData, isLoading: deletedLoading, error: deletedError } = useDeletedOrders({
+    enabled: viewMode === 'deleted',
+  });
   const searchInputRef = useRef<HTMLInputElement>(null);
+
+  // 현재 보기 모드에 따른 데이터 선택
+  const currentData = viewMode === 'deleted' ? deletedData : data;
+  const currentLoading = viewMode === 'deleted' ? deletedLoading : isLoading;
+  const currentError = viewMode === 'deleted' ? deletedError : error;
 
   // URL 쿼리 파라미터 업데이트 헬퍼 함수
   const updateQueryParams = (updates: Record<string, string | number>) => {
@@ -94,9 +106,9 @@ export function OrdersPageContent() {
 
   // 검색, 필터, 정렬이 적용된 주문 목록
   const filteredAndSortedOrders = useMemo(() => {
-    if (!data?.orders) return [];
+    if (!currentData?.orders) return [];
 
-    let filtered = data.orders;
+    let filtered = currentData.orders;
 
     // 검색 필터 (수취인 + 발송인 이름, 주소, 전화번호)
     if (searchTerm) {
@@ -138,7 +150,7 @@ export function OrdersPageContent() {
     });
 
     return sorted;
-  }, [data?.orders, searchTerm, productTypeFilter, sortField, sortOrder]);
+  }, [currentData?.orders, searchTerm, productTypeFilter, sortField, sortOrder]);
 
   // 페이지네이션 계산 (최소 1페이지 보장)
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedOrders.length / ITEMS_PER_PAGE));
@@ -169,6 +181,15 @@ export function OrdersPageContent() {
     setSearchInput(value);
   };
 
+  const handleViewModeChange = (mode: ViewMode) => {
+    const params = new URLSearchParams();
+    if (mode === 'deleted') {
+      params.set('view', 'deleted');
+    }
+    // active 모드는 기본값이므로 view 파라미터 생략
+    router.push(`/orders?${params.toString()}`, { scroll: false });
+  };
+
   const handleStatusChange = (value: StatusFilter) => {
     updateQueryParams({ status: value, page: 1 });
   };
@@ -186,19 +207,6 @@ export function OrdersPageContent() {
 
   const handlePageChange = (page: number) => {
     updateQueryParams({ page });
-  };
-
-  const handleConfirm = async () => {
-    if (!confirm('모든 주문을 확인 처리하시겠습니까?')) {
-      return;
-    }
-
-    try {
-      const result = await confirmMutation.mutateAsync();
-      toast.success(result.message);
-    } catch (error) {
-      toast.error('주문 확인 처리 중 오류가 발생했습니다.');
-    }
   };
 
   const handleDownloadCSV = () => {
@@ -232,10 +240,10 @@ export function OrdersPageContent() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 p-8">
+    <div className="min-h-screen bg-gray-50 p-4 sm:p-6 lg:p-8">
       <div className="max-w-7xl mx-auto">
         {/* 헤더 */}
-        <div className="flex justify-between items-center mb-8">
+        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 sm:mb-8">
           <div>
             <Link
               href="/dashboard"
@@ -243,54 +251,65 @@ export function OrdersPageContent() {
             >
               ← 대시보드로 돌아가기
             </Link>
-            <h1 className="text-3xl font-bold text-gray-900">
+            <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
               주문 목록
             </h1>
+            {/* 뷰 모드 토글 */}
+            <div className="flex gap-2 mt-2">
+              <button
+                onClick={() => handleViewModeChange('active')}
+                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                  viewMode === 'active'
+                    ? 'bg-blue-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                활성 주문
+              </button>
+              <button
+                onClick={() => handleViewModeChange('deleted')}
+                className={`px-3 py-1 text-sm rounded-full transition-colors ${
+                  viewMode === 'deleted'
+                    ? 'bg-red-600 text-white'
+                    : 'bg-gray-200 text-gray-700 hover:bg-gray-300'
+                }`}
+              >
+                삭제된 주문 {deletedData?.count ? `(${deletedData.count})` : ''}
+              </button>
+            </div>
           </div>
 
-          <div className="flex gap-3">
+          <div className="flex flex-wrap gap-2 sm:gap-3">
             <button
               onClick={handleDownloadCSV}
               disabled={
-                !data?.orders ||
-                data.orders.length === 0 ||
+                !currentData?.orders ||
+                currentData.orders.length === 0 ||
                 filteredAndSortedOrders.length === 0
               }
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              className="px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
             >
-              CSV 다운로드
+              CSV
             </button>
 
             <button
               onClick={handleDownloadExcel}
               disabled={
-                !data?.orders ||
-                data.orders.length === 0 ||
+                !currentData?.orders ||
+                currentData.orders.length === 0 ||
                 filteredAndSortedOrders.length === 0
               }
-              className="px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
+              className="px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
             >
-              Excel 다운로드
+              Excel
             </button>
 
             <Link
               href="/labels"
-              className="px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg font-medium transition-colors"
+              className="px-3 sm:px-4 py-2 bg-green-600 hover:bg-green-700 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
             >
               라벨 생성
             </Link>
-
-            <button
-              onClick={handleConfirm}
-              disabled={
-                confirmMutation.isPending ||
-                !data?.orders ||
-                data.orders.length === 0
-              }
-              className="px-4 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg font-medium transition-colors"
-            >
-              {confirmMutation.isPending ? '처리 중...' : '모두 확인'}
-            </button>
           </div>
         </div>
 
@@ -314,19 +333,24 @@ export function OrdersPageContent() {
             </div>
 
             {/* 필터 및 정렬 */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
               {/* 주문 상태 필터 */}
               <div>
                 <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-2">
                   주문 상태
                 </label>
-                <Select value={statusFilter} onValueChange={handleStatusChange}>
+                <Select
+                  value={statusFilter}
+                  onValueChange={handleStatusChange}
+                  disabled={viewMode === 'deleted'}
+                >
                   <SelectTrigger id="status-filter">
                     <SelectValue placeholder="신규 주문" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="new">신규 주문</SelectItem>
-                    <SelectItem value="completed">완료된 주문</SelectItem>
+                    <SelectItem value="new">신규주문</SelectItem>
+                    <SelectItem value="pending_payment">입금확인</SelectItem>
+                    <SelectItem value="completed">배송완료</SelectItem>
                     <SelectItem value="all">전체</SelectItem>
                   </SelectContent>
                 </Select>
@@ -386,24 +410,28 @@ export function OrdersPageContent() {
 
         {/* 주문 테이블 */}
         <Card>
-          {isLoading ? (
+          {currentLoading ? (
             <div className="animate-pulse space-y-4">
               {[...Array(5)].map((_, i) => (
                 <div key={i} className="h-12 bg-gray-200 rounded"></div>
               ))}
             </div>
-          ) : error ? (
+          ) : currentError ? (
             <div className="text-center py-12 text-red-600">
               주문 정보를 불러오는 중 오류가 발생했습니다.
             </div>
-          ) : data?.success && data.orders ? (
+          ) : currentData?.success && currentData.orders ? (
             <>
               <div className="mb-4 text-sm text-gray-600">
-                전체 <span className="font-semibold">{data.count}개</span> 중{' '}
+                전체 <span className="font-semibold">{currentData.count}개</span> 중{' '}
                 <span className="font-semibold">{filteredAndSortedOrders.length}개</span>{' '}
                 (페이지 {currentPage} / {totalPages})
               </div>
-              <OrdersTable orders={paginatedOrders} searchParams={searchParams} />
+              <OrdersTable
+                orders={paginatedOrders}
+                searchParams={searchParams}
+                showDeleted={viewMode === 'deleted'}
+              />
 
               {/* 페이지네이션 */}
               {totalPages > 1 && (

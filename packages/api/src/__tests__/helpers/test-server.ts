@@ -164,6 +164,12 @@ export async function createTestServer(): Promise<{
       quantity: { type: 'integer', minimum: 1 },
       rowNumber: { type: 'integer', minimum: 1 },
       validationError: { type: 'string' },
+      orderType: { type: 'string', enum: ['customer', 'gift'] },
+      isDeleted: { type: 'boolean' },
+      deletedAt: { type: 'string', format: 'date-time' },
+      trackingNumber: { type: 'string' },
+      ordererName: { type: 'string' },
+      ordererEmail: { type: 'string' },
     },
   });
 
@@ -206,9 +212,11 @@ export async function createTestServer(): Promise<{
   const labelFormatter = new LabelFormatter(config);
 
   // Core services decorator (mock 포함)
+  // dataService는 HybridDataService와 동일한 인터페이스를 구현한 mockSheetService 사용
   server.decorate('core', {
     config,
     sheetService: mockSheetService,
+    dataService: mockSheetService, // HybridDataService 대신 mock 사용
     labelFormatter,
   });
 

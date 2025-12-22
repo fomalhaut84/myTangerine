@@ -19,11 +19,17 @@ const envSchema = z.object({
   /** Google Sheets API 인증 JSON 문자열 (Python 호환, 우선순위 3) */
   GOOGLE_CREDENTIALS_JSON: z.string().optional(),
 
-  /** 스프레드시트 이름 */
+  /** 스프레드시트 이름 (SPREADSHEET_ID가 없을 때 사용) */
   SPREADSHEET_NAME: z.string().default('감귤 주문서(응답)'),
 
-  /** 스프레드시트 ID (선택 사항, 이름 대신 사용 가능) */
+  /** 스프레드시트 ID (최우선 - 환경별 설정보다 우선) */
   SPREADSHEET_ID: z.string().optional(),
+
+  /** 개발 환경 스프레드시트 ID */
+  SPREADSHEET_ID_DEV: z.string().optional(),
+
+  /** 프로덕션 환경 스프레드시트 ID */
+  SPREADSHEET_ID_PROD: z.string().optional(),
 
   /** 기본 발송인 주소 */
   DEFAULT_SENDER_ADDRESS: z.string().min(1, '기본 발송인 주소는 필수입니다'),

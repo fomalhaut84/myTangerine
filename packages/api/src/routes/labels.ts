@@ -11,7 +11,8 @@ import { calculateOrderAmount } from '../utils/stats.js';
  */
 const EMPTY_MESSAGES = {
   new: '새로운 주문이 없습니다.',
-  completed: '확인된 주문이 없습니다.',
+  pending_payment: '입금확인된 주문이 없습니다.',
+  completed: '배송완료된 주문이 없습니다.',
   all: '주문이 없습니다.',
 } as const;
 
@@ -24,7 +25,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
    * 포맷팅된 배송 라벨 생성
    */
   fastify.get<{
-    Querystring: { status?: 'new' | 'completed' | 'all' };
+    Querystring: { status?: 'new' | 'pending_payment' | 'completed' | 'all' };
   }>(
     '/api/labels',
     {
@@ -38,9 +39,9 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             status: {
               type: 'string',
-              enum: ['new', 'completed', 'all'],
+              enum: ['new', 'pending_payment', 'completed', 'all'],
               default: 'new',
-              description: '주문 상태 필터 (new: 미확인, completed: 확인됨, all: 전체)',
+              description: '주문 상태 필터 (new: 신규주문, pending_payment: 입금확인, completed: 배송완료, all: 전체)',
             },
           },
         },
@@ -78,7 +79,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
     try {
-      const { sheetService, config, labelFormatter } = fastify.core;
+      const { dataService, config, labelFormatter } = fastify.core;
 
       // 쿼리 파라미터에서 status 추출 (기본값: 'new')
       // Fastify 스키마가 enum 검증을 수행하므로 추가 검증 불필요
@@ -88,7 +89,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       reply.type('text/plain; charset=utf-8');
 
       // 상태별 주문 가져오기
-      const sheetRows = await sheetService.getOrdersByStatus(status);
+      const sheetRows = await dataService.getOrdersByStatus(status);
 
       if (sheetRows.length === 0) {
         return EMPTY_MESSAGES[status];
@@ -114,7 +115,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
    * 날짜/발신자별로 그룹화된 라벨 데이터 반환 (JSON)
    */
   fastify.get<{
-    Querystring: { status?: 'new' | 'completed' | 'all' };
+    Querystring: { status?: 'new' | 'pending_payment' | 'completed' | 'all' };
   }>(
     '/api/labels/grouped',
     {
@@ -127,9 +128,9 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
           properties: {
             status: {
               type: 'string',
-              enum: ['new', 'completed', 'all'],
+              enum: ['new', 'pending_payment', 'completed', 'all'],
               default: 'new',
-              description: '주문 상태 필터 (new: 미확인, completed: 확인됨, all: 전체)',
+              description: '주문 상태 필터 (new: 신규주문, pending_payment: 입금확인, completed: 배송완료, all: 전체)',
             },
           },
         },
@@ -194,14 +195,14 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       },
     },
     async (request) => {
-      const { sheetService, config } = fastify.core;
+      const { dataService, config } = fastify.core;
 
       // 쿼리 파라미터에서 status 추출 (기본값: 'new')
       // Fastify 스키마가 enum 검증을 수행하므로 추가 검증 불필요
       const status = request.query.status || 'new';
 
       // 상태별 주문 가져오기
-      const sheetRows = await sheetService.getOrdersByStatus(status);
+      const sheetRows = await dataService.getOrdersByStatus(status);
 
       if (sheetRows.length === 0) {
         return { success: true, data: [] };

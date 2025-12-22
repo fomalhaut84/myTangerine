@@ -55,11 +55,11 @@ export default function StatsPage() {
   // Custom range에서 날짜를 선택 중일 때
   if (range === 'custom' && (!customStart || !customEnd)) {
     return (
-      <div className="container mx-auto p-6 space-y-6">
+      <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
         {/* Header */}
         <div className="flex items-center justify-between">
           <div>
-            <h1 className="text-3xl font-bold tracking-tight">통계</h1>
+            <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">통계</h1>
             <p className="text-muted-foreground">
               완료된 주문 기반 상세 통계 및 분석
             </p>
@@ -152,11 +152,11 @@ export default function StatsPage() {
   const { summary, series, totalsByProduct } = stats;
 
   return (
-    <div className="container mx-auto p-6 space-y-6">
+    <div className="container mx-auto p-4 sm:p-6 space-y-4 sm:space-y-6">
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold tracking-tight">통계</h1>
+          <h1 className="text-2xl sm:text-3xl font-bold tracking-tight">통계</h1>
           <p className="text-muted-foreground">
             완료된 주문 기반 상세 통계 및 분석
           </p>
@@ -167,7 +167,7 @@ export default function StatsPage() {
       </div>
 
       {/* Order Type Tabs */}
-      <div className="flex gap-2">
+      <div className="flex flex-wrap gap-2">
         {ORDER_TYPE_TABS.map((tab) => {
           const Icon = tab.icon;
           const isActive = orderType === tab.value;
@@ -175,7 +175,7 @@ export default function StatsPage() {
             <button
               key={tab.value}
               onClick={() => setOrderType(tab.value)}
-              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+              className={`flex items-center gap-1 sm:gap-2 px-3 sm:px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
                 isActive
                   ? 'bg-primary text-primary-foreground'
                   : 'bg-muted hover:bg-muted/80'
@@ -273,7 +273,7 @@ export default function StatsPage() {
       </Card>
 
       {/* KPI Cards */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-3 sm:gap-4 grid-cols-2 lg:grid-cols-4">
         <KPICard
           title="총 매출"
           value={summary.totalRevenue}
@@ -301,7 +301,7 @@ export default function StatsPage() {
       </div>
 
       {/* Charts Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
+      <div className="grid gap-4 sm:gap-6 lg:grid-cols-2">
         {/* Line Chart */}
         <Card className="lg:col-span-2">
           <CardHeader>

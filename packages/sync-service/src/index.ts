@@ -6,7 +6,7 @@
  */
 
 import 'dotenv/config';
-import { Config, SheetService, DatabaseService } from '@mytangerine/core';
+import { Config, SheetService, DatabaseService, ChangeLogService } from '@mytangerine/core';
 import { SyncEngine } from './services/sync-engine.js';
 import { PollingScheduler } from './schedulers/polling-scheduler.js';
 import { logger } from './utils/logger.js';
@@ -35,8 +35,12 @@ async function main() {
     const databaseService = new DatabaseService(config);
     logger.info('DatabaseService initialized');
 
-    // SyncEngine 초기화 (logger 전달)
-    const syncEngine = new SyncEngine(sheetService, databaseService, logger);
+    // ChangeLogService 초기화 (Phase 2: 충돌 감지용)
+    const changeLogService = new ChangeLogService(databaseService.prisma);
+    logger.info('ChangeLogService initialized');
+
+    // SyncEngine 초기화 (logger + changeLogService 전달)
+    const syncEngine = new SyncEngine(sheetService, databaseService, logger, changeLogService);
     logger.info('SyncEngine initialized');
 
     // PollingScheduler 초기화 및 시작
