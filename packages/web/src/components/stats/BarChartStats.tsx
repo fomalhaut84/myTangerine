@@ -86,9 +86,10 @@ export function BarChartStats({ data, metric }: BarChartStatsProps) {
                 }}
               />
               <Tooltip
-                formatter={(value: number, name: string) => {
-                  const formattedValue = isQuantity ? `${value}박스` : `${value.toLocaleString()}원`;
-                  return [formattedValue, name];
+                formatter={(value, name) => {
+                  const v = value ?? 0;
+                  const formattedValue = isQuantity ? `${v}박스` : `${v.toLocaleString()}원`;
+                  return [formattedValue, name ?? ''];
                 }}
                 labelFormatter={(label, payload) => {
                   if (payload && payload.length > 0 && payload[0].payload) {

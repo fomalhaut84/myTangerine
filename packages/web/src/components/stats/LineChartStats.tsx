@@ -86,9 +86,11 @@ export function LineChartStats({ data, metric }: LineChartStatsProps) {
                 }}
               />
               <Tooltip
-                formatter={(value: number, name: string) => {
-                  const formattedValue = isQuantity ? value : `${value.toLocaleString()}원`;
-                  const label = name.includes('5kg') ? '5kg' : '10kg';
+                formatter={(value, name) => {
+                  const v = value ?? 0;
+                  const n = String(name ?? '');
+                  const formattedValue = isQuantity ? v : `${v.toLocaleString()}원`;
+                  const label = n.includes('5kg') ? '5kg' : '10kg';
                   return [formattedValue, label];
                 }}
                 labelFormatter={(label, payload) => {
