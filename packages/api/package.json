@@ -33,7 +33,7 @@
     "fastify": "^4.0.0",
     "fastify-plugin": "^4.0.0",
     "pdfmake": "^0.2.20",
-    "zod": "^3.22.0"
+    "zod": "^4.2.1"
   },
   "devDependencies": {
     "@types/node": "^24.10.2",
