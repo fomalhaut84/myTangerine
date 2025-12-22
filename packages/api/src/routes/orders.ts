@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, ChangeLogService } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -1075,6 +1075,232 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   );
 
   /**
+   * PATCH /api/orders/:rowNumber
+   * 주문 정보 수정 (Issue #136)
+   */
+  fastify.patch<{
+    Params: { rowNumber: string };
+    Body: {
+      sender?: { name?: string; phone?: string; address?: string };
+      recipient?: { name?: string; phone?: string; address?: string };
+      // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
+      orderType?: 'customer' | 'gift';
+      trackingNumber?: string;
+    };
+  }>(
+    '/api/orders/:rowNumber',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 정보 수정',
+        description: '주문의 수취인/발송인 정보, 주문 유형, 송장번호를 수정합니다. 상품 타입/수량은 수정 불가.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          minProperties: 1,
+          additionalProperties: false,
+          properties: {
+            sender: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', description: '발송인 이름' },
+                phone: { type: 'string', description: '발송인 전화번호' },
+                address: { type: 'string', description: '발송인 주소' },
+              },
+            },
+            recipient: {
+              type: 'object',
+              additionalProperties: false,
+              properties: {
+                name: { type: 'string', description: '수취인 이름' },
+                phone: { type: 'string', description: '수취인 전화번호' },
+                address: { type: 'string', description: '수취인 주소' },
+              },
+            },
+            // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
+            orderType: {
+              type: 'string',
+              enum: ['customer', 'gift'],
+              description: '주문 유형 (customer: 판매, gift: 선물)',
+            },
+            trackingNumber: {
+              type: 'string',
+              description: '송장번호 (입금확인/배송완료 상태에서만 수정 가능)',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message', 'order'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: { type: 'string', example: '주문이 수정되었습니다.' },
+              order: { $ref: 'Order#' },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          409: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService, config } = fastify.core;
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+      const updates = request.body;
+
+      // 행 번호 검증
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 존재 여부 확인
+      const sheetRow = await dataService.getOrderByRowNumber(rowNumber);
+      if (!sheetRow) {
+        return reply.code(404).send({
+          success: false,
+          error: `Order not found at row ${rowNumber}`,
+          statusCode: 404,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 삭제된 주문은 수정 불가
+      const isDeleted = sheetRow._isDeleted || (sheetRow['삭제됨'] && sheetRow['삭제됨'].trim() !== '');
+      if (isDeleted) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Cannot modify deleted order. Please restore it first.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 상태별 제약 검증
+      const currentStatus = normalizeOrderStatus(sheetRow['비고']);
+
+      // 송장번호 검증
+      if (updates.trackingNumber !== undefined) {
+        const trimmedTracking = updates.trackingNumber.trim();
+
+        // 신규주문 상태에서는 송장번호 수정 불가
+        if (currentStatus === '신규주문') {
+          return reply.code(409).send({
+            success: false,
+            error: '신규주문 상태에서는 송장번호를 수정할 수 없습니다. 먼저 입금확인 처리를 해주세요.',
+            statusCode: 409,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // 배송완료 상태에서는 송장번호 삭제 불가 (수정만 가능)
+        if (currentStatus === '배송완료' && trimmedTracking === '') {
+          return reply.code(409).send({
+            success: false,
+            error: '배송완료 상태에서는 송장번호를 삭제할 수 없습니다.',
+            statusCode: 409,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // normalize: 빈 문자열이면 빈 문자열 유지 (삭제), 아니면 앞뒤 공백 제거
+        // 빈 문자열은 시트에서 빈 셀로, DB에서는 null로 처리됨
+        updates.trackingNumber = trimmedTracking;
+      }
+
+      // 배송완료 상태에서는 송장번호만 수정 가능
+      if (currentStatus === '배송완료') {
+        const nonTrackingUpdates = Object.keys(updates).filter((key) => key !== 'trackingNumber');
+        if (nonTrackingUpdates.length > 0) {
+          return reply.code(409).send({
+            success: false,
+            error: `배송완료 상태에서는 송장번호만 수정할 수 있습니다. 수정 시도한 필드: ${nonTrackingUpdates.join(', ')}`,
+            statusCode: 409,
+            timestamp: new Date().toISOString(),
+          });
+        }
+      }
+
+      // 필드 검증
+      const validationErrors: string[] = [];
+
+      // 수취인 정보 검증
+      if (updates.recipient) {
+        if (updates.recipient.name !== undefined && updates.recipient.name.trim() === '') {
+          validationErrors.push('수취인 이름은 필수입니다.');
+        }
+        if (updates.recipient.phone !== undefined && updates.recipient.phone.trim() === '') {
+          validationErrors.push('수취인 전화번호는 필수입니다.');
+        }
+        if (updates.recipient.address !== undefined && updates.recipient.address.trim() === '') {
+          validationErrors.push('수취인 주소는 필수입니다.');
+        }
+      }
+
+      // 상품 타입/수량은 스키마에서 제외되어 있으므로 검증 불필요
+
+      if (validationErrors.length > 0) {
+        return reply.code(400).send({
+          success: false,
+          error: validationErrors.join(' '),
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // 주문 업데이트 실행
+      await dataService.updateOrder(rowNumber, updates);
+
+      // 통계 캐시 무효화
+      statsCache.invalidate(/^stats:/);
+
+      // 업데이트된 주문 조회
+      const updatedSheetRow = await dataService.getOrderByRowNumber(rowNumber);
+      const order = sheetRowToOrder(updatedSheetRow!, config);
+
+      return {
+        success: true,
+        message: '주문이 수정되었습니다.',
+        order: {
+          timestamp: order.timestamp.toISOString(),
+          timestampRaw: order.timestampRaw,
+          status: order.status,
+          sender: order.sender,
+          recipient: order.recipient,
+          productType: order.productType,
+          quantity: order.quantity,
+          rowNumber: order.rowNumber,
+          validationError: order.validationError,
+          orderType: order.orderType,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
+          ordererName: order.ordererName,
+          ordererEmail: order.ordererEmail,
+        },
+      };
+    }
+  );
+
+  /**
    * POST /api/orders/:rowNumber/confirm
    * 특정 주문을 "확인" 상태로 표시
    */
@@ -2006,6 +2232,359 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         success: true,
         data: result,
       };
+    }
+  );
+
+  // =========================================
+  // Phase 2: 변경 이력 + 충돌 감지 API
+  // =========================================
+
+  /**
+   * GET /api/orders/:rowNumber/history
+   * 주문 변경 이력 조회 (Phase 2)
+   */
+  fastify.get<{
+    Params: { rowNumber: string };
+    Querystring: { limit?: number; offset?: number };
+  }>(
+    '/api/orders/:rowNumber/history',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '주문 변경 이력 조회',
+        description: '특정 주문의 변경 이력을 조회합니다.',
+        params: {
+          type: 'object',
+          required: ['rowNumber'],
+          properties: {
+            rowNumber: {
+              type: 'string',
+              description: '스프레드시트 행 번호',
+              example: '5',
+            },
+          },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'history'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              history: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'integer' },
+                    changedAt: { type: 'string', format: 'date-time' },
+                    changedBy: { type: 'string', enum: ['web', 'sync', 'api'] },
+                    action: { type: 'string' },
+                    fieldChanges: { type: 'object' },
+                    previousVersion: { type: 'integer' },
+                    newVersion: { type: 'integer' },
+                    conflictDetected: { type: 'boolean' },
+                    conflictResolution: { type: ['string', 'null'] },
+                  },
+                },
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const rowNumber = parseInt(request.params.rowNumber, 10);
+      const { limit = 50, offset = 0 } = request.query;
+
+      if (isNaN(rowNumber) || rowNumber < 2) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      // 변경 이력 조회
+      const changeLogs = await changeLogService.getChangeLogsByRowNumber(rowNumber, { limit, offset });
+
+      return {
+        success: true,
+        history: changeLogs.map((log) => ({
+          id: log.id,
+          changedAt: log.changedAt.toISOString(),
+          changedBy: log.changedBy,
+          action: log.action,
+          fieldChanges: log.fieldChanges as Record<string, unknown>,
+          previousVersion: log.previousVersion,
+          newVersion: log.newVersion,
+          conflictDetected: log.conflictDetected,
+          conflictResolution: log.conflictResolution,
+        })),
+      };
+    }
+  );
+
+  /**
+   * GET /api/orders/conflicts
+   * 충돌 목록 조회 (Phase 2)
+   */
+  fastify.get<{
+    Querystring: { resolved?: string; limit?: number; offset?: number };
+  }>(
+    '/api/orders/conflicts',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '충돌 목록 조회',
+        description: 'sync 과정에서 감지된 충돌 목록을 조회합니다.',
+        querystring: {
+          type: 'object',
+          properties: {
+            resolved: {
+              type: 'string',
+              enum: ['true', 'false', 'all'],
+              default: 'all',
+              description: '해결 상태 필터 (true: 해결됨, false: 미해결, all: 전체)',
+            },
+            limit: {
+              type: 'integer',
+              minimum: 1,
+              maximum: 100,
+              default: 50,
+              description: '최대 결과 수',
+            },
+            offset: {
+              type: 'integer',
+              minimum: 0,
+              default: 0,
+              description: '건너뛸 결과 수',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'conflicts'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              count: { type: 'integer' },
+              conflicts: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    id: { type: 'integer' },
+                    orderId: { type: 'integer' },
+                    sheetRowNumber: { type: 'integer' },
+                    changedAt: { type: 'string', format: 'date-time' },
+                    changedBy: { type: 'string' },
+                    action: { type: 'string' },
+                    fieldChanges: { type: 'object' },
+                    conflictResolution: { type: ['string', 'null'] },
+                    order: {
+                      type: 'object',
+                      properties: {
+                        id: { type: 'integer' },
+                        recipientName: { type: ['string', 'null'] },
+                        status: { type: ['string', 'null'] },
+                      },
+                    },
+                  },
+                },
+              },
+            },
+          },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request) => {
+      const { resolved = 'all', limit = 50, offset = 0 } = request.query;
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      // 해결 상태 필터 변환
+      let resolvedFilter: boolean | undefined;
+      if (resolved === 'true') resolvedFilter = true;
+      else if (resolved === 'false') resolvedFilter = false;
+      // 'all'인 경우 undefined
+
+      // 충돌 목록 조회
+      const conflicts = await changeLogService.getConflicts({
+        resolved: resolvedFilter,
+        limit,
+        offset,
+      });
+
+      return {
+        success: true,
+        count: conflicts.length,
+        conflicts: conflicts.map((log) => ({
+          id: log.id,
+          orderId: log.orderId,
+          sheetRowNumber: log.sheetRowNumber,
+          changedAt: log.changedAt.toISOString(),
+          changedBy: log.changedBy,
+          action: log.action,
+          fieldChanges: log.fieldChanges as Record<string, unknown>,
+          conflictResolution: log.conflictResolution,
+          order: log.order ? {
+            id: log.order.id,
+            recipientName: log.order.recipientName,
+            status: log.order.status,
+          } : undefined,
+        })),
+      };
+    }
+  );
+
+  /**
+   * POST /api/orders/conflicts/:conflictId/resolve
+   * 충돌 해결 처리 (Phase 2)
+   */
+  fastify.post<{
+    Params: { conflictId: string };
+    Body: { resolution: 'db_wins' | 'sheet_wins' | 'manual' };
+  }>(
+    '/api/orders/conflicts/:conflictId/resolve',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '충돌 해결',
+        description: '충돌을 해결 상태로 표시합니다.',
+        params: {
+          type: 'object',
+          required: ['conflictId'],
+          properties: {
+            conflictId: {
+              type: 'string',
+              description: '충돌 로그 ID',
+              example: '1',
+            },
+          },
+        },
+        body: {
+          type: 'object',
+          required: ['resolution'],
+          properties: {
+            resolution: {
+              type: 'string',
+              enum: ['db_wins', 'sheet_wins', 'manual'],
+              description: '해결 방법 (db_wins: DB 우선, sheet_wins: 시트 우선, manual: 수동 해결)',
+            },
+          },
+        },
+        response: {
+          200: {
+            type: 'object',
+            required: ['success', 'message'],
+            properties: {
+              success: { type: 'boolean', enum: [true], example: true },
+              message: { type: 'string' },
+              conflict: {
+                type: 'object',
+                properties: {
+                  id: { type: 'integer' },
+                  conflictResolution: { type: 'string' },
+                },
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const conflictId = parseInt(request.params.conflictId, 10);
+      const { resolution } = request.body;
+
+      if (isNaN(conflictId) || conflictId < 1) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid conflict ID. ID must be a positive integer.',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      // ChangeLogService 초기화
+      const changeLogService = new ChangeLogService(fastify.prisma);
+
+      try {
+        const updatedConflict = await changeLogService.resolveConflict(conflictId, resolution);
+
+        return {
+          success: true,
+          message: `충돌이 '${resolution}' 방식으로 해결되었습니다.`,
+          conflict: {
+            id: updatedConflict.id,
+            conflictResolution: updatedConflict.conflictResolution,
+          },
+        };
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // 9차 리뷰: 커스텀 에러 매핑 추가
+        // 로그를 찾을 수 없는 경우
+        if (errorMessage.includes('Change log not found')) {
+          return reply.code(404).send({
+            success: false,
+            error: `Conflict not found with ID ${conflictId}`,
+            statusCode: 404,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // 충돌 로그가 아닌 경우
+        if (errorMessage.includes('Cannot resolve non-conflict log')) {
+          return reply.code(400).send({
+            success: false,
+            error: `ID ${conflictId} is not a conflict log. Only conflict logs can be resolved.`,
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // Prisma P2025: Record not found (레거시 지원)
+        if (errorMessage.includes('Record to update not found')) {
+          return reply.code(404).send({
+            success: false,
+            error: `Conflict not found with ID ${conflictId}`,
+            statusCode: 404,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        throw error;
+      }
     }
   );
 };

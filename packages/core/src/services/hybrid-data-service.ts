@@ -188,14 +188,16 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markAsConfirmed(rowNumbers);
+      // Web에서 호출되므로 changedBy='web'
+      return this.databaseService.markAsConfirmed(rowNumbers, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markAsConfirmed(rowNumbers);
+      // Web에서 호출되므로 changedBy='web'
+      await this.databaseService.markAsConfirmed(rowNumbers, 'web');
       this.logger?.info(`[hybrid] markAsConfirmed DB success: ${rowNumbers?.length ?? 'all'} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -226,14 +228,16 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markSingleAsConfirmed(rowNumber);
+      // Web에서 호출되므로 changedBy='web'
+      return this.databaseService.markSingleAsConfirmed(rowNumber, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markSingleAsConfirmed(rowNumber);
+      // Web에서 호출되므로 changedBy='web'
+      await this.databaseService.markSingleAsConfirmed(rowNumber, 'web');
       this.logger?.info(`[hybrid] markSingleAsConfirmed DB success: row ${rowNumber}`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -304,14 +308,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.updateOrderStatus(rowNumber, newStatus);
+      return this.databaseService.updateOrderStatus(rowNumber, newStatus, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.updateOrderStatus(rowNumber, newStatus);
+      await this.databaseService.updateOrderStatus(rowNumber, newStatus, 'web');
       this.logger?.info(`[hybrid] updateOrderStatus DB success: row ${rowNumber}, status ${newStatus}`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -342,14 +346,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markPaymentConfirmed(rowNumbers);
+      return this.databaseService.markPaymentConfirmed(rowNumbers, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markPaymentConfirmed(rowNumbers);
+      await this.databaseService.markPaymentConfirmed(rowNumbers, 'web');
       this.logger?.info(`[hybrid] markPaymentConfirmed DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -381,14 +385,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.markDelivered(rowNumbers, trackingNumber);
+      return this.databaseService.markDelivered(rowNumbers, trackingNumber, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.markDelivered(rowNumbers, trackingNumber);
+      await this.databaseService.markDelivered(rowNumbers, trackingNumber, 'web');
       this.logger?.info(`[hybrid] markDelivered DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -419,14 +423,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.softDelete(rowNumbers);
+      return this.databaseService.softDelete(rowNumbers, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.softDelete(rowNumbers);
+      await this.databaseService.softDelete(rowNumbers, 'web');
       this.logger?.info(`[hybrid] softDelete DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -457,14 +461,14 @@ export class HybridDataService {
     }
 
     if (this.mode === 'database') {
-      return this.databaseService.restore(rowNumbers);
+      return this.databaseService.restore(rowNumbers, 'web');
     }
 
     // hybrid: DB + Sheets 동시 업데이트
     const errors: string[] = [];
 
     try {
-      await this.databaseService.restore(rowNumbers);
+      await this.databaseService.restore(rowNumbers, 'web');
       this.logger?.info(`[hybrid] restore DB success: ${rowNumbers.length} rows`);
     } catch (dbError) {
       errors.push(`DB: ${dbError}`);
@@ -508,5 +512,64 @@ export class HybridDataService {
       }
       throw dbError;
     }
+  }
+
+  /**
+   * 주문 정보 수정 (Issue #136)
+   * hybrid 모드: DB + Sheets 동시 업데이트
+   * @param rowNumber - 행 번호 (1-based)
+   * @param updates - 업데이트할 필드들
+   */
+  async updateOrder(
+    rowNumber: number,
+    updates: {
+      sender?: { name?: string; phone?: string; address?: string };
+      recipient?: { name?: string; phone?: string; address?: string };
+      productType?: '5kg' | '10kg' | '비상품';
+      quantity?: number;
+      orderType?: 'customer' | 'gift';
+      trackingNumber?: string;
+    }
+  ): Promise<void> {
+    if (this.mode === 'sheets') {
+      return this.sheetService!.updateOrder(rowNumber, updates);
+    }
+
+    if (this.mode === 'database') {
+      // Web에서 호출되므로 changedBy='web'
+      return this.databaseService.updateOrder(rowNumber, updates, 'web');
+    }
+
+    // hybrid: DB + Sheets 동시 업데이트
+    const errors: string[] = [];
+
+    try {
+      // Web에서 호출되므로 changedBy='web'
+      await this.databaseService.updateOrder(rowNumber, updates, 'web');
+      this.logger?.info(`[hybrid] updateOrder DB success: row ${rowNumber}`);
+    } catch (dbError) {
+      errors.push(`DB: ${dbError}`);
+      this.logger?.error(`[hybrid] updateOrder DB failed: ${dbError}`);
+    }
+
+    try {
+      await this.sheetService!.updateOrder(rowNumber, updates);
+      this.logger?.info(`[hybrid] updateOrder Sheets success: row ${rowNumber}`);
+    } catch (sheetsError) {
+      errors.push(`Sheets: ${sheetsError}`);
+      this.logger?.error(`[hybrid] updateOrder Sheets failed: ${sheetsError}`);
+    }
+
+    // 둘 다 실패하면 에러 throw
+    if (errors.length === 2) {
+      throw new Error(`Hybrid updateOrder failed: ${errors.join('; ')}`);
+    }
+  }
+
+  /**
+   * ChangeLogService getter (DatabaseService를 통해 접근)
+   */
+  get changeLogService() {
+    return this.databaseService.changeLogService;
   }
 }

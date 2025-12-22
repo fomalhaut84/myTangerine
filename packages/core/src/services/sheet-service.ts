@@ -773,4 +773,96 @@ export class SheetService {
       throw new Error(`Failed to get deleted orders: ${message}`);
     }
   }
+
+  /**
+   * 주문 정보 수정 (Issue #136)
+   * 수정 가능한 필드만 업데이트
+   *
+   * @param rowNumber - 행 번호 (1-based)
+   * @param updates - 업데이트할 필드들
+   */
+  async updateOrder(
+    rowNumber: number,
+    updates: {
+      sender?: { name?: string; phone?: string; address?: string };
+      recipient?: { name?: string; phone?: string; address?: string };
+      productType?: '5kg' | '10kg' | '비상품';
+      quantity?: number;
+      orderType?: 'customer' | 'gift';
+      trackingNumber?: string;
+    }
+  ): Promise<void> {
+    try {
+      // 필드 매핑: Order 필드 -> 시트 컬럼명
+      const columnUpdates: Record<string, string> = {};
+
+      // 발송인 정보
+      if (updates.sender) {
+        if (updates.sender.name !== undefined) {
+          columnUpdates['보내는분 성함'] = updates.sender.name;
+        }
+        if (updates.sender.phone !== undefined) {
+          columnUpdates['보내는분 연락처 (핸드폰번호)'] = updates.sender.phone;
+        }
+        if (updates.sender.address !== undefined) {
+          columnUpdates['보내는분 주소 (도로명 주소로 부탁드려요)'] = updates.sender.address;
+        }
+      }
+
+      // 수취인 정보
+      if (updates.recipient) {
+        if (updates.recipient.name !== undefined) {
+          columnUpdates['받으실분 성함'] = updates.recipient.name;
+        }
+        if (updates.recipient.phone !== undefined) {
+          columnUpdates['받으실분 연락처 (핸드폰번호)'] = updates.recipient.phone;
+        }
+        if (updates.recipient.address !== undefined) {
+          columnUpdates['받으실분 주소 (도로명 주소로 부탁드려요)'] = updates.recipient.address;
+        }
+      }
+
+      // 상품 정보
+      if (updates.productType !== undefined) {
+        columnUpdates['상품 선택'] = updates.productType;
+      }
+
+      // 수량 (5kg 또는 10kg 수량 컬럼에 저장)
+      if (updates.quantity !== undefined) {
+        // 현재 주문 조회하여 상품 타입 확인
+        const currentOrder = await this.getOrderByRowNumber(rowNumber);
+        if (currentOrder) {
+          const productType = updates.productType || currentOrder['상품 선택'];
+          if (productType?.includes('5kg')) {
+            columnUpdates['5kg 수량'] = String(updates.quantity);
+            columnUpdates['10kg 수량'] = '';
+          } else if (productType?.includes('10kg')) {
+            columnUpdates['10kg 수량'] = String(updates.quantity);
+            columnUpdates['5kg 수량'] = '';
+          }
+        }
+      }
+
+      // 주문 유형
+      if (updates.orderType !== undefined) {
+        columnUpdates['주문유형'] = updates.orderType === 'gift' ? '선물' : '판매';
+      }
+
+      // 송장번호
+      if (updates.trackingNumber !== undefined) {
+        columnUpdates['송장번호'] = updates.trackingNumber;
+      }
+
+      // 업데이트할 필드가 없으면 종료
+      if (Object.keys(columnUpdates).length === 0) {
+        return;
+      }
+
+      // 배치 업데이트 실행
+      await this.updateRowCells(rowNumber, columnUpdates);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update order (row: ${rowNumber}): ${message}`);
+    }
+  }
 }

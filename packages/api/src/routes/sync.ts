@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { SyncEngine, withDistributedLock } from '@mytangerine/core';
+import { SyncEngine, withDistributedLock, ChangeLogService } from '@mytangerine/core';
 import { requireApiKey, requireAppClient } from '../middleware/auth.js';
 
 /**
@@ -243,11 +243,14 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           'sync',
           requestId,
           async () => {
-            // SyncEngine 인스턴스 생성 (Fastify logger 전달)
+            // SyncEngine 인스턴스 생성 (Fastify logger + ChangeLogService 전달)
+            // 10차 리뷰: API 경로에서도 충돌 로그가 기록되도록 ChangeLogService 주입
+            const changeLogService = new ChangeLogService(fastify.prisma);
             const syncEngine = new SyncEngine(
               fastify.core.sheetService,
               fastify.core.databaseService,
-              fastify.log
+              fastify.log,
+              changeLogService
             );
 
             fastify.log.info('Starting manual sync...');
@@ -376,11 +379,13 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           'sync',
           requestId,
           async () => {
-            // SyncEngine 인스턴스 생성
+            // SyncEngine 인스턴스 생성 (10차 리뷰: ChangeLogService 주입)
+            const changeLogService = new ChangeLogService(fastify.prisma);
             const syncEngine = new SyncEngine(
               fastify.core.sheetService,
               fastify.core.databaseService,
-              fastify.log
+              fastify.log,
+              changeLogService
             );
 
             fastify.log.info('Starting full resync (Phase 2.2)...');
