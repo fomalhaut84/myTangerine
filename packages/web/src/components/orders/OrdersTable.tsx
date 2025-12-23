@@ -105,7 +105,7 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
                 {order.recipient.phone}
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
-                {order.validationError ? (
+                {order.validationError && order.validationError.trim() !== '' ? (
                   <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700">
                     오류: {order.validationError}
                   </span>
