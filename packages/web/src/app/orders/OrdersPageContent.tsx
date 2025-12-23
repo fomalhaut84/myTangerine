@@ -212,8 +212,11 @@ export function OrdersPageContent() {
     updateQueryParams({ productType: value, page: 1 });
   };
 
-  const handleValidationFilterChange = (value: ValidationFilter) => {
-    updateQueryParams({ validation: value === 'all' ? '' : value, page: 1 });
+  const handleValidationFilterChange = (value: string) => {
+    // 허용된 값만 처리, 그 외는 'all'로 정규화
+    const normalizedValue: ValidationFilter =
+      value === 'errors' || value === 'valid' ? value : 'all';
+    updateQueryParams({ validation: normalizedValue === 'all' ? '' : normalizedValue, page: 1 });
   };
 
   const handleSortChange = (field?: SortField, order?: SortOrder) => {
