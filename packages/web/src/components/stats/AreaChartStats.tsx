@@ -1,11 +1,12 @@
 /**
  * 누적 수량/매출 Area Chart
  * Issue #134: 모바일 반응형 차트 개선
+ * Issue #112: 시즌 오버레이 추가 (Phase 2)
  */
 
 'use client';
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import {
   AreaChart,
   Area,
@@ -15,8 +16,17 @@ import {
   Tooltip,
   Legend,
   ResponsiveContainer,
+  ReferenceArea,
 } from 'recharts';
 import { useMediaQuery } from '@/hooks/use-media-query';
+
+/** 성수기 월 (10월~2월) */
+const PEAK_SEASON_MONTHS = [10, 11, 12, 1, 2];
+
+/** 월이 성수기인지 확인 */
+function isPeakSeason(month: number): boolean {
+  return PEAK_SEASON_MONTHS.includes(month);
+}
 
 interface MonthlyStats {
   period: string;
@@ -32,9 +42,18 @@ interface MonthlyStats {
 interface AreaChartStatsProps {
   data: MonthlyStats[];
   metric: 'quantity' | 'amount';
+  /** 시즌 오버레이 표시 (성수기: 10월~2월) */
+  showSeasonOverlay?: boolean;
 }
 
-export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
+/** 시즌 영역 계산 결과 */
+interface SeasonRange {
+  x1: string;
+  x2: string;
+  isPeak: boolean;
+}
+
+export function AreaChartStats({ data, metric, showSeasonOverlay = false }: AreaChartStatsProps) {
   const [mounted, setMounted] = useState(false);
   const isQuantity = metric === 'quantity';
   const isMobile = useMediaQuery('(max-width: 639px)');
@@ -48,7 +67,7 @@ export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
   }, []);
 
   // Transform data to calculate cumulative values
-  const chartData = data.reduce((acc, item, index) => {
+  const chartData = useMemo(() => data.reduce((acc, item, index) => {
     const current5kg = isQuantity ? item.total5kgQty : item.total5kgAmount;
     const current10kg = isQuantity ? item.total10kgQty : item.total10kgAmount;
     const currentTotal = current5kg + current10kg;
@@ -65,6 +84,7 @@ export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
     acc.push({
       month: monthLabel,
       fullDate: item.period,
+      monthNum: parseInt(month, 10),
       cumulative5kg: (index > 0 ? acc[index - 1].cumulative5kg : 0) + current5kg,
       cumulative10kg: (index > 0 ? acc[index - 1].cumulative10kg : 0) + current10kg,
       cumulativeTotal: prevCumulative + currentTotal,
@@ -75,11 +95,45 @@ export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
   }, [] as Array<{
     month: string;
     fullDate: string;
+    monthNum: number;
     cumulative5kg: number;
     cumulative10kg: number;
     cumulativeTotal: number;
     monthValue: number;
-  }>);
+  }>), [data, isQuantity]);
+
+  // 시즌 영역 계산 (연속된 성수기 구간 추출)
+  // codex-cli 리뷰: fullDate(YYYY-MM)를 사용하여 다년 데이터에서 중복/오정렬 방지
+  const seasonRanges = useMemo(() => {
+    if (!showSeasonOverlay || chartData.length === 0) return [];
+
+    const ranges: SeasonRange[] = [];
+    let rangeStart: string | null = null;
+    let lastPeakDate: string | null = null;
+
+    chartData.forEach((item, index) => {
+      const isPeak = isPeakSeason(item.monthNum);
+
+      if (isPeak) {
+        if (!rangeStart) {
+          rangeStart = item.fullDate;
+        }
+        lastPeakDate = item.fullDate;
+      } else if (rangeStart && lastPeakDate) {
+        // 성수기 구간 종료
+        ranges.push({ x1: rangeStart, x2: lastPeakDate, isPeak: true });
+        rangeStart = null;
+        lastPeakDate = null;
+      }
+
+      // 마지막 항목 처리
+      if (index === chartData.length - 1 && rangeStart && lastPeakDate) {
+        ranges.push({ x1: rangeStart, x2: lastPeakDate, isPeak: true });
+      }
+    });
+
+    return ranges;
+  }, [chartData, showSeasonOverlay]);
 
   return (
     <div className="h-64 sm:h-[350px]">
@@ -103,10 +157,32 @@ export function AreaChartStats({ data, metric }: AreaChartStatsProps) {
               </linearGradient>
             </defs>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
+            {/* 시즌 오버레이: 성수기(10월~2월) 하이라이트 */}
+            {seasonRanges.map((range, idx) => (
+              <ReferenceArea
+                key={`season-${idx}`}
+                x1={range.x1}
+                x2={range.x2}
+                fill="#fed7aa"
+                fillOpacity={0.3}
+                stroke="#fb923c"
+                strokeOpacity={0.5}
+                strokeDasharray="3 3"
+              />
+            ))}
             <XAxis
-              dataKey="month"
+              dataKey="fullDate"
               className="text-xs"
               tick={{ fontSize: isMobile ? 10 : 12 }}
+              tickFormatter={(value: string, index: number) => {
+                // fullDate (YYYY-MM)를 표시용 레이블로 변환
+                const [year, month] = value.split('-');
+                const prevValue = index > 0 ? chartData[index - 1]?.fullDate : null;
+                const prevYear = prevValue ? prevValue.split('-')[0] : year;
+                const isLast = index === chartData.length - 1;
+                const shouldShowYear = index === 0 || year !== prevYear || month === '01' || isLast;
+                return shouldShowYear ? `${year.substring(2)}.${month}` : month;
+              }}
             />
             <YAxis
               className="text-xs"

@@ -202,3 +202,15 @@ export interface StatsResponse {
     currency: 'KRW';
   };
 }
+
+/**
+ * KPI Alert 타입
+ * Issue #112: 대시보드 KPI 알림 기능
+ */
+export type KPIAlertType = 'warning' | 'info' | 'success';
+
+export interface KPIAlert {
+  type: KPIAlertType;
+  title: string;
+  message: string;
+}
