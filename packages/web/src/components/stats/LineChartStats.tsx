@@ -14,9 +14,11 @@ import { useMediaQuery } from '@/hooks/use-media-query';
 interface LineChartStatsProps {
   data: MonthlyStatsSeries[];
   metric: 'quantity' | 'amount';
+  /** 이중 Y축 모드: 수량(좌)과 금액(우)을 동시에 표시 */
+  dualAxis?: boolean;
 }
 
-export function LineChartStats({ data, metric }: LineChartStatsProps) {
+export function LineChartStats({ data, metric, dualAxis = false }: LineChartStatsProps) {
   const [mounted, setMounted] = useState(false);
   const isQuantity = metric === 'quantity';
   const isMobile = useMediaQuery('(max-width: 639px)');
@@ -50,9 +52,11 @@ export function LineChartStats({ data, metric }: LineChartStatsProps) {
     <Card className="p-4 sm:p-6">
       <div className="mb-3 sm:mb-4">
         <h3 className="text-base sm:text-lg font-semibold text-gray-900">
-          월별 주문 추세 {isQuantity ? '(수량)' : '(금액)'}
+          월별 주문 추세 {dualAxis ? '(수량 + 금액)' : isQuantity ? '(수량)' : '(금액)'}
         </h3>
-        <p className="text-xs sm:text-sm text-gray-500">5kg, 10kg 상품별 {isQuantity ? '주문 수량' : '매출 금액'}</p>
+        <p className="text-xs sm:text-sm text-gray-500">
+          5kg, 10kg 상품별 {dualAxis ? '수량과 매출 금액 비교' : isQuantity ? '주문 수량' : '매출 금액'}
+        </p>
       </div>
       <div className="h-64 sm:h-80">
         {mounted ? (
@@ -60,8 +64,8 @@ export function LineChartStats({ data, metric }: LineChartStatsProps) {
             <LineChart
               data={chartData}
               margin={isMobile
-                ? { top: 5, right: 10, left: 0, bottom: 5 }
-                : { top: 5, right: 30, left: 20, bottom: 5 }
+                ? { top: 5, right: dualAxis ? 35 : 10, left: 0, bottom: 5 }
+                : { top: 5, right: dualAxis ? 80 : 30, left: 20, bottom: 5 }
               }
             >
               <CartesianGrid strokeDasharray="3 3" />
@@ -70,54 +74,127 @@ export function LineChartStats({ data, metric }: LineChartStatsProps) {
                 tick={{ fontSize: isMobile ? 10 : 12 }}
                 label={isMobile ? undefined : { value: '월', position: 'insideBottomRight', offset: -10 }}
               />
+              {/* 단일 축 모드 또는 이중 축 좌측 (수량) */}
               <YAxis
+                yAxisId={dualAxis ? 'quantity' : 'left'}
+                orientation="left"
                 tick={{ fontSize: isMobile ? 10 : 12 }}
                 width={isMobile ? 35 : 60}
                 label={isMobile ? undefined : {
-                  value: isQuantity ? '수량 (박스)' : '금액 (만원)',
+                  value: dualAxis || isQuantity ? '수량 (박스)' : '금액 (만원)',
                   angle: -90,
                   position: 'insideLeft',
                 }}
                 tickFormatter={(value) => {
-                  if (isQuantity) {
+                  if (dualAxis || isQuantity) {
                     return value.toString();
                   }
                   return (value / 10000).toFixed(0);
                 }}
               />
+              {/* 이중 축 우측 (금액) */}
+              {dualAxis && (
+                <YAxis
+                  yAxisId="amount"
+                  orientation="right"
+                  tick={{ fontSize: isMobile ? 10 : 12 }}
+                  width={isMobile ? 35 : 60}
+                  label={isMobile ? undefined : {
+                    value: '금액 (만원)',
+                    angle: 90,
+                    position: 'insideRight',
+                  }}
+                  tickFormatter={(value) => (value / 10000).toFixed(0)}
+                />
+              )}
               <Tooltip
-                formatter={(value, name) => {
+                formatter={(value, name, props) => {
                   const v = value ?? 0;
                   const n = String(name ?? '');
-                  const formattedValue = isQuantity ? v : `${v.toLocaleString()}원`;
-                  const label = n.includes('5kg') ? '5kg' : '10kg';
+                  const dataKey = String(props?.dataKey ?? '');
+                  // 이중 축 모드에서는 dataKey로 금액/수량 구분 (i18n 안전)
+                  if (dualAxis) {
+                    const isAmountLine = dataKey.includes('Amount');
+                    const formattedValue = isAmountLine ? `${Number(v).toLocaleString()}원` : `${v}박스`;
+                    return [formattedValue, n];
+                  }
+                  const formattedValue = isQuantity ? `${v}박스` : `${Number(v).toLocaleString()}원`;
+                  const label = dataKey.includes('5kg') ? '5kg' : '10kg';
                   return [formattedValue, label];
                 }}
                 labelFormatter={(label, payload) => {
                   if (payload && payload.length > 0 && payload[0].payload) {
                     const fullDate = payload[0].payload.fullDate as string;
-                    return fullDate; // YYYY-MM 형식으로 표시
+                    return fullDate;
                   }
                   return label;
                 }}
               />
               <Legend wrapperStyle={{ fontSize: isMobile ? 12 : 14 }} />
-              <Line
-                type="monotone"
-                dataKey={isQuantity ? 'total5kgQty' : 'total5kgAmount'}
-                stroke="#f97316"
-                strokeWidth={2}
-                name="5kg"
-                dot={isMobile ? false : { fill: '#f97316' }}
-              />
-              <Line
-                type="monotone"
-                dataKey={isQuantity ? 'total10kgQty' : 'total10kgAmount'}
-                stroke="#22c55e"
-                strokeWidth={2}
-                name="10kg"
-                dot={isMobile ? false : { fill: '#22c55e' }}
-              />
+              {/* 이중 축 모드: 4개 라인 (수량 2 + 금액 2) */}
+              {dualAxis ? (
+                <>
+                  <Line
+                    yAxisId="quantity"
+                    type="monotone"
+                    dataKey="total5kgQty"
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    name="5kg 수량"
+                    dot={isMobile ? false : { fill: '#f97316' }}
+                  />
+                  <Line
+                    yAxisId="quantity"
+                    type="monotone"
+                    dataKey="total10kgQty"
+                    stroke="#22c55e"
+                    strokeWidth={2}
+                    name="10kg 수량"
+                    dot={isMobile ? false : { fill: '#22c55e' }}
+                  />
+                  <Line
+                    yAxisId="amount"
+                    type="monotone"
+                    dataKey="total5kgAmount"
+                    stroke="#fb923c"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="5kg 금액"
+                    dot={isMobile ? false : { fill: '#fb923c' }}
+                  />
+                  <Line
+                    yAxisId="amount"
+                    type="monotone"
+                    dataKey="total10kgAmount"
+                    stroke="#4ade80"
+                    strokeWidth={2}
+                    strokeDasharray="5 5"
+                    name="10kg 금액"
+                    dot={isMobile ? false : { fill: '#4ade80' }}
+                  />
+                </>
+              ) : (
+                <>
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey={isQuantity ? 'total5kgQty' : 'total5kgAmount'}
+                    stroke="#f97316"
+                    strokeWidth={2}
+                    name="5kg"
+                    dot={isMobile ? false : { fill: '#f97316' }}
+                  />
+                  <Line
+                    yAxisId="left"
+                    type="monotone"
+                    dataKey={isQuantity ? 'total10kgQty' : 'total10kgAmount'}
+                    stroke="#22c55e"
+                    strokeWidth={2}
+                    name="10kg"
+                    dot={isMobile ? false : { fill: '#22c55e' }}
+                  />
+                </>
+              )}
             </LineChart>
           </ResponsiveContainer>
         ) : (
