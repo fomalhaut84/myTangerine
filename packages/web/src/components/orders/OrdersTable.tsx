@@ -66,10 +66,26 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
             <tr
               key={order.rowNumber}
               onClick={() => handleRowClick(order.rowNumber)}
-              className={`hover:bg-gray-50 transition-colors cursor-pointer ${order.isDeleted ? 'opacity-60' : ''}`}
+              className={`transition-colors cursor-pointer ${
+                order.validationError && order.validationError.trim() !== ''
+                  ? 'bg-red-50 hover:bg-red-100'
+                  : 'hover:bg-gray-50'
+              } ${order.isDeleted ? 'opacity-60' : ''}`}
             >
               <td className="px-6 py-4 whitespace-nowrap">
-                <StatusBadge status={order.status} isDeleted={order.isDeleted} />
+                <div className="flex items-center gap-2">
+                  {order.validationError && order.validationError.trim() !== '' && (
+                    <span
+                      className="text-red-500"
+                      title={order.validationError}
+                      aria-label={`검증 오류: ${order.validationError}`}
+                      role="img"
+                    >
+                      ⚠️
+                    </span>
+                  )}
+                  <StatusBadge status={order.status} isDeleted={order.isDeleted} />
+                </div>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                 {new Date(order.timestamp).toLocaleString('ko-KR', {
