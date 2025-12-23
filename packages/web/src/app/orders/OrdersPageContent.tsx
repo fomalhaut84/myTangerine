@@ -27,6 +27,7 @@ type SortField = 'date' | 'quantity';
 type SortOrder = 'asc' | 'desc';
 type StatusFilter = OrderStatusFilter;
 type ViewMode = 'active' | 'deleted';
+type ValidationFilter = 'all' | 'errors' | 'valid';
 
 const ITEMS_PER_PAGE = 20;
 const SEARCH_DEBOUNCE_MS = 500;
@@ -40,6 +41,12 @@ export function OrdersPageContent() {
   const statusFilter = (searchParams.get('status') as StatusFilter) || 'new';
   const searchTerm = (searchParams.get('search') || '').trim();
   const productTypeFilter = searchParams.get('productType') || 'all';
+  // 검증 필터 값 정규화 (허용되지 않은 값은 'all'로 처리)
+  const rawValidationFilter = searchParams.get('validation');
+  const validationFilter: ValidationFilter =
+    rawValidationFilter === 'errors' || rawValidationFilter === 'valid'
+      ? rawValidationFilter
+      : 'all';
   const sortField = (searchParams.get('sortField') as SortField) || 'date';
   const sortOrder = (searchParams.get('sortOrder') as SortOrder) || 'desc';
   const rawPage = parseInt(searchParams.get('page') || '1', 10);
@@ -136,6 +143,13 @@ export function OrdersPageContent() {
       filtered = filtered.filter((order) => order.productType === productTypeFilter);
     }
 
+    // 검증 상태 필터 (빈 문자열도 유효한 상태로 처리)
+    if (validationFilter === 'errors') {
+      filtered = filtered.filter((order) => order.validationError && order.validationError.trim() !== '');
+    } else if (validationFilter === 'valid') {
+      filtered = filtered.filter((order) => !order.validationError || order.validationError.trim() === '');
+    }
+
     // 정렬
     const sorted = [...filtered].sort((a, b) => {
       let comparison = 0;
@@ -150,7 +164,7 @@ export function OrdersPageContent() {
     });
 
     return sorted;
-  }, [currentData?.orders, searchTerm, productTypeFilter, sortField, sortOrder]);
+  }, [currentData?.orders, searchTerm, productTypeFilter, validationFilter, sortField, sortOrder]);
 
   // 페이지네이션 계산 (최소 1페이지 보장)
   const totalPages = Math.max(1, Math.ceil(filteredAndSortedOrders.length / ITEMS_PER_PAGE));
@@ -196,6 +210,13 @@ export function OrdersPageContent() {
 
   const handleProductTypeChange = (value: string) => {
     updateQueryParams({ productType: value, page: 1 });
+  };
+
+  const handleValidationFilterChange = (value: string) => {
+    // 허용된 값만 처리, 그 외는 'all'로 정규화
+    const normalizedValue: ValidationFilter =
+      value === 'errors' || value === 'valid' ? value : 'all';
+    updateQueryParams({ validation: normalizedValue === 'all' ? '' : normalizedValue, page: 1 });
   };
 
   const handleSortChange = (field?: SortField, order?: SortOrder) => {
@@ -333,7 +354,7 @@ export function OrdersPageContent() {
             </div>
 
             {/* 필터 및 정렬 */}
-            <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3 sm:gap-4">
               {/* 주문 상태 필터 */}
               <div>
                 <label htmlFor="status-filter" className="block text-sm font-medium text-gray-700 mb-2">
@@ -369,6 +390,25 @@ export function OrdersPageContent() {
                     <SelectItem value="all">전체</SelectItem>
                     <SelectItem value="5kg">5kg</SelectItem>
                     <SelectItem value="10kg">10kg</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+
+              {/* 검증 상태 필터 */}
+              <div>
+                <label htmlFor="validation-filter" className="block text-sm font-medium text-gray-700 mb-2">
+                  검증 상태
+                </label>
+                <Select value={validationFilter} onValueChange={handleValidationFilterChange}>
+                  <SelectTrigger id="validation-filter">
+                    <SelectValue placeholder="전체" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">전체</SelectItem>
+                    <SelectItem value="errors">
+                      <span className="text-red-600">오류만</span>
+                    </SelectItem>
+                    <SelectItem value="valid">정상만</SelectItem>
                   </SelectContent>
                 </Select>
               </div>

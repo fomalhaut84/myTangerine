@@ -14,6 +14,10 @@ interface OrdersTableProps {
   showDeleted?: boolean;
 }
 
+/** 검증 오류 여부 확인 헬퍼 (빈 문자열 방어) */
+const hasValidationError = (order: Order): boolean =>
+  Boolean(order.validationError && order.validationError.trim() !== '');
+
 export function OrdersTable({ orders, searchParams, showDeleted = false }: OrdersTableProps) {
   const router = useRouter();
 
@@ -66,10 +70,26 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
             <tr
               key={order.rowNumber}
               onClick={() => handleRowClick(order.rowNumber)}
-              className={`hover:bg-gray-50 transition-colors cursor-pointer ${order.isDeleted ? 'opacity-60' : ''}`}
+              className={`transition-colors cursor-pointer ${
+                hasValidationError(order)
+                  ? 'bg-red-50 hover:bg-red-100'
+                  : 'hover:bg-gray-50'
+              } ${order.isDeleted ? 'opacity-60' : ''}`}
             >
               <td className="px-6 py-4 whitespace-nowrap">
-                <StatusBadge status={order.status} isDeleted={order.isDeleted} />
+                <div className="flex items-center gap-2">
+                  {hasValidationError(order) && (
+                    <span
+                      className="text-red-500"
+                      title={order.validationError}
+                      aria-label={`검증 오류: ${order.validationError}`}
+                      role="img"
+                    >
+                      ⚠️
+                    </span>
+                  )}
+                  <StatusBadge status={order.status} isDeleted={order.isDeleted} />
+                </div>
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
                 {new Date(order.timestamp).toLocaleString('ko-KR', {
@@ -89,7 +109,7 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
                 {order.recipient.phone}
               </td>
               <td className="px-6 py-4 whitespace-nowrap">
-                {order.validationError ? (
+                {hasValidationError(order) ? (
                   <span className="inline-block px-3 py-1 rounded-full text-sm font-medium bg-red-100 text-red-700">
                     오류: {order.validationError}
                   </span>
