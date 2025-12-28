@@ -14,7 +14,7 @@
   "dependencies": {
     "@mytangerine/core": "workspace:*",
     "dotenv": "^16.4.7",
-    "node-cron": "^3.0.3",
+    "node-cron": "^4.2.1",
     "pino": "^10.1.0",
     "pino-pretty": "^13.0.0"
   },
