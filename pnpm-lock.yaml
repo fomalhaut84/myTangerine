@@ -172,8 +172,8 @@ importers:
         specifier: ^16.4.7
         version: 16.6.1
       node-cron:
-        specifier: ^3.0.3
-        version: 3.0.3
+        specifier: ^4.2.1
+        version: 4.2.1
       pino:
         specifier: ^10.1.0
         version: 10.1.0
@@ -4789,8 +4789,8 @@ packages:
       sass:
         optional: true
 
-  node-cron@3.0.3:
-    resolution: {integrity: sha512-dOal67//nohNgYWb+nWmg5dkFdIwDm8EpeGYMekPMrngV3637lqnX0lbUcCtgibHTz6SEz7DAIjKvKDFYCnO1A==}
+  node-cron@4.2.1:
+    resolution: {integrity: sha512-lgimEHPE/QDgFlywTd8yTR61ptugX3Qer29efeyWw2rv259HtGBNn1vZVmp8lB9uo9wC0t/AT4iGqXxia+CJFg==}
     engines: {node: '>=6.0.0'}
 
   node-domexception@1.0.0:
@@ -11132,9 +11132,7 @@ snapshots:
       - '@babel/core'
       - babel-plugin-macros
 
-  node-cron@3.0.3:
-    dependencies:
-      uuid: 8.3.2
+  node-cron@4.2.1: {}
 
   node-domexception@1.0.0: {}
 
