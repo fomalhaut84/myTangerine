@@ -16,20 +16,26 @@ import type { Order } from '@mytangerine/core';
 function createMockOrder(month: number, year: number = 2024): Order {
   const timestamp = new Date(year, month - 1, 15); // 해당 월 15일로 설정
   return {
-    id: `order-${year}-${month}`,
     timestamp,
+    timestampRaw: `${year}. ${month}. 15. 오전 10:00:00`,
     status: '배송완료',
-    orderer: { name: '테스트', phone: '010-1234-5678' },
+    sender: {
+      name: '발송인',
+      phone: '010-1234-5678',
+      address: '제주시 발송지',
+      postalCode: '63000',
+    },
     recipient: {
       name: '수령인',
       phone: '010-8765-4321',
-      address: '제주시',
-      postalCode: '63000',
+      address: '제주시 수령지',
+      postalCode: '63001',
     },
     productType: '5kg',
     quantity: 1,
     orderType: 'customer',
-    remarks: '',
+    rowNumber: 2,
+    isDeleted: false,
   };
 }
 
