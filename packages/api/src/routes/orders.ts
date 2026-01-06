@@ -7,6 +7,8 @@ import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrd
 import {
   calculateStats,
   calculateOrderAmount,
+  filterOrdersBySeason,
+  isSeasonalScope,
   type StatsScope,
   type StatsRange,
   type StatsGrouping,
@@ -1859,14 +1861,14 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['orders'],
         summary: '통합 주문 통계 조회',
-        description: '주문 통계를 조회합니다. scope로 상태별(신규/입금확인/배송완료/전체) 필터링이 가능합니다.',
+        description: '주문 통계를 조회합니다. scope로 상태별(신규/입금확인/배송완료/전체) 또는 시즌별(성수기/비수기) 필터링이 가능합니다.',
         querystring: {
           type: 'object',
           properties: {
             scope: {
               type: 'string',
-              enum: ['completed', 'new', 'pending_payment', 'all'],
-              description: '통계 범위 (completed: 배송완료, new: 신규주문, pending_payment: 입금확인, all: 전체)',
+              enum: ['completed', 'new', 'pending_payment', 'all', 'peak_season', 'off_season'],
+              description: '통계 범위 (completed: 배송완료, new: 신규주문, pending_payment: 입금확인, all: 전체, peak_season: 성수기 10~2월, off_season: 비수기 3~9월)',
               default: 'completed',
             },
             range: {
@@ -2118,8 +2120,15 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 캐시 미스 - 데이터 조회 및 계산
-      const sheetRows = await dataService.getOrdersByStatus(scope);
-      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+      // seasonal scope인 경우 전체 주문을 가져온 후 시즌 필터링 적용 (Issue #142)
+      const dataScope = isSeasonalScope(scope) ? 'all' : scope;
+      const sheetRows = await dataService.getOrdersByStatus(dataScope);
+      let orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+
+      // seasonal scope인 경우 월 기준으로 필터링
+      if (isSeasonalScope(scope)) {
+        orders = filterOrdersBySeason(orders, scope);
+      }
 
       // 통계 계산
       const stats = calculateStats(orders, config, {

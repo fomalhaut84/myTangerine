@@ -124,8 +124,10 @@ export interface GroupedLabelsResponse {
  * - 'new': 신규주문
  * - 'pending_payment': 입금확인 주문 (Issue #130)
  * - 'all': 전체 주문
+ * - 'peak_season': 성수기 주문 (10~2월) - Issue #142
+ * - 'off_season': 비수기 주문 (3~9월) - Issue #142
  */
-export type StatsScope = 'completed' | 'new' | 'pending_payment' | 'all';
+export type StatsScope = 'completed' | 'new' | 'pending_payment' | 'all' | 'peak_season' | 'off_season';
 export type StatsRange = '6m' | '12m' | 'custom';
 export type StatsGrouping = 'monthly';
 export type StatsMetric = 'quantity' | 'amount';

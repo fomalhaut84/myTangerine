@@ -11,8 +11,22 @@ import type { Config } from '@mytangerine/core';
  * - 'new': 신규주문
  * - 'pending_payment': 입금확인 주문 (Issue #130)
  * - 'all': 전체 주문
+ * - 'peak_season': 성수기 주문 (10~2월) - Issue #142
+ * - 'off_season': 비수기 주문 (3~9월) - Issue #142
  */
-export type StatsScope = 'completed' | 'new' | 'pending_payment' | 'all';
+export type StatsScope = 'completed' | 'new' | 'pending_payment' | 'all' | 'peak_season' | 'off_season';
+
+/**
+ * 성수기 월 (10월~2월)
+ * Issue #142: Seasonal scope
+ */
+export const PEAK_SEASON_MONTHS = [10, 11, 12, 1, 2];
+
+/**
+ * 비수기 월 (3월~9월)
+ * Issue #142: Seasonal scope
+ */
+export const OFF_SEASON_MONTHS = [3, 4, 5, 6, 7, 8, 9];
 
 /**
  * 기간 범위
@@ -440,6 +454,26 @@ export function filterOrdersByOrderType(orders: Order[], orderType: OrderTypeFil
     return orders;
   }
   return orders.filter(order => order.orderType === orderType);
+}
+
+/**
+ * 시즌별 필터링 (주문 타임스탬프의 월 기준)
+ * Issue #142: Seasonal scope
+ */
+export function filterOrdersBySeason(orders: Order[], season: 'peak_season' | 'off_season'): Order[] {
+  const monthsToInclude = season === 'peak_season' ? PEAK_SEASON_MONTHS : OFF_SEASON_MONTHS;
+  return orders.filter(order => {
+    const month = order.timestamp.getMonth() + 1; // getMonth()는 0-indexed
+    return monthsToInclude.includes(month);
+  });
+}
+
+/**
+ * scope가 시즌 기반인지 확인
+ * Issue #142: Seasonal scope
+ */
+export function isSeasonalScope(scope: StatsScope): scope is 'peak_season' | 'off_season' {
+  return scope === 'peak_season' || scope === 'off_season';
 }
 
 /**

@@ -19,7 +19,7 @@ import type { StatsMetric, StatsRange, StatsScope } from '@/types/api';
 interface OrderStatsPanelProps {
   /** 패널 제목 */
   title: string;
-  /** 주문 범위 (new: 신규, completed: 완료, all: 전체) */
+  /** 주문 범위 (new: 신규, pending_payment: 입금확인, completed: 완료, all: 전체, peak_season: 성수기, off_season: 비수기) */
   scope: StatsScope;
   /** 차트 표시 여부 (기본: true) */
   showCharts?: boolean;
