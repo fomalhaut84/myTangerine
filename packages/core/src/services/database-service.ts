@@ -994,18 +994,27 @@ export class DatabaseService {
       });
 
       // 4. 변경 로그 기록 (트랜잭션 외부에서 실행 - 로그 실패가 주문 생성을 롤백하지 않도록)
-      await this.changeLogService.logChange({
-        orderId: result.newOrder.id,
-        sheetRowNumber: result.newRowNumber,
-        changedBy: 'web',
-        action: 'status_change',
-        fieldChanges: {
-          orderType: { old: null, new: 'claim' },
-          originalOrderId: { old: null, new: originalRowNumber },
-          status: { old: null, new: '신규주문' },
-        },
-        previousVersion: 0,
-      });
+      // 로그 실패 시에도 주문 생성은 성공으로 처리 (중복 생성 방지)
+      try {
+        await this.changeLogService.logChange({
+          orderId: result.newOrder.id,
+          sheetRowNumber: result.newRowNumber,
+          changedBy: 'web',
+          action: 'status_change',
+          fieldChanges: {
+            orderType: { old: null, new: 'claim' },
+            originalOrderId: { old: null, new: originalRowNumber },
+            status: { old: null, new: '신규주문' },
+          },
+          previousVersion: 0,
+        });
+      } catch (logError) {
+        // 로그 실패는 무시하고 주문 생성 성공으로 처리
+        console.error(
+          `[createClaimOrder] 변경 로그 기록 실패 (주문 #${result.newRowNumber}):`,
+          logError instanceof Error ? logError.message : String(logError)
+        );
+      }
 
       return result.newRowNumber;
     } catch (error) {
