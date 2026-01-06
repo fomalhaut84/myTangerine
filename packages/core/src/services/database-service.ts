@@ -965,7 +965,6 @@ export class DatabaseService {
           recipientName: originalOrder.recipientName,
           recipientPhone: originalOrder.recipientPhone,
           recipientAddress: originalOrder.recipientAddress,
-          recipientPostalCode: originalOrder.recipientPostalCode,
 
           // 원본에서 복제 - 상품 정보
           productSelection: originalOrder.productSelection,
