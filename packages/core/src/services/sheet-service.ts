@@ -788,7 +788,7 @@ export class SheetService {
       recipient?: { name?: string; phone?: string; address?: string };
       productType?: '5kg' | '10kg' | '비상품';
       quantity?: number;
-      orderType?: 'customer' | 'gift';
+      orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     }
   ): Promise<void> {
@@ -843,9 +843,13 @@ export class SheetService {
         }
       }
 
-      // 주문 유형
+      // 주문 유형 (Issue #152: claim 추가)
       if (updates.orderType !== undefined) {
-        columnUpdates['주문유형'] = updates.orderType === 'gift' ? '선물' : '판매';
+        columnUpdates['주문유형'] = updates.orderType === 'gift'
+          ? '선물'
+          : updates.orderType === 'claim'
+            ? '배송사고'
+            : '판매';
       }
 
       // 송장번호
