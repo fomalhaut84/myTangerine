@@ -923,8 +923,9 @@ export class DatabaseService {
         throw new Error(`Order not found at row ${originalRowNumber}`);
       }
 
-      // 배송완료 상태인지 확인
-      if (originalOrder.status !== '배송완료') {
+      // 배송완료 상태인지 확인 (레거시 '확인' 상태도 배송완료로 처리)
+      const normalizedStatus = normalizeOrderStatus(originalOrder.status);
+      if (normalizedStatus !== '배송완료') {
         throw new Error(`Only completed orders can create claim. Current status: ${originalOrder.status}`);
       }
 
