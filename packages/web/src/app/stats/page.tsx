@@ -184,7 +184,7 @@ export default function StatsPage() {
             >
               <Icon className="h-4 w-4" />
               {tab.label}
-              {stats?.sections && (
+              {stats?.sections && tab.value !== 'claim' && (
                 <span className={`ml-1 text-xs ${isActive ? 'opacity-80' : 'text-muted-foreground'}`}>
                   ({tab.value === 'all'
                     ? stats.sections.overall.orderCount

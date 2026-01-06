@@ -600,7 +600,8 @@ export function calculateStats(
   const filteredOrders = filterOrdersByOrderType(dateFilteredOrders, orderType);
 
   // 매출 처리 옵션 결정 (summary, series, totalsByProduct 모두에 적용)
-  const revenueOptions = orderType === 'gift'
+  // Issue #152: claim도 gift와 동일하게 매출에서 제외
+  const revenueOptions = orderType === 'gift' || orderType === 'claim'
     ? { zeroRevenue: true }
     : orderType === 'all'
       ? { excludeGiftRevenue: true }

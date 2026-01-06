@@ -75,7 +75,8 @@ export class DatabaseService {
       '5kg 수량': order.quantity5kg,
       '10kg 수량': order.quantity10kg,
       // Issue #131: 주문유형 추가 (선물/판매 구분)
-      '주문유형': order.orderType === 'gift' ? '선물' : undefined,
+      // Issue #152: 배송사고 유형 추가
+      '주문유형': order.orderType === 'gift' ? '선물' : order.orderType === 'claim' ? '배송사고' : undefined,
       _rowNumber: order.sheetRowNumber || undefined,
       _validationError: order.validationError || undefined,
       _syncAttemptCount: order.syncAttemptCount,
@@ -935,12 +936,23 @@ export class DatabaseService {
 
       // 3. 새 주문 생성 (원본 복제 + orderType='claim')
       const now = new Date();
+      // timestampRaw는 한국어 형식으로 생성 (parseKoreanTimestamp 호환)
+      const timestampRaw = now.toLocaleString('ko-KR', {
+        year: 'numeric',
+        month: 'numeric',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: 'numeric',
+        second: 'numeric',
+        hour12: true,
+      });
+
       const newOrder = await this._prisma.order.create({
         data: {
           // 새 식별자
           sheetRowNumber: newRowNumber,
           timestamp: now,
-          timestampRaw: now.toISOString(),
+          timestampRaw: timestampRaw,
 
           // 원본에서 복제
           senderName: originalOrder.senderName,
@@ -958,26 +970,28 @@ export class DatabaseService {
           // 배송사고 설정
           orderType: 'claim',
           status: '신규주문',
-          remarks: `배송사고 (원본: #${originalRowNumber})`,
 
           // 메타데이터
           createdAt: now,
           updatedAt: now,
           lastModifiedBy: 'web',
           lastModifiedAt: now,
+          version: 1,
         },
       });
 
-      // 4. 변경 로그 기록
+      // 4. 변경 로그 기록 (update action 사용, 새 주문 생성 기록)
       await this.changeLogService.logChange({
         orderId: newOrder.id,
         sheetRowNumber: newRowNumber,
         changedBy: 'web',
-        action: 'create',
+        action: 'status_change',
         fieldChanges: {
-          orderType: { before: null, after: 'claim' },
-          originalOrderId: { before: null, after: originalRowNumber },
+          orderType: { old: null, new: 'claim' },
+          originalOrderId: { old: null, new: originalRowNumber },
+          status: { old: null, new: '신규주문' },
         },
+        previousVersion: 0,
       });
 
       return newRowNumber;
