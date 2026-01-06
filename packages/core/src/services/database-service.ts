@@ -720,7 +720,7 @@ export class DatabaseService {
       recipient?: { name?: string; phone?: string; address?: string };
       productType?: '5kg' | '10kg' | '비상품';
       quantity?: number;
-      orderType?: 'customer' | 'gift';
+      orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     },
     changedBy: 'web' | 'sync' | 'api' = 'api'
@@ -902,6 +902,88 @@ export class DatabaseService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to update order (row: ${rowNumber}): ${message}`);
+    }
+  }
+
+  /**
+   * 배송사고 주문 생성 (Issue #152)
+   * 원본 주문을 복제하여 orderType='claim'인 새 주문 생성
+   * @param originalRowNumber - 원본 주문의 행 번호
+   * @returns 생성된 주문의 행 번호
+   */
+  async createClaimOrder(originalRowNumber: number): Promise<number> {
+    try {
+      // 1. 원본 주문 조회
+      const originalOrder = await this._prisma.order.findFirst({
+        where: { sheetRowNumber: originalRowNumber, deletedAt: null },
+      });
+
+      if (!originalOrder) {
+        throw new Error(`Order not found at row ${originalRowNumber}`);
+      }
+
+      // 배송완료 상태인지 확인
+      if (originalOrder.status !== '배송완료') {
+        throw new Error(`Only completed orders can create claim. Current status: ${originalOrder.status}`);
+      }
+
+      // 2. 새 행 번호 생성 (가장 큰 행번호 + 1)
+      const maxRowResult = await this._prisma.order.aggregate({
+        _max: { sheetRowNumber: true },
+      });
+      const newRowNumber = (maxRowResult._max.sheetRowNumber || 1) + 1;
+
+      // 3. 새 주문 생성 (원본 복제 + orderType='claim')
+      const now = new Date();
+      const newOrder = await this._prisma.order.create({
+        data: {
+          // 새 식별자
+          sheetRowNumber: newRowNumber,
+          timestamp: now,
+          timestampRaw: now.toISOString(),
+
+          // 원본에서 복제
+          senderName: originalOrder.senderName,
+          senderPhone: originalOrder.senderPhone,
+          senderAddress: originalOrder.senderAddress,
+          recipientName: originalOrder.recipientName,
+          recipientPhone: originalOrder.recipientPhone,
+          recipientAddress: originalOrder.recipientAddress,
+          recipientPostalCode: originalOrder.recipientPostalCode,
+          productSelection: originalOrder.productSelection,
+          quantity5kg: originalOrder.quantity5kg,
+          quantity10kg: originalOrder.quantity10kg,
+          quantity: originalOrder.quantity,
+
+          // 배송사고 설정
+          orderType: 'claim',
+          status: '신규주문',
+          remarks: `배송사고 (원본: #${originalRowNumber})`,
+
+          // 메타데이터
+          createdAt: now,
+          updatedAt: now,
+          lastModifiedBy: 'web',
+          lastModifiedAt: now,
+        },
+      });
+
+      // 4. 변경 로그 기록
+      await this.changeLogService.logChange({
+        orderId: newOrder.id,
+        sheetRowNumber: newRowNumber,
+        changedBy: 'web',
+        action: 'create',
+        fieldChanges: {
+          orderType: { before: null, after: 'claim' },
+          originalOrderId: { before: null, after: originalRowNumber },
+        },
+      });
+
+      return newRowNumber;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create claim order: ${message}`);
     }
   }
 

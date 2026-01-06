@@ -17,6 +17,7 @@ import {
   restoreOrder,
   getDeletedOrders,
   updateOrder,
+  createClaimOrder,
   type OrderStatusFilter,
   type OrderUpdateData,
 } from '@/lib/api-client';
@@ -187,6 +188,26 @@ export function useUpdateOrder() {
       queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
       // 해당 주문의 상세 데이터도 갱신
       queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+    },
+  });
+}
+
+/**
+ * 배송사고 주문 생성 훅 (Issue #152)
+ * 배송완료된 원본 주문을 복제하여 배송사고 유형의 신규 주문 생성
+ */
+export function useCreateClaimOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rowNumber: number) => createClaimOrder(rowNumber),
+    onSuccess: (result) => {
+      // 주문 목록 갱신 (새 배송사고 주문이 추가됨)
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      // 라벨도 주문 기반이므로 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      // 새로 생성된 주문의 상세 데이터도 prefetch를 위해 invalidate
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), result.data.claimOrderId] });
     },
   });
 }

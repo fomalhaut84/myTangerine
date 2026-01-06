@@ -13,6 +13,7 @@ import {
   useDeleteOrder,
   useRestoreOrder,
   useUpdateOrder,
+  useCreateClaimOrder,
 } from '@/hooks/use-orders';
 import { Card } from '@/components/common/Card';
 import { StatusBadge } from '@/components/orders/StatusBadge';
@@ -48,6 +49,7 @@ export default function OrderDetailPage() {
   const deleteMutation = useDeleteOrder();
   const restoreMutation = useRestoreOrder();
   const updateMutation = useUpdateOrder();
+  const createClaimMutation = useCreateClaimOrder();
   const [isProcessing, setIsProcessing] = useState(false);
   const [showTrackingModal, setShowTrackingModal] = useState(false);
   const [trackingNumber, setTrackingNumber] = useState('');
@@ -141,6 +143,24 @@ export default function OrderDetailPage() {
       '주문이 복원되었습니다.',
       '주문 복원 중 오류가 발생했습니다.'
     );
+
+  // 배송사고 등록 (Issue #152)
+  const handleCreateClaim = async () => {
+    if (!order) return;
+    if (!confirm('배송사고 주문을 등록하시겠습니까?\n동일한 내용의 신규 주문이 생성됩니다.')) return;
+
+    setIsProcessing(true);
+    try {
+      const result = await createClaimMutation.mutateAsync(order.rowNumber);
+      toast.success(`배송사고 주문이 등록되었습니다. (주문번호: #${result.data.claimOrderId})`);
+      // 새로 생성된 배송사고 주문으로 이동
+      router.push(`/orders/${result.data.claimOrderId}`);
+    } catch {
+      toast.error('배송사고 등록 중 오류가 발생했습니다.');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
   // 수정 모드 시작 (Issue #136)
   const handleStartEdit = () => {
@@ -416,10 +436,12 @@ export default function OrderDetailPage() {
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       order.orderType === 'gift'
                         ? 'bg-purple-100 text-purple-800'
-                        : 'bg-blue-100 text-blue-800'
+                        : order.orderType === 'claim'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-blue-100 text-blue-800'
                     }`}
                   >
-                    {order.orderType === 'gift' ? '선물' : '판매'}
+                    {order.orderType === 'gift' ? '선물' : order.orderType === 'claim' ? '배송사고' : '판매'}
                   </span>
                 </dd>
               </div>
@@ -513,11 +535,12 @@ export default function OrderDetailPage() {
                 <dd className="mt-1">
                   <select
                     value={editForm.orderType || 'customer'}
-                    onChange={(e) => setEditForm({ ...editForm, orderType: e.target.value as 'customer' | 'gift' })}
+                    onChange={(e) => setEditForm({ ...editForm, orderType: e.target.value as 'customer' | 'gift' | 'claim' })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="customer">판매</option>
                     <option value="gift">선물</option>
+                    <option value="claim">배송사고</option>
                   </select>
                 </dd>
               </div>
@@ -531,10 +554,12 @@ export default function OrderDetailPage() {
                     className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
                       order.orderType === 'gift'
                         ? 'bg-purple-100 text-purple-800'
-                        : 'bg-blue-100 text-blue-800'
+                        : order.orderType === 'claim'
+                          ? 'bg-red-100 text-red-800'
+                          : 'bg-blue-100 text-blue-800'
                     }`}
                   >
-                    {order.orderType === 'gift' ? '선물' : '판매'}
+                    {order.orderType === 'gift' ? '선물' : order.orderType === 'claim' ? '배송사고' : '판매'}
                   </span>
                 </dd>
               </div>
@@ -717,6 +742,17 @@ export default function OrderDetailPage() {
                   disabled={isProcessing}
                 >
                   {isProcessing ? '처리 중...' : '삭제'}
+                </button>
+              )}
+
+              {/* 배송사고 등록 버튼 (배송완료 상태이고 배송사고 유형이 아닌 경우에만) - Issue #152 */}
+              {order.status === '배송완료' && order.orderType !== 'claim' && (
+                <button
+                  className="px-4 sm:px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
+                  onClick={handleCreateClaim}
+                  disabled={isProcessing}
+                >
+                  {isProcessing ? '처리 중...' : '배송사고 등록'}
                 </button>
               )}
             </>

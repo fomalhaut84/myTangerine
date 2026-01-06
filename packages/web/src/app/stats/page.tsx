@@ -8,7 +8,7 @@ import { LineChartStats } from '@/components/stats/LineChartStats';
 import { DonutChartStats } from '@/components/stats/DonutChartStats';
 import { BarChartStats } from '@/components/stats/BarChartStats';
 import { AreaChartStats } from '@/components/stats/AreaChartStats';
-import { Loader2, Gift, ShoppingCart, BarChart3 } from 'lucide-react';
+import { Loader2, Gift, ShoppingCart, BarChart3, AlertTriangle } from 'lucide-react';
 import { formatDateRangeKorean } from '@/lib/utils';
 import type { OrderTypeFilter } from '@/types/api';
 
@@ -19,6 +19,7 @@ const ORDER_TYPE_TABS: { value: OrderTypeFilter; label: string; icon: typeof Bar
   { value: 'all', label: '전체', icon: BarChart3 },
   { value: 'customer', label: '판매', icon: ShoppingCart },
   { value: 'gift', label: '선물', icon: Gift },
+  { value: 'claim', label: '배송사고', icon: AlertTriangle },
 ];
 
 export default function StatsPage() {
@@ -201,6 +202,13 @@ export default function StatsPage() {
       {orderType === 'gift' && (
         <div className="bg-amber-50 border border-amber-200 rounded-lg p-3 text-sm text-amber-800">
           선물 주문은 매출에서 제외됩니다. 수량 기준 통계만 유효합니다.
+        </div>
+      )}
+
+      {/* 배송사고 탭 안내 메시지 */}
+      {orderType === 'claim' && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 text-sm text-red-800">
+          배송사고 주문은 파손 보상으로 발송된 주문입니다. 매출에서 제외됩니다.
         </div>
       )}
 
