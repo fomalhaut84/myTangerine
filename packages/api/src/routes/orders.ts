@@ -1086,7 +1086,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       sender?: { name?: string; phone?: string; address?: string };
       recipient?: { name?: string; phone?: string; address?: string };
       // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
-      orderType?: 'customer' | 'gift';
+      // Issue #152: claim 추가
+      orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     };
   }>(

@@ -954,7 +954,11 @@ export class DatabaseService {
           timestamp: now,
           timestampRaw: timestampRaw,
 
-          // 원본에서 복제
+          // 원본에서 복제 - 주문자 정보
+          ordererName: originalOrder.ordererName,
+          ordererEmail: originalOrder.ordererEmail,
+
+          // 원본에서 복제 - 발송인/수취인 정보
           senderName: originalOrder.senderName,
           senderPhone: originalOrder.senderPhone,
           senderAddress: originalOrder.senderAddress,
@@ -962,10 +966,14 @@ export class DatabaseService {
           recipientPhone: originalOrder.recipientPhone,
           recipientAddress: originalOrder.recipientAddress,
           recipientPostalCode: originalOrder.recipientPostalCode,
+
+          // 원본에서 복제 - 상품 정보
           productSelection: originalOrder.productSelection,
+          productType: originalOrder.productType,
           quantity5kg: originalOrder.quantity5kg,
           quantity10kg: originalOrder.quantity10kg,
           quantity: originalOrder.quantity,
+          validationError: originalOrder.validationError,
 
           // 배송사고 설정
           orderType: 'claim',
