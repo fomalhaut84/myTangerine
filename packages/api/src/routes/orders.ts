@@ -2641,6 +2641,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           },
           400: { $ref: 'ErrorResponse#' },
           404: { $ref: 'ErrorResponse#' },
+          501: { $ref: 'ErrorResponse#' },
           500: { $ref: 'ErrorResponse#' },
         },
       },
@@ -2688,6 +2689,16 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             success: false,
             error: '배송완료 상태의 주문만 배송사고 등록이 가능합니다.',
             statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // sheets mode에서 지원하지 않는 경우 (501 Not Implemented)
+        if (errorMessage.includes('not supported in sheets mode')) {
+          return reply.code(501).send({
+            success: false,
+            error: '배송사고 등록은 데이터베이스 모드에서만 지원됩니다.',
+            statusCode: 501,
             timestamp: new Date().toISOString(),
           });
         }
