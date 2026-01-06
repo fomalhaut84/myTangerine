@@ -172,7 +172,7 @@ export async function restoreOrder(rowNumber: number): Promise<{
 export interface OrderUpdateData {
   sender?: { name?: string; phone?: string; address?: string };
   recipient?: { name?: string; phone?: string; address?: string };
-  orderType?: 'customer' | 'gift';
+  orderType?: 'customer' | 'gift' | 'claim';
   trackingNumber?: string;
 }
 
@@ -368,5 +368,28 @@ export async function resolveConflict(
     success: boolean;
     message: string;
     conflict: { id: number; conflictResolution: string };
+  }>();
+}
+
+/**
+ * 배송사고 주문 생성 (Issue #152)
+ * 배송완료된 원본 주문을 복제하여 배송사고 유형의 신규 주문 생성
+ * @param rowNumber - 원본 주문의 스프레드시트 행 번호
+ */
+export async function createClaimOrder(rowNumber: number): Promise<{
+  success: boolean;
+  data: {
+    claimOrderId: number;
+    originalOrderId: number;
+    message: string;
+  };
+}> {
+  return api.post(`api/orders/${rowNumber}/claim`, { json: {} }).json<{
+    success: boolean;
+    data: {
+      claimOrderId: number;
+      originalOrderId: number;
+      message: string;
+    };
   }>();
 }

@@ -527,7 +527,7 @@ export class HybridDataService {
       recipient?: { name?: string; phone?: string; address?: string };
       productType?: '5kg' | '10kg' | '비상품';
       quantity?: number;
-      orderType?: 'customer' | 'gift';
+      orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     }
   ): Promise<void> {
@@ -564,6 +564,21 @@ export class HybridDataService {
     if (errors.length === 2) {
       throw new Error(`Hybrid updateOrder failed: ${errors.join('; ')}`);
     }
+  }
+
+  /**
+   * 배송사고 주문 생성 (Issue #152)
+   * 원본 주문을 복제하여 orderType='claim'인 새 주문 생성
+   * @param originalRowNumber - 원본 주문의 행 번호
+   * @returns 생성된 주문의 행 번호
+   */
+  async createClaimOrder(originalRowNumber: number): Promise<number> {
+    if (this.mode === 'sheets') {
+      throw new Error('createClaimOrder is not supported in sheets mode');
+    }
+
+    // database 또는 hybrid 모드에서만 지원
+    return this.databaseService.createClaimOrder(originalRowNumber);
   }
 
   /**

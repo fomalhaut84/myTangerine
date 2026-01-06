@@ -48,9 +48,20 @@ export type StatsMetric = 'quantity' | 'amount';
  * - 'all': 전체 주문
  * - 'customer': 고객 주문만 (판매)
  * - 'gift': 선물 주문만
+ * - 'claim': 배송사고 주문만 (Issue #152)
  * OrderType에서 파생하여 타입 일관성 유지
  */
 export type OrderTypeFilter = OrderType | 'all';
+
+/**
+ * 매출에 포함되는 주문 유형인지 확인
+ * - customer: 매출 포함
+ * - gift, claim: 매출 제외
+ * Issue #152: 배송사고(claim) 추가
+ */
+export function isRevenueIncludedOrderType(orderType: OrderType): boolean {
+  return orderType === 'customer';
+}
 
 /**
  * 월별 통계 데이터
@@ -209,9 +220,9 @@ export function calculateMonthlyStats(
       total10kgQty += order.quantity;
     }
 
-    // 매출 계산: gift 주문 제외 옵션 또는 전체 매출 0 옵션 적용
+    // 매출 계산: 비판매 주문(gift/claim) 제외 옵션 또는 전체 매출 0 옵션 적용
     if (!zeroRevenue) {
-      const shouldIncludeRevenue = !excludeGiftRevenue || order.orderType !== 'gift';
+      const shouldIncludeRevenue = !excludeGiftRevenue || isRevenueIncludedOrderType(order.orderType);
       if (shouldIncludeRevenue) {
         const amount = calculateOrderAmount(order, config);
         if (order.productType === '비상품') {
@@ -228,7 +239,7 @@ export function calculateMonthlyStats(
   const totalRevenue = totalNonProductAmount + total5kgAmount + total10kgAmount;
   // 평균 주문 금액은 매출이 포함된 주문 기준으로 계산
   const revenueOrderCount = excludeGiftRevenue
-    ? orders.filter(o => o.orderType !== 'gift').length
+    ? orders.filter(o => isRevenueIncludedOrderType(o.orderType)).length
     : orders.length;
   const avgOrderAmount = revenueOrderCount > 0 ? totalRevenue / revenueOrderCount : 0;
 
@@ -281,9 +292,9 @@ export function calculateProductTotals(
       total10kgQty += order.quantity;
     }
 
-    // 매출 계산: gift 주문 제외 옵션 또는 전체 매출 0 옵션 적용
+    // 매출 계산: 비판매 주문(gift/claim) 제외 옵션 또는 전체 매출 0 옵션 적용
     if (!zeroRevenue) {
-      const shouldIncludeRevenue = !excludeGiftRevenue || order.orderType !== 'gift';
+      const shouldIncludeRevenue = !excludeGiftRevenue || isRevenueIncludedOrderType(order.orderType);
       if (shouldIncludeRevenue) {
         const amount = calculateOrderAmount(order, config);
         if (order.productType === '비상품') {
@@ -507,9 +518,9 @@ function calculateSummaryFromOrders(
       total10kgQty += order.quantity;
     }
 
-    // 매출 계산: gift 주문 제외 옵션 또는 전체 매출 0 옵션 적용
+    // 매출 계산: 비판매 주문(gift/claim) 제외 옵션 또는 전체 매출 0 옵션 적용
     if (!zeroRevenue) {
-      const shouldIncludeRevenue = !excludeGiftRevenue || order.orderType !== 'gift';
+      const shouldIncludeRevenue = !excludeGiftRevenue || isRevenueIncludedOrderType(order.orderType);
       if (shouldIncludeRevenue) {
         const amount = calculateOrderAmount(order, config);
         if (order.productType === '비상품') {
@@ -526,7 +537,7 @@ function calculateSummaryFromOrders(
   const totalRevenue = totalNonProductAmount + total5kgAmount + total10kgAmount;
   // 평균 주문 금액은 매출이 포함된 주문 기준으로 계산
   const revenueOrderCount = excludeGiftRevenue
-    ? orders.filter(o => o.orderType !== 'gift').length
+    ? orders.filter(o => isRevenueIncludedOrderType(o.orderType)).length
     : orders.length;
   const avgOrderAmount = revenueOrderCount > 0 ? totalRevenue / revenueOrderCount : 0;
 
@@ -589,7 +600,8 @@ export function calculateStats(
   const filteredOrders = filterOrdersByOrderType(dateFilteredOrders, orderType);
 
   // 매출 처리 옵션 결정 (summary, series, totalsByProduct 모두에 적용)
-  const revenueOptions = orderType === 'gift'
+  // Issue #152: claim도 gift와 동일하게 매출에서 제외
+  const revenueOptions = orderType === 'gift' || orderType === 'claim'
     ? { zeroRevenue: true }
     : orderType === 'all'
       ? { excludeGiftRevenue: true }

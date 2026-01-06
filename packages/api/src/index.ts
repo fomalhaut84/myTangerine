@@ -267,8 +267,8 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
       },
       orderType: {
         type: 'string',
-        enum: ['customer', 'gift'],
-        description: '주문 유형 (customer: 판매, gift: 선물)',
+        enum: ['customer', 'gift', 'claim'],
+        description: '주문 유형 (customer: 판매, gift: 선물, claim: 배송사고)',
         example: 'customer',
       },
       isDeleted: {

@@ -16,8 +16,11 @@ export type OrderStatus = '신규주문' | '입금확인' | '배송완료';
 
 /**
  * 주문 유형
+ * - customer: 판매 (매출 포함)
+ * - gift: 선물 (매출 제외)
+ * - claim: 배송사고 (매출 제외, 파손 보상) - Issue #152
  */
-export type OrderType = 'customer' | 'gift';
+export type OrderType = 'customer' | 'gift' | 'claim';
 
 export interface Order {
   timestamp: string;
@@ -131,7 +134,7 @@ export type StatsScope = 'completed' | 'new' | 'pending_payment' | 'all' | 'peak
 export type StatsRange = '6m' | '12m' | 'custom';
 export type StatsGrouping = 'monthly';
 export type StatsMetric = 'quantity' | 'amount';
-export type OrderTypeFilter = 'all' | 'customer' | 'gift';
+export type OrderTypeFilter = 'all' | 'customer' | 'gift' | 'claim';
 
 export interface StatsQueryParams {
   scope?: StatsScope;

@@ -1086,7 +1086,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       sender?: { name?: string; phone?: string; address?: string };
       recipient?: { name?: string; phone?: string; address?: string };
       // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
-      orderType?: 'customer' | 'gift';
+      // Issue #152: claim 추가
+      orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     };
   }>(
@@ -1133,8 +1134,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
             orderType: {
               type: 'string',
-              enum: ['customer', 'gift'],
-              description: '주문 유형 (customer: 판매, gift: 선물)',
+              enum: ['customer', 'gift', 'claim'],
+              description: '주문 유형 (customer: 판매, gift: 선물, claim: 배송사고)',
             },
             trackingNumber: {
               type: 'string',
@@ -1891,8 +1892,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             },
             orderType: {
               type: 'string',
-              enum: ['all', 'customer', 'gift'],
-              description: '주문 유형 필터 (all: 전체, customer: 판매, gift: 선물)',
+              enum: ['all', 'customer', 'gift', 'claim'],
+              description: '주문 유형 필터 (all: 전체, customer: 판매, gift: 선물, claim: 배송사고)',
               default: 'all',
             },
             start: {
@@ -2588,6 +2589,116 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             success: false,
             error: `Conflict not found with ID ${conflictId}`,
             statusCode: 404,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        throw error;
+      }
+    }
+  );
+
+  /**
+   * POST /api/orders/:orderId/claim
+   * 배송사고 주문 생성 (Issue #152)
+   * 배송완료된 원본 주문을 복제하여 orderType='claim'인 새 주문 생성
+   */
+  fastify.post<{
+    Params: { orderId: string };
+  }>(
+    '/api/orders/:orderId/claim',
+    {
+      schema: {
+        tags: ['orders'],
+        summary: '배송사고 주문 생성',
+        description: '배송완료된 주문을 복제하여 배송사고(claim) 주문을 생성합니다.',
+        params: {
+          type: 'object',
+          required: ['orderId'],
+          properties: {
+            orderId: {
+              type: 'string',
+              description: '원본 주문 ID (행 번호)',
+            },
+          },
+        },
+        response: {
+          201: {
+            type: 'object',
+            required: ['success', 'data'],
+            properties: {
+              success: { type: 'boolean', enum: [true] },
+              data: {
+                type: 'object',
+                required: ['claimOrderId', 'originalOrderId'],
+                properties: {
+                  claimOrderId: { type: 'number', description: '생성된 배송사고 주문 ID' },
+                  originalOrderId: { type: 'number', description: '원본 주문 ID' },
+                  message: { type: 'string' },
+                },
+              },
+            },
+          },
+          400: { $ref: 'ErrorResponse#' },
+          404: { $ref: 'ErrorResponse#' },
+          501: { $ref: 'ErrorResponse#' },
+          500: { $ref: 'ErrorResponse#' },
+        },
+      },
+    },
+    async (request, reply) => {
+      const { dataService } = fastify.core;
+      const rowNumber = parseInt(request.params.orderId, 10);
+
+      if (isNaN(rowNumber) || rowNumber < 1) {
+        return reply.code(400).send({
+          success: false,
+          error: 'Invalid order ID format',
+          statusCode: 400,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
+      try {
+        const claimRowNumber = await dataService.createClaimOrder(rowNumber);
+
+        return reply.code(201).send({
+          success: true,
+          data: {
+            claimOrderId: claimRowNumber,
+            originalOrderId: rowNumber,
+            message: `배송사고 주문이 생성되었습니다. (주문 #${claimRowNumber})`,
+          },
+        });
+      } catch (error) {
+        const errorMessage = error instanceof Error ? error.message : String(error);
+
+        // 주문을 찾을 수 없는 경우
+        if (errorMessage.includes('Order not found')) {
+          return reply.code(404).send({
+            success: false,
+            error: `Order not found with ID ${rowNumber}`,
+            statusCode: 404,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // 배송완료 상태가 아닌 경우
+        if (errorMessage.includes('Only completed orders')) {
+          return reply.code(400).send({
+            success: false,
+            error: '배송완료 상태의 주문만 배송사고 등록이 가능합니다.',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+
+        // sheets mode에서 지원하지 않는 경우 (501 Not Implemented)
+        if (errorMessage.includes('not supported in sheets mode')) {
+          return reply.code(501).send({
+            success: false,
+            error: '배송사고 등록은 데이터베이스 모드에서만 지원됩니다.',
+            statusCode: 501,
             timestamp: new Date().toISOString(),
           });
         }

@@ -99,11 +99,12 @@ export function filterToOrderStatus(filter: Exclude<OrderStatusFilter, 'all'>): 
 }
 
 /**
- * 주문 유형 (판매 vs 선물)
+ * 주문 유형
  * - 'customer': 고객 주문 (판매, 매출에 포함)
  * - 'gift': 선물용 주문 (매출에서 제외)
+ * - 'claim': 배송사고 주문 (매출에서 제외, 보상 발송)
  */
-export type OrderType = 'customer' | 'gift';
+export type OrderType = 'customer' | 'gift' | 'claim';
 
 /**
  * 스프레드시트 원본 행 데이터
@@ -347,6 +348,7 @@ function isEmpty(value: string | undefined | null): boolean {
  * 주문유형 파싱
  * 시트의 '주문유형' 컬럼 값을 OrderType으로 변환
  * - '선물' -> 'gift'
+ * - '배송사고' -> 'claim'
  * - 그 외 (빈 값, '판매', 기타) -> 'customer' (기본값)
  */
 export function parseOrderType(orderTypeValue: string | undefined): OrderType {
@@ -357,6 +359,9 @@ export function parseOrderType(orderTypeValue: string | undefined): OrderType {
   const normalized = orderTypeValue.trim().toLowerCase();
   if (normalized === '선물' || normalized === 'gift') {
     return 'gift';
+  }
+  if (normalized === '배송사고' || normalized === 'claim') {
+    return 'claim';
   }
 
   return 'customer';

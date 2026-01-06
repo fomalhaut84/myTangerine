@@ -45,9 +45,10 @@ model Order {
   quantity10kg     String  @default("") @map("quantity_10kg")
   quantity         Int     @default(1)  // 추출된 수량
 
-  // 주문 유형 (Issue #131: 선물/판매 구분)
+  // 주문 유형 (Issue #131: 선물/판매 구분, Issue #152: 배송사고 추가)
   // 'customer': 고객 주문 (판매, 매출에 포함)
   // 'gift': 선물용 주문 (매출에서 제외)
+  // 'claim': 배송사고 주문 (매출에서 제외, 보상 발송)
   orderType        String  @default("customer") @map("order_type")
 
   // 상태 (Phase 3: 3단계 상태 체계)

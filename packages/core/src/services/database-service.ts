@@ -75,7 +75,8 @@ export class DatabaseService {
       '5kg 수량': order.quantity5kg,
       '10kg 수량': order.quantity10kg,
       // Issue #131: 주문유형 추가 (선물/판매 구분)
-      '주문유형': order.orderType === 'gift' ? '선물' : undefined,
+      // Issue #152: 배송사고 유형 추가
+      '주문유형': order.orderType === 'gift' ? '선물' : order.orderType === 'claim' ? '배송사고' : undefined,
       _rowNumber: order.sheetRowNumber || undefined,
       _validationError: order.validationError || undefined,
       _syncAttemptCount: order.syncAttemptCount,
@@ -720,7 +721,7 @@ export class DatabaseService {
       recipient?: { name?: string; phone?: string; address?: string };
       productType?: '5kg' | '10kg' | '비상품';
       quantity?: number;
-      orderType?: 'customer' | 'gift';
+      orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     },
     changedBy: 'web' | 'sync' | 'api' = 'api'
@@ -902,6 +903,123 @@ export class DatabaseService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to update order (row: ${rowNumber}): ${message}`);
+    }
+  }
+
+  /**
+   * 배송사고 주문 생성 (Issue #152)
+   * 원본 주문을 복제하여 orderType='claim'인 새 주문 생성
+   * @param originalRowNumber - 원본 주문의 행 번호
+   * @returns 생성된 주문의 행 번호
+   */
+  async createClaimOrder(originalRowNumber: number): Promise<number> {
+    try {
+      // 트랜잭션으로 race condition 방지 (동시 요청 시 sheetRowNumber 중복 방지)
+      const result = await this._prisma.$transaction(async (tx) => {
+        // 1. 원본 주문 조회
+        const originalOrder = await tx.order.findFirst({
+          where: { sheetRowNumber: originalRowNumber, deletedAt: null },
+        });
+
+        if (!originalOrder) {
+          throw new Error(`Order not found at row ${originalRowNumber}`);
+        }
+
+        // 배송완료 상태인지 확인 (레거시 '확인' 상태도 배송완료로 처리)
+        const normalizedStatus = normalizeOrderStatus(originalOrder.status);
+        if (normalizedStatus !== '배송완료') {
+          throw new Error(`Only completed orders can create claim. Current status: ${originalOrder.status}`);
+        }
+
+        // 2. 새 행 번호 생성 (가장 큰 행번호 + 1) - 트랜잭션 내에서 실행
+        const maxRowResult = await tx.order.aggregate({
+          _max: { sheetRowNumber: true },
+        });
+        const newRowNumber = (maxRowResult._max.sheetRowNumber || 1) + 1;
+
+        // 3. 새 주문 생성 (원본 복제 + orderType='claim')
+        const now = new Date();
+        // timestampRaw는 한국어 형식으로 생성 (parseKoreanTimestamp 호환)
+        const timestampRaw = now.toLocaleString('ko-KR', {
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: 'numeric',
+          second: 'numeric',
+          hour12: true,
+        });
+
+        const newOrder = await tx.order.create({
+          data: {
+            // 새 식별자
+            sheetRowNumber: newRowNumber,
+            timestamp: now,
+            timestampRaw: timestampRaw,
+
+            // 원본에서 복제 - 주문자 정보
+            ordererName: originalOrder.ordererName,
+            ordererEmail: originalOrder.ordererEmail,
+
+            // 원본에서 복제 - 발송인/수취인 정보
+            senderName: originalOrder.senderName,
+            senderPhone: originalOrder.senderPhone,
+            senderAddress: originalOrder.senderAddress,
+            recipientName: originalOrder.recipientName,
+            recipientPhone: originalOrder.recipientPhone,
+            recipientAddress: originalOrder.recipientAddress,
+
+            // 원본에서 복제 - 상품 정보
+            productSelection: originalOrder.productSelection,
+            productType: originalOrder.productType,
+            quantity5kg: originalOrder.quantity5kg,
+            quantity10kg: originalOrder.quantity10kg,
+            quantity: originalOrder.quantity,
+            validationError: originalOrder.validationError,
+
+            // 배송사고 설정
+            orderType: 'claim',
+            status: '신규주문',
+
+            // 메타데이터
+            createdAt: now,
+            updatedAt: now,
+            lastModifiedBy: 'web',
+            lastModifiedAt: now,
+            version: 1,
+          },
+        });
+
+        return { newOrder, newRowNumber };
+      });
+
+      // 4. 변경 로그 기록 (트랜잭션 외부에서 실행 - 로그 실패가 주문 생성을 롤백하지 않도록)
+      // 로그 실패 시에도 주문 생성은 성공으로 처리 (중복 생성 방지)
+      try {
+        await this.changeLogService.logChange({
+          orderId: result.newOrder.id,
+          sheetRowNumber: result.newRowNumber,
+          changedBy: 'web',
+          action: 'status_change',
+          fieldChanges: {
+            orderType: { old: null, new: 'claim' },
+            originalOrderId: { old: null, new: originalRowNumber },
+            status: { old: null, new: '신규주문' },
+          },
+          previousVersion: 0,
+        });
+      } catch (logError) {
+        // 로그 실패는 무시하고 주문 생성 성공으로 처리
+        console.error(
+          `[createClaimOrder] 변경 로그 기록 실패 (주문 #${result.newRowNumber}):`,
+          logError instanceof Error ? logError.message : String(logError)
+        );
+      }
+
+      return result.newRowNumber;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to create claim order: ${message}`);
     }
   }
 
