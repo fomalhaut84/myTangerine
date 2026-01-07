@@ -382,6 +382,10 @@ export async function createClaimOrder(rowNumber: number): Promise<{
     claimOrderId: number;
     originalOrderId: number;
     message: string;
+    sheetsSynced: boolean;
+    sheetsRowNumber?: number;
+    rowNumberMismatch?: boolean;
+    sheetsError?: string;
   };
 }> {
   return api.post(`api/orders/${rowNumber}/claim`, { json: {} }).json<{
@@ -390,6 +394,10 @@ export async function createClaimOrder(rowNumber: number): Promise<{
       claimOrderId: number;
       originalOrderId: number;
       message: string;
+      sheetsSynced: boolean;
+      sheetsRowNumber?: number;
+      rowNumberMismatch?: boolean;
+      sheetsError?: string;
     };
   }>();
 }

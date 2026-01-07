@@ -775,6 +775,56 @@ export class SheetService {
   }
 
   /**
+   * 새 행 추가 (Issue #152: 배송사고 주문 생성용)
+   * 스프레드시트 끝에 새 행을 추가합니다.
+   *
+   * @param rowData - 추가할 행 데이터 (컬럼명 -> 값 매핑)
+   * @returns 추가된 행 번호
+   */
+  async appendRow(rowData: Record<string, string>): Promise<number> {
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+      const headers = await this.getHeaders();
+
+      // 헤더 순서에 맞게 값 배열 생성
+      const values = headers.map(header => rowData[header] || '');
+
+      // 행 추가
+      const response = await this.sheets.spreadsheets.values.append({
+        spreadsheetId,
+        range: `${this.quoteSheetName(sheetName)}!A:A`,
+        valueInputOption: 'RAW',
+        insertDataOption: 'INSERT_ROWS',
+        requestBody: {
+          values: [values],
+        },
+      });
+
+      // 추가된 행 번호 계산
+      // response.data.updates.updatedRange 형식: "'시트명'!A123:Z123"
+      const updatedRange = response.data.updates?.updatedRange;
+      if (!updatedRange) {
+        throw new Error('Failed to get updated range from append response');
+      }
+
+      // 범위에서 행 번호 추출
+      // 형식 1: "'시트명'!A123:Z123" -> 123
+      // 형식 2: "'시트명'!A123" -> 123 (콜론 없는 경우)
+      const match = updatedRange.match(/!A(\d+)(?::|$)/);
+      if (!match) {
+        throw new Error(`Failed to parse row number from range: ${updatedRange}`);
+      }
+
+      const newRowNumber = parseInt(match[1], 10);
+      return newRowNumber;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to append row: ${message}`);
+    }
+  }
+
+  /**
    * 주문 정보 수정 (Issue #136)
    * 수정 가능한 필드만 업데이트
    *

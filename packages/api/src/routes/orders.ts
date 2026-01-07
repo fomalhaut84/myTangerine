@@ -2630,11 +2630,15 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
               success: { type: 'boolean', enum: [true] },
               data: {
                 type: 'object',
-                required: ['claimOrderId', 'originalOrderId'],
+                required: ['claimOrderId', 'originalOrderId', 'sheetsSynced'],
                 properties: {
                   claimOrderId: { type: 'number', description: '생성된 배송사고 주문 ID' },
                   originalOrderId: { type: 'number', description: '원본 주문 ID' },
                   message: { type: 'string' },
+                  sheetsSynced: { type: 'boolean', description: 'Google Sheets 동기화 여부' },
+                  sheetsRowNumber: { type: 'number', description: '실제 Sheets 행 번호 (동기화 성공 시)' },
+                  rowNumberMismatch: { type: 'boolean', description: 'DB-Sheets row number 불일치 여부' },
+                  sheetsError: { type: 'string', description: 'Sheets 동기화 실패 시 에러 메시지' },
                 },
               },
             },
@@ -2660,14 +2664,23 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       try {
-        const claimRowNumber = await dataService.createClaimOrder(rowNumber);
+        const result = await dataService.createClaimOrder(rowNumber);
+
+        // Sheets 동기화 실패 시 경고 메시지 추가
+        const message = result.sheetsSynced
+          ? `배송사고 주문이 생성되었습니다. (주문 #${result.rowNumber})`
+          : `배송사고 주문이 DB에 생성되었습니다. (주문 #${result.rowNumber}) - Google Sheets 동기화는 다음 sync 시 반영됩니다.`;
 
         return reply.code(201).send({
           success: true,
           data: {
-            claimOrderId: claimRowNumber,
+            claimOrderId: result.rowNumber,
             originalOrderId: rowNumber,
-            message: `배송사고 주문이 생성되었습니다. (주문 #${claimRowNumber})`,
+            message,
+            sheetsSynced: result.sheetsSynced,
+            ...(result.sheetsRowNumber && { sheetsRowNumber: result.sheetsRowNumber }),
+            ...(result.rowNumberMismatch !== undefined && { rowNumberMismatch: result.rowNumberMismatch }),
+            ...(result.sheetsError && { sheetsError: result.sheetsError }),
           },
         });
       } catch (error) {
