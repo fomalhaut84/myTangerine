@@ -1063,11 +1063,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         // DB ID로만 조회 (claim 주문용)
         sheetRow = await dataService.getOrderById(orderId);
       } else {
-        // 기본: sheetRowNumber로 먼저 조회, 없으면 DB id로 폴백
+        // 기본: sheetRowNumber로만 조회 (fallback 제거 - P2 리뷰 반영)
+        // fallback이 있으면 sheet row가 없을 때 다른 주문이 반환될 수 있음
         sheetRow = await dataService.getOrderByRowNumber(orderId);
-        if (!sheetRow) {
-          sheetRow = await dataService.getOrderById(orderId);
-        }
       }
 
       if (!sheetRow) {
