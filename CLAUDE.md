@@ -11,14 +11,110 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Development Workflow
 
 ### 브랜치 전략
+
+```
+main (production)     ←─── 릴리즈 버전, 태그 생성
+  │
+  │  ↑ PR (릴리즈)     ↓ 핫픽스 머지
+  │
+dev (development)     ←─── 개발 기본 브랜치
+  │
+  │  ↑ PR (피쳐)
+  │
+feature/*             ←─── 피쳐 브랜치 (dev base)
+hotfix/*              ←─── 핫픽스 브랜치 (main base)
+```
+
+#### 핵심 규칙
 - **개발 기본 브랜치**: `dev`
-- 모든 피쳐는 `dev`를 base로 브랜치를 생성
-- 별도 지시가 없는 한 모든 피쳐는 `dev`로 머지
-- **`main` 브랜치는 별도 지시 없이는 절대 수정 금지**
+- ⚠️ **피쳐는 반드시 `dev`를 base로 생성** - main으로 직접 머지되는 피쳐 브랜치 금지
+- **핫픽스만 `main`을 base로 생성** 가능
+- **`main` 브랜치 직접 커밋 금지** - 반드시 PR을 통해서만 변경
+
+#### 브랜치 네이밍
+- 피쳐: `feature/issue-{번호}-{설명}` (예: `feature/issue-155-claim-db-only`)
+- 핫픽스: `hotfix/issue-{번호}-{설명}` (예: `hotfix/issue-160-login-fix`)
+- 릴리즈: `release/v{버전}` (예: `release/v1.0.0`) - 필요시 사용
+
+### 버전 관리
+
+#### 버전 넘버링 규칙
+- **형식**: `v{메이저}.{마이너}.{패치}` (Semantic Versioning)
+- **초기 버전**: `v1.0.0`
+- **예시**: v1.0.0, v1.1.0, v1.1.1, v2.0.0
+
+| 버전 타입 | 변경 시점 | 예시 |
+|-----------|----------|------|
+| **메이저** | 호환성이 깨지는 대규모 변경 | v1.0.0 → v2.0.0 |
+| **마이너** | 하위 호환 가능한 새 기능 추가 | v1.0.0 → v1.1.0 |
+| **패치** | 버그 수정, 핫픽스 | v1.0.0 → v1.0.1 |
 
 ### 릴리즈 프로세스
-- `dev` → `main` 머지 후 tag 생성
-- Tag 형식: `v{major}.{minor}.{patch}` (예: v1.0.0, v1.2.3)
+
+#### 피쳐 릴리즈 (일반 개발)
+
+```
+1. 피쳐 개발
+   feature/* ──PR──→ dev (머지)
+
+2. 릴리즈 준비
+   dev ──PR──→ main (릴리즈 PR 생성)
+
+3. 릴리즈 완료
+   main 머지 → 버전 태그 생성 (v1.x.x)
+```
+
+**상세 절차:**
+1. `dev`에서 피쳐 브랜치 생성 → 개발 → PR → `dev` 머지
+2. 릴리즈 시점에 `dev` → `main` PR 생성
+3. PR 리뷰 후 `main`에 머지
+4. `main`에서 버전 태그 생성: `git tag v1.x.x && git push origin v1.x.x`
+
+#### 핫픽스 릴리즈 (긴급 수정)
+
+```
+1. 핫픽스 개발
+   main ──branch──→ hotfix/* ──PR──→ main (머지)
+
+2. 패치 버전 태그
+   main 머지 → 버전 태그 생성 (v1.0.x)
+
+3. dev 동기화 (필수!)
+   main ──merge──→ dev
+```
+
+**상세 절차:**
+1. `main`에서 핫픽스 브랜치 생성: `git checkout -b hotfix/issue-xxx main`
+2. 버그 수정 → PR → `main` 머지
+3. `main`에서 패치 버전 태그 생성: `git tag v1.0.x && git push origin v1.0.x`
+4. ⚠️ **필수**: `main` 변경사항을 `dev`에 머지하여 동기화
+   ```bash
+   git checkout dev
+   git merge main
+   git push origin dev
+   ```
+
+### 태그 생성 방법
+
+```bash
+# 태그 생성
+git tag -a v1.0.0 -m "Release v1.0.0: 초기 정식 릴리즈"
+
+# 원격에 푸시
+git push origin v1.0.0
+
+# 모든 태그 푸시
+git push origin --tags
+```
+
+### GitHub Release 생성 (선택)
+
+```bash
+# GitHub CLI로 릴리즈 생성
+gh release create v1.0.0 --title "v1.0.0" --notes "## 주요 변경사항
+- 기능 A 추가
+- 버그 B 수정"
+```
 
 ### 이슈 및 PR 관리
 - **모든 작업은 GitHub 이슈로 먼저 생성**
