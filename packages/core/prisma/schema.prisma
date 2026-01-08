@@ -1,0 +1,162 @@
+// packages/core/prisma/schema.prisma
+//
+// Issue #68 Phase 2.1: Google Sheets → PostgreSQL 하이브리드 시스템
+// Prisma 스키마 정의
+
+generator client {
+  provider = "prisma-client-js"
+  output   = "../node_modules/.prisma/client"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// 주문 테이블 (SheetRow와 1:1 매핑)
+model Order {
+  id        Int      @id @default(autoincrement())
+
+  // Google Sheets 원본 행 추적 (nullable: DB에서 직접 생성된 주문 대응)
+  sheetRowNumber  Int?     @unique @map("sheet_row_number")
+
+  // 타임스탬프 (원본 문자열 + 파싱된 Date)
+  timestamp       DateTime
+  timestampRaw    String   @map("timestamp_raw")
+
+  // 주문자 정보 (Phase 3: ordererName/ordererEmail 추가)
+  ordererName     String?  @map("orderer_name")
+  ordererEmail    String?  @map("orderer_email")
+
+  // 발송인 정보
+  senderName      String   @map("sender_name")
+  senderAddress   String   @map("sender_address")
+  senderPhone     String   @map("sender_phone")
+
+  // 수취인 정보
+  recipientName    String  @map("recipient_name")
+  recipientAddress String  @map("recipient_address")
+  recipientPhone   String  @map("recipient_phone")
+
+  // 상품 및 수량
+  productSelection String  @map("product_selection") // 원본 문자열
+  productType      String? @map("product_type")      // 파싱된 값: '비상품' | '5kg' | '10kg'
+  quantity5kg      String  @default("") @map("quantity_5kg")
+  quantity10kg     String  @default("") @map("quantity_10kg")
+  quantity         Int     @default(1)  // 추출된 수량
+
+  // 주문 유형 (Issue #131: 선물/판매 구분, Issue #152: 배송사고 추가)
+  // 'customer': 고객 주문 (판매, 매출에 포함)
+  // 'gift': 선물용 주문 (매출에서 제외)
+  // 'claim': 배송사고 주문 (매출에서 제외, 보상 발송)
+  orderType        String  @default("customer") @map("order_type")
+
+  // Issue #155: 배송사고 원본 주문 참조
+  // 배송사고(claim) 주문이 어떤 원본 주문에 대한 것인지 추적
+  // 일반 주문은 null, 배송사고 주문만 원본 sheetRowNumber 저장
+  originalRowNumber Int?    @map("original_row_number")
+
+  // 상태 (Phase 3: 3단계 상태 체계)
+  // '신규주문' | '입금확인' | '배송완료' (하위 호환: '' → 신규주문, '확인' → 배송완료)
+  status           String  @default("신규주문")
+
+  // 송장번호 (배송완료 시 입력)
+  trackingNumber   String? @map("tracking_number")
+
+  // Soft Delete (Phase 3)
+  deletedAt        DateTime? @map("deleted_at")
+
+  // 검증 에러
+  validationError  String? @map("validation_error")
+
+  // 싱크 메타데이터
+  syncStatus       String   @default("pending") @map("sync_status") // 'pending' | 'success' | 'failed'
+  syncedAt         DateTime? @map("synced_at")
+  syncErrorMessage String?   @map("sync_error_message")
+  syncAttemptCount Int       @default(0) @map("sync_attempt_count")
+
+  // 타임스탬프
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  // Phase 2: 변경 이력 및 충돌 감지
+  version          Int       @default(1)                           // Optimistic Locking용 버전
+  lastModifiedBy   String?   @map("last_modified_by")              // 'web' | 'sync' | 'api'
+  lastModifiedAt   DateTime? @map("last_modified_at")              // 마지막 수정 시각
+
+  // 관계
+  syncLogs         SyncLog[]
+  changeLogs       OrderChangeLog[]
+
+  @@index([status, timestamp])  // 실제 쿼리 패턴에 맞춤 (status로 필터 + timestamp로 정렬)
+  @@index([deletedAt, status, timestamp])  // Phase 3: Soft Delete 필터 + 상태/시간 정렬
+  @@index([syncStatus, syncAttemptCount])
+  @@index([orderType])  // Issue #131: 주문유형 필터링 인덱스
+  @@index([lastModifiedBy, lastModifiedAt])  // Phase 2: 충돌 감지용 인덱스
+  @@map("orders")
+}
+
+// 싱크 로그 (문제 추적 및 모니터링)
+model SyncLog {
+  id               Int       @id @default(autoincrement())
+  orderId          Int?      @map("order_id")  // Order FK (referential integrity)
+  order            Order?    @relation(fields: [orderId], references: [id])
+  sheetRowNumber   Int?      @map("sheet_row_number")  // 진단용 (nullable)
+
+  status           String    // 'pending' | 'success' | 'failed' | 'retry'
+  attemptCount     Int       @default(1) @map("attempt_count")
+  errorMessage     String?   @map("error_message")
+  errorStack       String?   @map("error_stack")
+
+  startedAt        DateTime  @default(now()) @map("started_at")
+  finishedAt       DateTime? @map("finished_at")
+
+  @@index([orderId, status])
+  @@index([sheetRowNumber, status])
+  @@index([startedAt])
+  @@map("sync_logs")
+}
+
+// 분산 락 테이블 (동시 실행 방지)
+model DistributedLock {
+  id          Int      @id @default(autoincrement())
+  lockKey     String   @unique @map("lock_key")  // 'sync', 'backup' 등
+  owner       String   // 락을 획득한 프로세스/요청 ID
+  acquiredAt  DateTime @default(now()) @map("acquired_at")
+  expiresAt   DateTime @map("expires_at")  // TTL
+
+  @@index([lockKey, expiresAt])
+  @@map("distributed_locks")
+}
+
+// Phase 2: 주문 변경 이력 로그
+model OrderChangeLog {
+  id               Int       @id @default(autoincrement())
+
+  // 연결
+  orderId          Int       @map("order_id")
+  order            Order     @relation(fields: [orderId], references: [id], onDelete: Cascade)
+  sheetRowNumber   Int       @map("sheet_row_number")  // 조회 편의
+
+  // 변경 정보
+  changedBy        String    @map("changed_by")        // 'web' | 'sync' | 'api'
+  changedAt        DateTime  @default(now()) @map("changed_at")
+  action           String                              // 'update' | 'status_change' | 'delete' | 'restore' | 'conflict_detected'
+
+  // 변경 내용 (JSON)
+  fieldChanges     Json      @map("field_changes")     // { fieldName: { old: "...", new: "..." } }
+
+  // 버전 추적
+  previousVersion  Int       @map("previous_version")
+  newVersion       Int       @map("new_version")
+
+  // 충돌 정보
+  conflictDetected Boolean   @default(false) @map("conflict_detected")
+  conflictResolution String? @map("conflict_resolution")  // 'db_wins' | 'sheet_wins' | 'manual'
+
+  @@index([orderId, changedAt])
+  @@index([sheetRowNumber, changedAt])
+  @@index([changedBy, changedAt])
+  @@index([conflictDetected, changedAt])
+  @@map("order_change_logs")
+}

@@ -1,0 +1,214 @@
+/**
+ * 주문 관련 커스텀 훅
+ */
+
+'use client';
+
+import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
+import {
+  getOrders,
+  getOrder,
+  getOrdersSummary,
+  confirmOrders,
+  confirmSingleOrder,
+  confirmPayment,
+  markDelivered,
+  deleteOrder,
+  restoreOrder,
+  getDeletedOrders,
+  updateOrder,
+  createClaimOrder,
+  type OrderStatusFilter,
+  type OrderUpdateData,
+} from '@/lib/api-client';
+import { queryKeys } from '@/lib/query-keys';
+
+/**
+ * 주문 목록 조회 훅
+ * @param status - 'new' (신규), 'pending_payment' (입금확인), 'completed' (배송완료), 'all' (전체)
+ * @param options - 추가 옵션 (enabled 등)
+ */
+export function useOrders(status?: OrderStatusFilter, options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: [...queryKeys.orders.list(), status],
+    queryFn: () => getOrders(status),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+/**
+ * 특정 주문 조회 훅
+ * @param orderId - 주문 ID (sheetRowNumber 또는 DB ID)
+ * @param options - 추가 옵션 (enabled, idType 등)
+ * Issue #155: claim 주문은 idType='dbId'로 조회
+ */
+export function useOrder(orderId: number, options?: { enabled?: boolean; idType?: 'rowNumber' | 'dbId' }) {
+  return useQuery({
+    queryKey: [...queryKeys.orders.detail(), orderId, options?.idType],
+    queryFn: () => getOrder(orderId, options?.idType),
+    enabled: options?.enabled ?? true,
+  });
+}
+
+/**
+ * 주문 요약 조회 훅
+ */
+export function useOrdersSummary() {
+  return useQuery({
+    queryKey: queryKeys.orders.summary(),
+    queryFn: getOrdersSummary,
+  });
+}
+
+/**
+ * 주문 확인 처리 훅
+ */
+export function useConfirmOrders() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: confirmOrders,
+    onSuccess: () => {
+      // 주문 목록 및 요약 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      // 라벨도 주문 기반이므로 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+    },
+  });
+}
+
+/**
+ * 개별 주문 확인 처리 훅
+ */
+export function useConfirmSingleOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rowNumber: number) => confirmSingleOrder(rowNumber),
+    onSuccess: (_, rowNumber) => {
+      // 주문 목록 및 요약 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      // 라벨도 주문 기반이므로 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      // 해당 주문의 상세 데이터도 갱신 (브라우저 백 버튼 시 stale 데이터 방지)
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+    },
+  });
+}
+
+/**
+ * 입금 확인 처리 훅 (신규주문 → 입금확인)
+ */
+export function useConfirmPayment() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rowNumber: number) => confirmPayment(rowNumber),
+    onSuccess: (_, rowNumber) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+    },
+  });
+}
+
+/**
+ * 배송 완료 처리 훅 (입금확인 → 배송완료)
+ */
+export function useMarkDelivered() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ rowNumber, trackingNumber }: { rowNumber: number; trackingNumber?: string }) =>
+      markDelivered(rowNumber, trackingNumber),
+    onSuccess: (_, { rowNumber }) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+    },
+  });
+}
+
+/**
+ * 주문 삭제 훅 (Soft Delete)
+ */
+export function useDeleteOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rowNumber: number) => deleteOrder(rowNumber),
+    onSuccess: (_, rowNumber) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+    },
+  });
+}
+
+/**
+ * 주문 복원 훅 (Soft Delete 취소)
+ */
+export function useRestoreOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rowNumber: number) => restoreOrder(rowNumber),
+    onSuccess: (_, rowNumber) => {
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+    },
+  });
+}
+
+/**
+ * 삭제된 주문 목록 조회 훅
+ * @param options - 추가 옵션 (enabled 등)
+ */
+export function useDeletedOrders(options?: { enabled?: boolean }) {
+  return useQuery({
+    queryKey: [...queryKeys.orders.list(), 'deleted'],
+    queryFn: getDeletedOrders,
+    enabled: options?.enabled ?? true,
+  });
+}
+
+/**
+ * 주문 정보 수정 훅 (Issue #136)
+ */
+export function useUpdateOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: ({ rowNumber, data }: { rowNumber: number; data: OrderUpdateData }) =>
+      updateOrder(rowNumber, data),
+    onSuccess: (_, { rowNumber }) => {
+      // 주문 목록 및 요약 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      // 라벨도 주문 기반이므로 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      // 해당 주문의 상세 데이터도 갱신
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+    },
+  });
+}
+
+/**
+ * 배송사고 주문 생성 훅 (Issue #152)
+ * 배송완료된 원본 주문을 복제하여 배송사고 유형의 신규 주문 생성
+ */
+export function useCreateClaimOrder() {
+  const queryClient = useQueryClient();
+
+  return useMutation({
+    mutationFn: (rowNumber: number) => createClaimOrder(rowNumber),
+    onSuccess: (result) => {
+      // 주문 목록 갱신 (새 배송사고 주문이 추가됨)
+      queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
+      // 라벨도 주문 기반이므로 갱신
+      queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
+      // 새로 생성된 주문의 상세 데이터도 prefetch를 위해 invalidate
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), result.data.claimOrderId] });
+    },
+  });
+}

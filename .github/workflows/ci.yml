@@ -1,0 +1,74 @@
+name: CI
+
+on:
+  push:
+    branches: [dev, main]
+  pull_request:
+    branches: [dev, main]
+
+permissions:
+  contents: read
+
+jobs:
+  lint-and-test:
+    name: Lint and Test
+    runs-on: ubuntu-latest
+
+    strategy:
+      matrix:
+        node-version: [20.x]
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 9
+
+      - name: Setup Node.js ${{ matrix.node-version }}
+        uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node-version }}
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/test
+
+      - name: Lint (core)
+        run: pnpm --filter @mytangerine/core lint
+        continue-on-error: true
+
+      - name: Build (core)
+        run: pnpm --filter @mytangerine/core build
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/test
+
+      - name: Test (core)
+        run: pnpm --filter @mytangerine/core test
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/test
+
+      - name: Lint (api)
+        run: pnpm --filter @mytangerine/api lint
+        continue-on-error: true
+
+      - name: Build (api)
+        run: pnpm --filter @mytangerine/api build
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/test
+
+      - name: Test (api)
+        run: pnpm --filter @mytangerine/api test
+        env:
+          DATABASE_URL: postgresql://user:password@localhost:5432/test
+
+      - name: Upload coverage
+        uses: codecov/codecov-action@v5
+        if: always()
+        with:
+          fail_ci_if_error: false
+          files: ./packages/core/coverage/coverage-final.json,./packages/api/coverage/coverage-final.json

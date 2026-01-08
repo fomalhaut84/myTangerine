@@ -1,0 +1,44 @@
+{
+  "name": "mytangerine-monorepo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "myTangerine - TypeScript 기반 감귤 주문 관리 시스템",
+  "scripts": {
+    "build": "pnpm -r build",
+    "test": "pnpm -r test",
+    "lint": "pnpm -r lint",
+    "clean": "pnpm -r clean",
+    "postinstall": "prisma generate",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:studio": "prisma studio",
+    "prisma:deploy": "prisma migrate deploy"
+  },
+  "keywords": [
+    "order-management",
+    "google-sheets",
+    "typescript",
+    "monorepo"
+  ],
+  "author": "fomalhaut84",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18.17.0"
+  },
+  "pnpm": {
+    "overrides": {
+      "glob": ">=10.5.0",
+      "esbuild": ">=0.25.0",
+      "qs": ">=6.14.1"
+    }
+  },
+  "devDependencies": {
+    "@prisma/client": "^6.0.0",
+    "@typescript-eslint/eslint-plugin": "^7.0.0",
+    "@typescript-eslint/parser": "^6.21.0",
+    "eslint": "^8.57.1",
+    "prettier": "^3.0.0",
+    "prisma": "^6.0.0",
+    "typescript": "^5.0.0"
+  }
+}

@@ -1,0 +1,515 @@
+import type { Config } from '../config/config.js';
+
+/**
+ * 발송인 정보
+ */
+export interface Sender {
+  name: string;
+  address: string;
+  phone: string;
+}
+
+/**
+ * 수취인 정보
+ */
+export interface Recipient {
+  name: string;
+  address: string;
+  phone: string;
+}
+
+/**
+ * 상품 타입
+ */
+export type ProductType = '비상품' | '5kg' | '10kg';
+
+/**
+ * 주문 상태 (3단계 상태 체계)
+ * - 신규주문: 주문이 접수된 초기 상태
+ * - 입금확인: 입금이 확인된 상태
+ * - 배송완료: 배송이 완료된 상태
+ */
+export type OrderStatus = '신규주문' | '입금확인' | '배송완료';
+
+/**
+ * API에서 사용하는 상태 필터 값
+ * - new: 신규주문
+ * - pending_payment: 입금확인
+ * - completed: 배송완료 (하위 호환성 유지)
+ * - all: 전체
+ */
+export type OrderStatusFilter = 'new' | 'pending_payment' | 'completed' | 'all';
+
+/**
+ * 원본 상태 값을 새로운 3단계 상태로 정규화
+ * - "" (빈 문자열) → "신규주문"
+ * - "확인" → "배송완료" (기존 확인은 배송 완료로 간주)
+ * - "신규주문", "입금확인", "배송완료" → 그대로 유지
+ *
+ * 주의: 모든 비교는 trim() 처리 후 수행 (시트 입력 시 공백 포함 가능성)
+ */
+export function normalizeOrderStatus(rawStatus: string | undefined | null): OrderStatus {
+  if (!rawStatus) {
+    return '신규주문';
+  }
+
+  const trimmed = rawStatus.trim();
+
+  if (trimmed === '' || trimmed === '신규주문') {
+    return '신규주문';
+  }
+  if (trimmed === '확인' || trimmed === '배송완료') {
+    return '배송완료';
+  }
+  if (trimmed === '입금확인') {
+    return '입금확인';
+  }
+
+  // 알 수 없는 값은 경고 로그 후 신규주문으로 처리
+  console.warn(`[normalizeOrderStatus] 알 수 없는 상태값: "${rawStatus}" → "신규주문"으로 정규화`);
+  return '신규주문';
+}
+
+/**
+ * OrderStatus를 API 필터 값으로 변환
+ */
+export function orderStatusToFilter(status: OrderStatus): Exclude<OrderStatusFilter, 'all'> {
+  switch (status) {
+    case '신규주문':
+      return 'new';
+    case '입금확인':
+      return 'pending_payment';
+    case '배송완료':
+      return 'completed';
+  }
+}
+
+/**
+ * API 필터 값을 OrderStatus로 변환
+ */
+export function filterToOrderStatus(filter: Exclude<OrderStatusFilter, 'all'>): OrderStatus {
+  switch (filter) {
+    case 'new':
+      return '신규주문';
+    case 'pending_payment':
+      return '입금확인';
+    case 'completed':
+      return '배송완료';
+  }
+}
+
+/**
+ * 주문 유형
+ * - 'customer': 고객 주문 (판매, 매출에 포함)
+ * - 'gift': 선물용 주문 (매출에서 제외)
+ * - 'claim': 배송사고 주문 (매출에서 제외, 보상 발송)
+ */
+export type OrderType = 'customer' | 'gift' | 'claim';
+
+/**
+ * 스프레드시트 원본 행 데이터
+ * (Google Sheets에서 가져온 그대로의 데이터)
+ */
+export interface SheetRow {
+  /** 타임스탬프 (문자열, 예: "2024. 12. 5. 오후 3:45:23") */
+  '타임스탬프': string;
+
+  /** 비고 (예: "", "확인") */
+  '비고': string;
+
+  /** 보내는분 성함 */
+  '보내는분 성함': string;
+
+  /** 보내는분 주소 */
+  '보내는분 주소 (도로명 주소로 부탁드려요)': string;
+
+  /** 보내는분 연락처 */
+  '보내는분 연락처 (핸드폰번호)': string;
+
+  /** 받으실분 성함 */
+  '받으실분 성함': string;
+
+  /** 받으실분 주소 */
+  '받으실분 주소 (도로명 주소로 부탁드려요)': string;
+
+  /** 받으실분 연락처 */
+  '받으실분 연락처 (핸드폰번호)': string;
+
+  /** 상품 선택 (예: "5kg", "10kg") */
+  '상품 선택': string;
+
+  /** 5kg 수량 */
+  '5kg 수량': string | number;
+
+  /** 10kg 수량 */
+  '10kg 수량': string | number;
+
+  /** 주문유형 (판매/선물, 선택적 - 빈 값은 '판매'로 처리) */
+  '주문유형'?: string;
+
+  /** 스프레드시트에서의 실제 행 번호 (헤더 행 포함, 1-based) */
+  _rowNumber?: number;
+
+  /** 검증 에러 메시지 (검증 실패 시) */
+  _validationError?: string;
+
+  /** DB 싱크 시도 횟수 (Phase 2.1+, DB에서 가져온 경우만) */
+  _syncAttemptCount?: number;
+
+  /** Soft Delete 타임스탬프 (Phase 3, 삭제된 경우 ISO 문자열) */
+  '삭제됨'?: string;
+
+  /** 송장번호 (배송완료 시 입력) */
+  '송장번호'?: string;
+
+  /** 주문자 성함 (폼 응답에서 직접 입력) */
+  '주문자 성함'?: string;
+
+  /** 이메일 주소 (폼 응답에서 직접 입력) */
+  '이메일 주소'?: string;
+
+  /** Soft Delete 여부 (내부 사용) */
+  _isDeleted?: boolean;
+
+  /** Issue #155: 배송사고 원본 주문 참조 (claim 주문만 값 있음) */
+  _originalRowNumber?: number;
+
+  /** Issue #155: 주문유형 (영문, 내부 필터링용) */
+  _orderType?: OrderType;
+}
+
+/**
+ * 처리된 주문 데이터
+ * (비즈니스 로직에서 사용하기 쉽게 변환된 형태)
+ */
+export interface Order {
+  /** 타임스탬프 (Date 객체로 파싱됨) */
+  timestamp: Date;
+
+  /** 타임스탬프 원본 문자열 */
+  timestampRaw: string;
+
+  /** 주문 상태 */
+  status: OrderStatus;
+
+  /** 주문자 성함 (스프레드시트 '주문자 성함' 컬럼) */
+  ordererName?: string;
+
+  /** 주문자 이메일 (스프레드시트 '이메일 주소' 컬럼) */
+  ordererEmail?: string;
+
+  /** 발송인 정보 */
+  sender: Sender;
+
+  /** 수취인 정보 */
+  recipient: Recipient;
+
+  /** 선택한 상품 타입 (검증 실패 시 null) */
+  productType: ProductType | null;
+
+  /** 주문 수량 */
+  quantity: number;
+
+  /** 스프레드시트에서의 실제 행 번호 */
+  rowNumber: number;
+
+  /** 주문 유형 (고객 주문 vs 선물) */
+  orderType: OrderType;
+
+  /** 검증 에러 메시지 (검증 실패 시) */
+  validationError?: string;
+
+  /** Soft Delete 여부 (Phase 3) */
+  isDeleted: boolean;
+
+  /** 삭제된 시간 (Phase 3, 삭제된 경우만) */
+  deletedAt?: Date;
+
+  /** 송장번호 (배송완료 시 입력) */
+  trackingNumber?: string;
+
+  /** Issue #155: 배송사고 원본 주문 행 번호 (claim 주문만 값 있음) */
+  originalRowNumber?: number;
+
+  /** 원본 시트 행 데이터 (디버깅용) */
+  _raw?: SheetRow;
+}
+
+/**
+ * 한국어 타임스탬프 파싱 (Python 버전과 동일한 로직)
+ * 예: "2024. 12. 5. 오후 3:45:23" -> Date
+ */
+export function parseKoreanTimestamp(timestampStr: string): Date {
+  try {
+    // 오전/오후를 AM/PM으로 변환
+    const amPm = timestampStr.includes('오전') ? 'AM' : 'PM';
+    let cleaned = timestampStr.replace('오전', 'AM').replace('오후', 'PM');
+
+    // 점과 공백 제거하고 분리
+    cleaned = cleaned.replace(/\./g, '').trim();
+    const parts = cleaned.split(/\s+/);
+
+    if (parts.length < 5) {
+      throw new Error(`Invalid timestamp format: ${timestampStr}`);
+    }
+
+    const year = parts[0];
+    const month = parts[1].padStart(2, '0');
+    const day = parts[2].padStart(2, '0');
+    const time = parts[4];
+
+    // Date 객체 생성
+    const [timePart] = time.split(':');
+    let hour = parseInt(timePart, 10);
+    const [, minute, second] = time.split(':');
+
+    // 12시간 형식 -> 24시간 형식 변환
+    if (amPm === 'PM' && hour !== 12) {
+      hour += 12;
+    } else if (amPm === 'AM' && hour === 12) {
+      hour = 0;
+    }
+
+    return new Date(
+      parseInt(year),
+      parseInt(month) - 1, // JS의 월은 0부터 시작
+      parseInt(day),
+      hour,
+      parseInt(minute),
+      parseInt(second)
+    );
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    throw new Error(`Failed to parse timestamp '${timestampStr}': ${message}`);
+  }
+}
+
+/**
+ * 수량 추출 (Python 버전의 get_quantity 로직)
+ * 5kg 수량, 10kg 수량 중 값이 있는 것을 반환, 없으면 1
+ */
+export function extractQuantity(row: SheetRow): number {
+  const qty5kg = row['5kg 수량'];
+  const qty10kg = row['10kg 수량'];
+
+  // 5kg 수량 확인
+  if (qty5kg !== undefined && qty5kg !== null && String(qty5kg).trim() !== '') {
+    const str = String(qty5kg);
+    const match = str.match(/\d+/);
+    if (match) {
+      return parseInt(match[0], 10);
+    }
+  }
+
+  // 10kg 수량 확인
+  if (qty10kg !== undefined && qty10kg !== null && String(qty10kg).trim() !== '') {
+    const str = String(qty10kg);
+    const match = str.match(/\d+/);
+    if (match) {
+      return parseInt(match[0], 10);
+    }
+  }
+
+  // 기본값
+  return 1;
+}
+
+/**
+ * 전화번호 포맷팅 (Python 버전의 format_phone_number 로직)
+ * 010-XXXX-XXXX 형식으로 변환
+ */
+export function formatPhoneNumber(phone: string): string {
+  if (!phone || phone.trim() === '') {
+    return '';
+  }
+
+  // 숫자만 추출
+  const numbersOnly = phone.replace(/\D/g, '');
+
+  // 10자리이고 10으로 시작하면 앞에 0 추가
+  let cleaned = numbersOnly;
+  if (cleaned.length === 10 && cleaned.startsWith('10')) {
+    cleaned = '0' + cleaned;
+  }
+
+  // 11자리이고 010으로 시작하면 포맷팅
+  if (cleaned.length === 11 && cleaned.startsWith('010')) {
+    return `${cleaned.slice(0, 3)}-${cleaned.slice(3, 7)}-${cleaned.slice(7)}`;
+  }
+
+  // 이미 올바른 형식이면 그대로 반환
+  if (phone.replace(/-/g, '').length === 11 && phone.split('-').length === 3) {
+    return phone;
+  }
+
+  // 그 외에는 원본 반환
+  return phone;
+}
+
+/**
+ * 문자열이 비어있는지 확인
+ */
+function isEmpty(value: string | undefined | null): boolean {
+  return !value || value.trim() === '';
+}
+
+/**
+ * 주문유형 파싱
+ * 시트의 '주문유형' 컬럼 값을 OrderType으로 변환
+ * - '선물' -> 'gift'
+ * - '배송사고' -> 'claim'
+ * - 그 외 (빈 값, '판매', 기타) -> 'customer' (기본값)
+ */
+export function parseOrderType(orderTypeValue: string | undefined): OrderType {
+  if (!orderTypeValue || orderTypeValue.trim() === '') {
+    return 'customer'; // 기본값: 고객 주문(판매)
+  }
+
+  const normalized = orderTypeValue.trim().toLowerCase();
+  if (normalized === '선물' || normalized === 'gift') {
+    return 'gift';
+  }
+  if (normalized === '배송사고' || normalized === 'claim') {
+    return 'claim';
+  }
+
+  return 'customer';
+}
+
+/**
+ * 상품 선택 값의 유효성을 검증하고 상품 타입을 파싱
+ * @returns { isValid, productType, reason }
+ */
+export function validateProductSelection(productSelection: string): {
+  isValid: boolean;
+  productType: ProductType | null;
+  reason: string;
+} {
+  // 빈 값 검증
+  if (!productSelection || productSelection.trim() === '') {
+    return {
+      isValid: false,
+      productType: null,
+      reason: '상품 선택이 비어있습니다',
+    };
+  }
+
+  // '비상품' 매칭
+  if (productSelection.includes('비상품')) {
+    return {
+      isValid: true,
+      productType: '비상품',
+      reason: '',
+    };
+  }
+
+  // 정규식으로 정확한 5kg 또는 10kg 매칭 (단어 경계 사용)
+  const match = productSelection.match(/\b(5|10)kg\b/);
+
+  if (!match) {
+    return {
+      isValid: false,
+      productType: null,
+      reason: `유효하지 않은 상품 타입: "${productSelection}"`,
+    };
+  }
+
+  const productType = `${match[1]}kg` as ProductType;
+  return {
+    isValid: true,
+    productType,
+    reason: '',
+  };
+}
+
+/**
+ * SheetRow를 Order로 변환
+ * Python 버전의 LabelFormatter와 동일하게 발송인 정보가 비어있으면 기본값 사용
+ *
+ * @param row - 스프레드시트 원본 행 데이터
+ * @param config - (선택) Config 객체. 제공되면 발송인 정보가 비어있을 때 defaultSender로 대체
+ */
+export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
+  const timestamp = parseKoreanTimestamp(row['타임스탬프']);
+  const quantity = extractQuantity(row);
+  const orderType = parseOrderType(row['주문유형']);
+
+  // 상품 타입 결정
+  let productType: ProductType | null = null;
+  let validationError: string | undefined = undefined;
+
+  // row에 이미 검증 에러가 있으면 사용, 없으면 새로 검증
+  if (row._validationError) {
+    validationError = row._validationError;
+  } else {
+    const productSelection = row['상품 선택'] || '';
+    const validation = validateProductSelection(productSelection);
+
+    if (!validation.isValid) {
+      validationError = validation.reason;
+    } else {
+      productType = validation.productType;
+    }
+  }
+
+  // 발송인 정보 (config가 제공되고 필드가 비어있으면 기본값 사용)
+  const senderName = row['보내는분 성함'];
+  const senderAddress = row['보내는분 주소 (도로명 주소로 부탁드려요)'];
+  const senderPhone = row['보내는분 연락처 (핸드폰번호)'];
+
+  let sender: Sender;
+  if (config) {
+    // Config가 제공된 경우: 빈 필드를 defaultSender로 대체
+    const defaultSender = config.defaultSender;
+    sender = {
+      name: isEmpty(senderName) ? defaultSender.name : senderName,
+      address: isEmpty(senderAddress) ? defaultSender.address : senderAddress,
+      phone: isEmpty(senderPhone)
+        ? formatPhoneNumber(defaultSender.phone)
+        : formatPhoneNumber(senderPhone),
+    };
+  } else {
+    // Config가 없는 경우: 원본 값 그대로 사용 (backward compatibility)
+    sender = {
+      name: senderName,
+      address: senderAddress,
+      phone: formatPhoneNumber(senderPhone),
+    };
+  }
+
+  // Soft Delete 처리 (P2 Fix: Invalid Date 방어)
+  let deletedAt: Date | undefined = undefined;
+  if (row['삭제됨']) {
+    const parsedDate = new Date(row['삭제됨']);
+    if (!isNaN(parsedDate.getTime())) {
+      deletedAt = parsedDate;
+    }
+    // Invalid Date는 무시 (deletedAt = undefined)
+  }
+  const isDeleted = row._isDeleted || deletedAt !== undefined;
+
+  return {
+    timestamp,
+    timestampRaw: row['타임스탬프'],
+    status: normalizeOrderStatus(row['비고']),
+    ordererName: row['주문자 성함'] || undefined,
+    ordererEmail: row['이메일 주소'] || undefined,
+    sender,
+    recipient: {
+      name: row['받으실분 성함'],
+      address: row['받으실분 주소 (도로명 주소로 부탁드려요)'],
+      phone: formatPhoneNumber(row['받으실분 연락처 (핸드폰번호)']),
+    },
+    productType,
+    quantity,
+    rowNumber: row._rowNumber || 0,
+    orderType,
+    validationError,
+    isDeleted,
+    deletedAt,
+    trackingNumber: row['송장번호'] || undefined,
+    // Issue #155: 배송사고 원본 주문 참조
+    originalRowNumber: row._originalRowNumber,
+    _raw: row,
+  };
+}
