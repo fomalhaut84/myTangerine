@@ -239,8 +239,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     // SheetRow를 Order로 변환
     // Issue #155: claim 주문은 목록에서 제외 (sheetRowNumber가 null이라 rowNumber=0으로 표시됨)
     // claim 주문은 원본 주문 상세 페이지의 "원본 주문" 링크로만 접근 가능
+    // P2 리뷰 반영: DB 모드(_orderType)와 Sheets 모드('주문유형') 모두 처리
     const orders = sheetRows
-      .filter((row) => row._orderType !== 'claim')
+      .filter((row) => row._orderType !== 'claim' && row['주문유형'] !== '배송사고')
       .map((row) => sheetRowToOrder(row, config));
 
     return {
