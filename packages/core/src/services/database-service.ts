@@ -807,6 +807,8 @@ export class DatabaseService {
           data.quantity10kg = String(updates.quantity);
           data.quantity5kg = '0';
         }
+        // P2 Fix: derived quantity 필드도 함께 업데이트 (claim 주문 복제 등에서 사용)
+        data.quantity = updates.quantity;
       }
 
       // 주문 유형
