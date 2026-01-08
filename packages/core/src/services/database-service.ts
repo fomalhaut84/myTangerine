@@ -1015,27 +1015,10 @@ export class DatabaseService {
         },
       });
 
-      // 3. 변경 로그 기록 (로그 실패가 주문 생성을 롤백하지 않도록)
-      try {
-        await this.changeLogService.logChange({
-          orderId: newOrder.id,
-          sheetRowNumber: originalRowNumber, // 원본 주문의 행 번호로 기록
-          changedBy: 'web',
-          action: 'status_change',
-          fieldChanges: {
-            orderType: { old: null, new: 'claim' },
-            originalRowNumber: { old: null, new: originalRowNumber },
-            status: { old: null, new: '신규주문' },
-          },
-          previousVersion: 0,
-        });
-      } catch (logError) {
-        // 로그 실패는 무시하고 주문 생성 성공으로 처리
-        console.error(
-          `[createClaimOrder] 변경 로그 기록 실패 (DB id #${newOrder.id}):`,
-          logError instanceof Error ? logError.message : String(logError)
-        );
-      }
+      // P2 리뷰 반영: claim 주문은 change log 생성 스킵
+      // - claim 주문은 sheetRowNumber가 null이라 원본 주문의 sheetRowNumber로 기록하면
+      //   원본 주문의 히스토리에 claim 변경사항이 표시되어 혼란을 줌
+      // - claim 주문은 UI에서 변경 이력을 표시하지 않으므로 로그 생성 불필요
 
       // Issue #155: DB id 반환 (sheetRowNumber가 null이므로)
       return newOrder.id;
