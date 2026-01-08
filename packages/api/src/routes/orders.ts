@@ -2666,10 +2666,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const result = await dataService.createClaimOrder(rowNumber);
 
-        // Sheets 동기화 실패 시 경고 메시지 추가
-        const message = result.sheetsSynced
-          ? `배송사고 주문이 생성되었습니다. (주문 #${result.rowNumber})`
-          : `배송사고 주문이 DB에 생성되었습니다. (주문 #${result.rowNumber}) - Google Sheets 동기화는 다음 sync 시 반영됩니다.`;
+        // Issue #155: 배송사고는 DB에만 저장 (Sheets에 저장하지 않음)
+        const message = `배송사고 주문이 생성되었습니다. (주문 #${result.rowNumber})`;
 
         return reply.code(201).send({
           success: true,
