@@ -16,14 +16,15 @@ import type { SheetRow, OrderStatus } from '../types/order.js';
 export type DataSourceMode = 'sheets' | 'database' | 'hybrid';
 
 /**
- * 배송사고 주문 생성 결과 (Issue #152)
+ * 배송사고 주문 생성 결과 (Issue #152, #155)
+ *
+ * Issue #155: 배송사고는 DB에만 저장, sheetRowNumber는 null
  */
 export interface CreateClaimOrderResult {
-  rowNumber: number;
-  sheetsSynced: boolean;
-  sheetsRowNumber?: number;  // 6차 리뷰: 실제 Sheets 행 번호
-  rowNumberMismatch?: boolean;  // 6차 리뷰: DB-Sheets row number 불일치 여부
-  sheetsError?: string;
+  /** 생성된 배송사고 주문의 DB id */
+  id: number;
+  /** 원본 주문의 sheetRowNumber (추적용) */
+  originalRowNumber: number;
 }
 
 export interface HybridDataServiceOptions {
@@ -187,6 +188,23 @@ export class HybridDataService {
       }
       throw dbError;
     }
+  }
+
+  /**
+   * Issue #155: DB ID로 주문 가져오기 (claim 주문 등 sheetRowNumber가 null인 경우)
+   * database/hybrid 모드에서만 지원
+   */
+  async getOrderById(id: number): Promise<SheetRow | null> {
+    if (this.mode === 'sheets') {
+      // sheets 모드에서는 DB ID 조회 불가
+      this.logger?.warn(`[hybrid] getOrderById not supported in sheets mode`);
+      return null;
+    }
+
+    // database/hybrid: DB에서 직접 조회
+    const row = await this.databaseService.getOrderById(id);
+    this.logger?.info(`[hybrid] getOrderById(${id}) from DB: ${row ? 'found' : 'not found'}`);
+    return row;
   }
 
   /**
@@ -582,12 +600,11 @@ export class HybridDataService {
    * 원본 주문을 복제하여 orderType='claim'인 새 주문 생성
    *
    * @param originalRowNumber - 원본 주문의 행 번호
-   * @returns 생성 결과 (행 번호 + Sheets 동기화 상태)
+   * @returns 생성 결과 (DB id + 원본 주문 참조)
    *
    * @note Issue #155: 배송사고는 DB에만 저장 (Sheets에 저장하지 않음)
-   *       - Google Form이 Sheets에 row를 insert하면 API로 append한 행이 밀림
-   *       - DB-Sheets row number 불일치가 발생하여 sync 전까지 데이터 정합성 문제
-   *       - Sheets는 Google Form 입력용 raw data, 운영 데이터는 DB로 관리
+   *       - sheetRowNumber: null (Sheets 행 번호 충돌 방지)
+   *       - originalRowNumber: 원본 주문 참조 (추적용)
    */
   async createClaimOrder(originalRowNumber: number): Promise<CreateClaimOrderResult> {
     if (this.mode === 'sheets') {
@@ -595,10 +612,10 @@ export class HybridDataService {
     }
 
     // Issue #155: database/hybrid 모드 모두 DB에만 저장
-    const rowNumber = await this.databaseService.createClaimOrder(originalRowNumber);
-    this.logger?.info(`[${this.mode}] createClaimOrder success: row ${rowNumber} (DB only)`);
+    const id = await this.databaseService.createClaimOrder(originalRowNumber);
+    this.logger?.info(`[${this.mode}] createClaimOrder success: DB id ${id}, original row ${originalRowNumber}`);
 
-    return { rowNumber, sheetsSynced: false };
+    return { id, originalRowNumber };
   }
 
   /**

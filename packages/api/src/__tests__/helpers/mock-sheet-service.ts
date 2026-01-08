@@ -77,6 +77,16 @@ export class MockSheetService {
   }
 
   /**
+   * Issue #155: DB ID로 주문 조회 (mock)
+   * @param id DB ID
+   * @returns 주문 데이터 또는 null
+   */
+  async getOrderById(id: number): Promise<SheetRow | null> {
+    // Mock에서는 _rowNumber를 ID로 사용
+    return this.getOrderByRowNumber(id);
+  }
+
+  /**
    * 주문 확인 처리 (mock)
    * @param rowNumbers - 확인 처리할 행 번호 배열 (선택). 미제공 시 모든 주문 확인
    */

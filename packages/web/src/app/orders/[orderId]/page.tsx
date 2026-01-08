@@ -31,17 +31,25 @@ export default function OrderDetailPage() {
   const searchParams = useSearchParams();
   const orderId = parseInt(params.orderId as string, 10);
 
-  // 돌아가기 링크에 쿼리 파라미터 유지
-  const backLink = searchParams.toString()
-    ? `/orders?${searchParams.toString()}`
+  // Issue #155: URL에서 idType 쿼리 파라미터 읽기 (claim 주문용)
+  const idType = searchParams.get('idType') as 'rowNumber' | 'dbId' | null;
+
+  // 돌아가기 링크에 쿼리 파라미터 유지 (idType 제외)
+  const backLinkParams = new URLSearchParams(searchParams);
+  backLinkParams.delete('idType'); // idType은 주문 상세 전용이므로 목록 링크에서 제외
+  const backLink = backLinkParams.toString()
+    ? `/orders?${backLinkParams.toString()}`
     : '/orders';
 
   // orderId가 유효한 숫자가 아니면 API 호출 전에 처리
-  const isValidOrderId = Number.isFinite(orderId) && orderId >= 2;
+  // Issue #155: DB id는 1부터 시작하므로 >= 1로 변경
+  const isValidOrderId = Number.isFinite(orderId) && orderId >= 1;
 
   // 단일 주문 조회로 변경 (유효한 orderId인 경우에만 실행)
+  // Issue #155: idType 파라미터 전달
   const { data, isLoading, error, refetch } = useOrder(orderId, {
     enabled: isValidOrderId,
+    idType: idType || undefined,
   });
   const confirmMutation = useConfirmSingleOrder();
   const confirmPaymentMutation = useConfirmPayment();
@@ -144,7 +152,7 @@ export default function OrderDetailPage() {
       '주문 복원 중 오류가 발생했습니다.'
     );
 
-  // 배송사고 등록 (Issue #152)
+  // 배송사고 등록 (Issue #152, #155)
   const handleCreateClaim = async () => {
     if (!order) return;
     if (!confirm('배송사고 주문을 등록하시겠습니까?\n동일한 내용의 신규 주문이 생성됩니다.')) return;
@@ -153,8 +161,8 @@ export default function OrderDetailPage() {
     try {
       const result = await createClaimMutation.mutateAsync(order.rowNumber);
       toast.success(`배송사고 주문이 등록되었습니다. (주문번호: #${result.data.claimOrderId})`);
-      // 새로 생성된 배송사고 주문으로 이동
-      router.push(`/orders/${result.data.claimOrderId}`);
+      // Issue #155: 새로 생성된 배송사고 주문으로 이동 (DB id로 조회하기 위해 idType=dbId 추가)
+      router.push(`/orders/${result.data.claimOrderId}?idType=dbId`);
     } catch {
       toast.error('배송사고 등록 중 오류가 발생했습니다.');
     } finally {
@@ -350,7 +358,8 @@ export default function OrderDetailPage() {
             <h1 className="text-2xl sm:text-3xl font-bold text-gray-900">
               {isEditMode ? '주문 수정' : '주문 상세 정보'}
             </h1>
-            {!order.isDeleted && !isEditMode && (
+            {/* Issue #155: claim 주문은 수정 불가 (DB만 저장되어 Sheets 동기화 안 됨) */}
+            {!order.isDeleted && !isEditMode && order.orderType !== 'claim' && (
               <button
                 onClick={handleStartEdit}
                 className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg text-sm font-medium transition-colors"
@@ -407,7 +416,14 @@ export default function OrderDetailPage() {
                 주문 번호
               </dt>
               <dd className="mt-1 text-sm text-gray-900">
-                #{order.rowNumber}
+                {/* Issue #155: claim 주문은 원본 주문 번호 표시 */}
+                {order.orderType === 'claim' ? (
+                  <span>
+                    배송사고 (원본: #{order.originalRowNumber || '?'})
+                  </span>
+                ) : (
+                  `#${order.rowNumber}`
+                )}
               </dd>
             </div>
             <div>
@@ -443,6 +459,22 @@ export default function OrderDetailPage() {
                   >
                     {order.orderType === 'gift' ? '선물' : order.orderType === 'claim' ? '배송사고' : '판매'}
                   </span>
+                </dd>
+              </div>
+            )}
+            {/* Issue #155: 배송사고 주문의 원본 주문 링크 */}
+            {order.orderType === 'claim' && order.originalRowNumber && (
+              <div>
+                <dt className="text-sm font-medium text-gray-500">
+                  원본 주문
+                </dt>
+                <dd className="mt-1">
+                  <Link
+                    href={`/orders/${order.originalRowNumber}`}
+                    className="text-blue-600 hover:text-blue-700 text-sm font-medium"
+                  >
+                    #{order.originalRowNumber} 보기 →
+                  </Link>
                 </dd>
               </div>
             )}
@@ -527,6 +559,7 @@ export default function OrderDetailPage() {
               </dd>
             </div>
             {/* 주문 유형 - 배송완료가 아닌 경우 수정 가능 */}
+            {/* Issue #155: claim 타입은 "배송사고 등록" 버튼으로만 생성되므로 드롭다운에서 제거 */}
             {isEditMode && order.status !== '배송완료' ? (
               <div>
                 <dt className="text-sm font-medium text-gray-500">
@@ -535,12 +568,11 @@ export default function OrderDetailPage() {
                 <dd className="mt-1">
                   <select
                     value={editForm.orderType || 'customer'}
-                    onChange={(e) => setEditForm({ ...editForm, orderType: e.target.value as 'customer' | 'gift' | 'claim' })}
+                    onChange={(e) => setEditForm({ ...editForm, orderType: e.target.value as 'customer' | 'gift' })}
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm focus:ring-2 focus:ring-blue-500 focus:border-blue-500"
                   >
                     <option value="customer">판매</option>
                     <option value="gift">선물</option>
-                    <option value="claim">배송사고</option>
                   </select>
                 </dd>
               </div>
@@ -703,13 +735,21 @@ export default function OrderDetailPage() {
             </>
           ) : order.isDeleted ? (
             /* 삭제된 주문인 경우 복원 버튼만 표시 */
-            <button
-              className="px-4 sm:px-6 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
-              onClick={handleRestore}
-              disabled={isProcessing}
-            >
-              {isProcessing ? '처리 중...' : '복원'}
-            </button>
+            /* Issue #155: claim 주문은 DB만 저장되어 액션 불가 */
+            order.orderType !== 'claim' && (
+              <button
+                className="px-4 sm:px-6 py-2 bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
+                onClick={handleRestore}
+                disabled={isProcessing}
+              >
+                {isProcessing ? '처리 중...' : '복원'}
+              </button>
+            )
+          ) : order.orderType === 'claim' ? (
+            /* Issue #155: claim 주문은 DB만 저장되어 상태 변경/삭제 불가 */
+            <div className="text-sm text-gray-500 italic">
+              배송사고 주문은 조회만 가능합니다.
+            </div>
           ) : (
             <>
               {/* 신규주문 → 입금확인 */}
@@ -745,8 +785,9 @@ export default function OrderDetailPage() {
                 </button>
               )}
 
-              {/* 배송사고 등록 버튼 (배송완료 상태이고 배송사고 유형이 아닌 경우에만) - Issue #152 */}
-              {order.status === '배송완료' && order.orderType !== 'claim' && (
+              {/* 배송사고 등록 버튼 (배송완료 상태에서만) - Issue #152 */}
+              {/* Note: claim 주문은 위에서 이미 분기되어 여기 도달 안 함 */}
+              {order.status === '배송완료' && (
                 <button
                   className="px-4 sm:px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                   onClick={handleCreateClaim}
@@ -760,7 +801,8 @@ export default function OrderDetailPage() {
         </div>
 
         {/* 변경 이력 (Phase 2) */}
-        {!isEditMode && (
+        {/* Issue #155: claim 주문은 변경 이력이 sheetRowNumber 기준이라 표시 안 함 */}
+        {!isEditMode && order.orderType !== 'claim' && (
           <Card title="" className="mt-6">
             <ChangeHistoryTab rowNumber={orderId} />
           </Card>
