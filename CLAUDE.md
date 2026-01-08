@@ -36,6 +36,19 @@ hotfix/*              ←─── 핫픽스 브랜치 (main base)
 - 핫픽스: `hotfix/issue-{번호}-{설명}` (예: `hotfix/issue-160-login-fix`)
 - 릴리즈: `release/v{버전}` (예: `release/v1.0.0`) - 필요시 사용
 
+#### PR 머지 방식
+
+| 머지 경로 | 권장 방식 | 이유 |
+|-----------|-----------|------|
+| `feature/*` → `dev` | **Squash and Merge** | 피쳐 브랜치는 머지 후 삭제, 깔끔한 히스토리 |
+| `dev` → `main` | **Create a merge commit** | 양 브랜치 유지, main↔dev 동기화 용이 |
+| `hotfix/*` → `main` | **Create a merge commit** | 이후 main → dev 동기화 필요 |
+
+⚠️ **주의**: `dev` → `main` 머지 시 Squash Merge를 사용하면:
+- main에 새 커밋 생성 → dev와 커밋 히스토리 분리
+- 이후 핫픽스 시 `main` → `dev` 머지가 복잡해짐
+- dev를 리셋하거나 별도 동기화 작업 필요
+
 ### 버전 관리
 
 #### 버전 넘버링 규칙
