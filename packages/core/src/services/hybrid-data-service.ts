@@ -16,14 +16,15 @@ import type { SheetRow, OrderStatus } from '../types/order.js';
 export type DataSourceMode = 'sheets' | 'database' | 'hybrid';
 
 /**
- * 배송사고 주문 생성 결과 (Issue #152)
+ * 배송사고 주문 생성 결과 (Issue #152, #155)
+ *
+ * Issue #155: 배송사고는 DB에만 저장, sheetRowNumber는 null
  */
 export interface CreateClaimOrderResult {
-  rowNumber: number;
-  sheetsSynced: boolean;
-  sheetsRowNumber?: number;  // 6차 리뷰: 실제 Sheets 행 번호
-  rowNumberMismatch?: boolean;  // 6차 리뷰: DB-Sheets row number 불일치 여부
-  sheetsError?: string;
+  /** 생성된 배송사고 주문의 DB id */
+  id: number;
+  /** 원본 주문의 sheetRowNumber (추적용) */
+  originalRowNumber: number;
 }
 
 export interface HybridDataServiceOptions {
@@ -187,6 +188,23 @@ export class HybridDataService {
       }
       throw dbError;
     }
+  }
+
+  /**
+   * Issue #155: DB ID로 주문 가져오기 (claim 주문 등 sheetRowNumber가 null인 경우)
+   * database/hybrid 모드에서만 지원
+   */
+  async getOrderById(id: number): Promise<SheetRow | null> {
+    if (this.mode === 'sheets') {
+      // sheets 모드에서는 DB ID 조회 불가
+      this.logger?.warn(`[hybrid] getOrderById not supported in sheets mode`);
+      return null;
+    }
+
+    // database/hybrid: DB에서 직접 조회
+    const row = await this.databaseService.getOrderById(id);
+    this.logger?.info(`[hybrid] getOrderById(${id}) from DB: ${row ? 'found' : 'not found'}`);
+    return row;
   }
 
   /**
@@ -578,114 +596,26 @@ export class HybridDataService {
   }
 
   /**
-   * 배송사고 주문 생성 (Issue #152)
+   * 배송사고 주문 생성 (Issue #152, #155)
    * 원본 주문을 복제하여 orderType='claim'인 새 주문 생성
    *
    * @param originalRowNumber - 원본 주문의 행 번호
-   * @returns 생성 결과 (행 번호 + Sheets 동기화 상태)
+   * @returns 생성 결과 (DB id + 원본 주문 참조)
    *
-   * @note DB의 sheetRowNumber는 max+1로 생성되고, Sheets는 append로 마지막 행에 추가됩니다.
-   *       시트에 공백 행이나 수동 삽입이 있으면 두 값이 달라질 수 있습니다.
-   *       이 경우 sync-service의 전체 동기화(fullResync)로 정합성을 맞출 수 있습니다.
+   * @note Issue #155: 배송사고는 DB에만 저장 (Sheets에 저장하지 않음)
+   *       - sheetRowNumber: null (Sheets 행 번호 충돌 방지)
+   *       - originalRowNumber: 원본 주문 참조 (추적용)
    */
   async createClaimOrder(originalRowNumber: number): Promise<CreateClaimOrderResult> {
     if (this.mode === 'sheets') {
       throw new Error('createClaimOrder is not supported in sheets mode');
     }
 
-    if (this.mode === 'database') {
-      const rowNumber = await this.databaseService.createClaimOrder(originalRowNumber);
-      return { rowNumber, sheetsSynced: false };
-    }
+    // Issue #155: database/hybrid 모드 모두 DB에만 저장
+    const id = await this.databaseService.createClaimOrder(originalRowNumber);
+    this.logger?.info(`[${this.mode}] createClaimOrder success: DB id ${id}, original row ${originalRowNumber}`);
 
-    // hybrid: DB + Sheets 동시 생성
-    let newRowNumber: number;
-
-    // 1. DB에 먼저 생성
-    try {
-      newRowNumber = await this.databaseService.createClaimOrder(originalRowNumber);
-      this.logger?.info(`[hybrid] createClaimOrder DB success: row ${newRowNumber}`);
-    } catch (dbError) {
-      // DB 실패 시 전체 실패
-      throw dbError;
-    }
-
-    // 2. Sheets에도 추가 (DB 성공 후)
-    try {
-      // 3차 리뷰: DB가 소스 오브 트루스이므로 DB에서 원본 조회
-      const originalOrder = await this.databaseService.getRawOrderByRowNumber(originalRowNumber);
-      if (!originalOrder) {
-        throw new Error(`Original order not found at row ${originalRowNumber}`);
-      }
-
-      // 현재 시각 (한국어 형식)
-      const now = new Date();
-      const timestampRaw = now.toLocaleString('ko-KR', {
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: 'numeric',
-        second: 'numeric',
-        hour12: true,
-      });
-
-      // Sheets 컬럼 데이터 구성 (DB 원본에서 복제 + 배송사고 설정)
-      // DB 필드명 -> Sheets 컬럼명 매핑
-      // 4차 리뷰: quantity는 '0'을 ''로 정규화하고 String() 처리
-      const normalizeQuantity = (val: string | null | undefined): string => {
-        if (!val || val === '0') return '';
-        return String(val);
-      };
-
-      const sheetRowData: Record<string, string> = {
-        '타임스탬프': timestampRaw,
-        '주문자 성함': originalOrder.ordererName || '',
-        '이메일 주소': originalOrder.ordererEmail || '',
-        '보내는분 성함': originalOrder.senderName || '',
-        '보내는분 연락처 (핸드폰번호)': originalOrder.senderPhone || '',
-        '보내는분 주소 (도로명 주소로 부탁드려요)': originalOrder.senderAddress || '',
-        '받으실분 성함': originalOrder.recipientName || '',
-        '받으실분 연락처 (핸드폰번호)': originalOrder.recipientPhone || '',
-        '받으실분 주소 (도로명 주소로 부탁드려요)': originalOrder.recipientAddress || '',
-        '상품 선택': originalOrder.productSelection || '',
-        '5kg 수량': normalizeQuantity(originalOrder.quantity5kg),
-        '10kg 수량': normalizeQuantity(originalOrder.quantity10kg),
-        '주문유형': '배송사고',
-        '비고': '신규주문',
-      };
-
-      const actualSheetRowNumber = await this.sheetService!.appendRow(sheetRowData);
-      this.logger?.info(`[hybrid] createClaimOrder Sheets success: appended at row ${actualSheetRowNumber}`);
-
-      // 5차 리뷰: row number 불일치 경고 (fullResync로 해결 가능)
-      const hasMismatch = actualSheetRowNumber !== newRowNumber;
-      if (hasMismatch) {
-        this.logger?.warn(
-          `[hybrid] Row number mismatch: DB=${newRowNumber}, Sheet=${actualSheetRowNumber}. ` +
-          `Run fullResync to reconcile.`
-        );
-      }
-
-      // 6차 리뷰: 불일치 정보도 결과에 포함
-      return {
-        rowNumber: newRowNumber,
-        sheetsSynced: true,
-        sheetsRowNumber: actualSheetRowNumber,
-        rowNumberMismatch: hasMismatch,
-      };
-    } catch (sheetsError) {
-      const errorMessage = sheetsError instanceof Error ? sheetsError.message : String(sheetsError);
-      this.logger?.error(`[hybrid] createClaimOrder Sheets failed: ${errorMessage}`);
-      this.logger?.warn(`[hybrid] Claim order created in DB but Sheets sync failed. Row: ${newRowNumber}`);
-
-      // Sheets 실패해도 DB는 성공했으므로 결과에 상태 포함하여 반환
-      return {
-        rowNumber: newRowNumber,
-        sheetsSynced: false,
-        sheetsError: errorMessage,
-      };
-    }
+    return { id, originalRowNumber };
   }
 
   /**

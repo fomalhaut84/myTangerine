@@ -38,6 +38,8 @@ export interface Order {
   trackingNumber?: string;
   ordererName?: string;
   ordererEmail?: string;
+  /** Issue #155: 배송사고 원본 주문 참조 (claim 주문만 값 있음) */
+  originalRowNumber?: number;
 }
 
 export interface ProductSummary {

@@ -237,7 +237,12 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     const sheetRows = await dataService.getOrdersByStatus(status);
 
     // SheetRow를 Order로 변환
-    const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+    // Issue #155: claim 주문은 목록에서 제외 (sheetRowNumber가 null이라 rowNumber=0으로 표시됨)
+    // claim 주문은 원본 주문 상세 페이지의 "원본 주문" 링크로만 접근 가능
+    // P2 리뷰 반영: DB 모드(_orderType)와 Sheets 모드('주문유형') 모두 처리
+    const orders = sheetRows
+      .filter((row) => row._orderType !== 'claim' && row['주문유형'] !== '배송사고')
+      .map((row) => sheetRowToOrder(row, config));
 
     return {
       success: true,
@@ -987,24 +992,37 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   /**
    * GET /api/orders/:rowNumber
    * 특정 주문 조회
+   * Issue #155: idType=dbId 쿼리 파라미터로 DB ID 직접 조회 지원 (claim 주문)
    */
   fastify.get<{
     Params: { rowNumber: string };
+    Querystring: { idType?: 'rowNumber' | 'dbId' };
   }>(
     '/api/orders/:rowNumber',
     {
       schema: {
         tags: ['orders'],
         summary: '특정 주문 조회',
-        description: '행 번호로 특정 주문을 조회합니다.',
+        description: '주문 ID로 특정 주문을 조회합니다. 기본값은 sheetRowNumber로 조회하며, idType=dbId 시 DB ID로 조회합니다.',
         params: {
           type: 'object',
           required: ['rowNumber'],
           properties: {
             rowNumber: {
               type: 'string',
-              description: '스프레드시트 행 번호',
+              description: '주문 ID (sheetRowNumber 또는 DB ID)',
               example: '5',
+            },
+          },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            idType: {
+              type: 'string',
+              enum: ['rowNumber', 'dbId'],
+              default: 'rowNumber',
+              description: 'ID 유형: rowNumber(스프레드시트 행), dbId(DB ID, claim 주문용)',
             },
           },
         },
@@ -1027,24 +1045,34 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       const { dataService, config } = fastify.core;
 
       // 엄격한 숫자 검증: "2foo" 같은 값을 거부
-      const rowNumber = Number(request.params.rowNumber);
+      const orderId = Number(request.params.rowNumber);
 
-      if (!Number.isInteger(rowNumber) || rowNumber < 2) {
+      if (!Number.isInteger(orderId) || orderId < 1) {
         return reply.code(400).send({
           success: false,
-          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          error: 'Invalid order ID. Must be a positive integer.',
           statusCode: 400,
           timestamp: new Date().toISOString(),
         });
       }
 
-      // 특정 주문 조회
-      const sheetRow = await dataService.getOrderByRowNumber(rowNumber);
+      // Issue #155: idType에 따라 조회 방식 결정
+      const idType = request.query.idType || 'rowNumber';
+      let sheetRow;
+
+      if (idType === 'dbId') {
+        // DB ID로만 조회 (claim 주문용)
+        sheetRow = await dataService.getOrderById(orderId);
+      } else {
+        // 기본: sheetRowNumber로만 조회 (fallback 제거 - P2 리뷰 반영)
+        // fallback이 있으면 sheet row가 없을 때 다른 주문이 반환될 수 있음
+        sheetRow = await dataService.getOrderByRowNumber(orderId);
+      }
 
       if (!sheetRow) {
         return reply.code(404).send({
           success: false,
-          error: `Order not found at row ${rowNumber}`,
+          error: `Order not found: ${orderId}`,
           statusCode: 404,
           timestamp: new Date().toISOString(),
         });
@@ -1071,6 +1099,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           trackingNumber: order.trackingNumber,
           ordererName: order.ordererName,
           ordererEmail: order.ordererEmail,
+          // Issue #155: 배송사고 원본 주문 참조
+          originalRowNumber: sheetRow._originalRowNumber,
         },
       };
     }
@@ -2630,15 +2660,12 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
               success: { type: 'boolean', enum: [true] },
               data: {
                 type: 'object',
-                required: ['claimOrderId', 'originalOrderId', 'sheetsSynced'],
+                // Issue #155: DB만 저장하므로 sheetsSynced 등 제거
+                required: ['claimOrderId', 'originalOrderId', 'message'],
                 properties: {
-                  claimOrderId: { type: 'number', description: '생성된 배송사고 주문 ID' },
-                  originalOrderId: { type: 'number', description: '원본 주문 ID' },
-                  message: { type: 'string' },
-                  sheetsSynced: { type: 'boolean', description: 'Google Sheets 동기화 여부' },
-                  sheetsRowNumber: { type: 'number', description: '실제 Sheets 행 번호 (동기화 성공 시)' },
-                  rowNumberMismatch: { type: 'boolean', description: 'DB-Sheets row number 불일치 여부' },
-                  sheetsError: { type: 'string', description: 'Sheets 동기화 실패 시 에러 메시지' },
+                  claimOrderId: { type: 'number', description: '생성된 배송사고 주문의 DB ID' },
+                  originalOrderId: { type: 'number', description: '원본 주문의 sheetRowNumber' },
+                  message: { type: 'string', description: '처리 결과 메시지' },
                 },
               },
             },
@@ -2666,21 +2693,15 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       try {
         const result = await dataService.createClaimOrder(rowNumber);
 
-        // Sheets 동기화 실패 시 경고 메시지 추가
-        const message = result.sheetsSynced
-          ? `배송사고 주문이 생성되었습니다. (주문 #${result.rowNumber})`
-          : `배송사고 주문이 DB에 생성되었습니다. (주문 #${result.rowNumber}) - Google Sheets 동기화는 다음 sync 시 반영됩니다.`;
+        // Issue #155: 배송사고는 DB에만 저장, DB id 반환
+        const message = `배송사고 주문이 생성되었습니다. (DB id #${result.id})`;
 
         return reply.code(201).send({
           success: true,
           data: {
-            claimOrderId: result.rowNumber,
-            originalOrderId: rowNumber,
+            claimOrderId: result.id,  // Issue #155: DB id (sheetRowNumber가 null이므로)
+            originalOrderId: result.originalRowNumber,
             message,
-            sheetsSynced: result.sheetsSynced,
-            ...(result.sheetsRowNumber && { sheetsRowNumber: result.sheetsRowNumber }),
-            ...(result.rowNumberMismatch !== undefined && { rowNumberMismatch: result.rowNumberMismatch }),
-            ...(result.sheetsError && { sheetsError: result.sheetsError }),
           },
         });
       } catch (error) {

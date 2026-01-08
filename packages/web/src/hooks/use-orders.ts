@@ -38,13 +38,14 @@ export function useOrders(status?: OrderStatusFilter, options?: { enabled?: bool
 
 /**
  * 특정 주문 조회 훅
- * @param rowNumber - 스프레드시트 행 번호
- * @param options - 추가 옵션 (enabled 등)
+ * @param orderId - 주문 ID (sheetRowNumber 또는 DB ID)
+ * @param options - 추가 옵션 (enabled, idType 등)
+ * Issue #155: claim 주문은 idType='dbId'로 조회
  */
-export function useOrder(rowNumber: number, options?: { enabled?: boolean }) {
+export function useOrder(orderId: number, options?: { enabled?: boolean; idType?: 'rowNumber' | 'dbId' }) {
   return useQuery({
-    queryKey: [...queryKeys.orders.detail(), rowNumber],
-    queryFn: () => getOrder(rowNumber),
+    queryKey: [...queryKeys.orders.detail(), orderId, options?.idType],
+    queryFn: () => getOrder(orderId, options?.idType),
     enabled: options?.enabled ?? true,
   });
 }

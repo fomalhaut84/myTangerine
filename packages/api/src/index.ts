@@ -125,14 +125,20 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
               },
               rowNumber: {
                 type: 'integer',
-                minimum: 1,
-                description: '스프레드시트 행 번호',
+                minimum: 0,
+                description: '스프레드시트 행 번호 (claim 주문은 0)',
                 example: 15,
               },
               validationError: {
                 type: 'string',
                 description: '검증 에러 메시지 (상품 선택 검증 실패 시)',
                 example: '유효하지 않은 상품 타입: "3kg"',
+              },
+              originalRowNumber: {
+                type: 'integer',
+                minimum: 1,
+                description: '배송사고 원본 주문 행 번호 (claim 주문만)',
+                example: 15,
               },
             },
           },
@@ -256,14 +262,20 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
       },
       rowNumber: {
         type: 'integer',
-        minimum: 1,
-        description: '스프레드시트 행 번호',
+        minimum: 0,
+        description: '스프레드시트 행 번호 (claim 주문은 0)',
         example: 15,
       },
       validationError: {
         type: 'string',
         description: '검증 에러 메시지 (상품 선택 검증 실패 시)',
         example: '유효하지 않은 상품 타입: "3kg"',
+      },
+      originalRowNumber: {
+        type: 'integer',
+        minimum: 1,
+        description: '배송사고 원본 주문 행 번호 (claim 주문만)',
+        example: 15,
       },
       orderType: {
         type: 'string',

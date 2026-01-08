@@ -51,6 +51,11 @@ model Order {
   // 'claim': 배송사고 주문 (매출에서 제외, 보상 발송)
   orderType        String  @default("customer") @map("order_type")
 
+  // Issue #155: 배송사고 원본 주문 참조
+  // 배송사고(claim) 주문이 어떤 원본 주문에 대한 것인지 추적
+  // 일반 주문은 null, 배송사고 주문만 원본 sheetRowNumber 저장
+  originalRowNumber Int?    @map("original_row_number")
+
   // 상태 (Phase 3: 3단계 상태 체계)
   // '신규주문' | '입금확인' | '배송완료' (하위 호환: '' → 신규주문, '확인' → 배송완료)
   status           String  @default("신규주문")

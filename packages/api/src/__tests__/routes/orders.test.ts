@@ -298,7 +298,7 @@ describe('Orders API', () => {
   });
 
   describe('GET /api/orders/:rowNumber', () => {
-    it('should return 400 error for invalid row number', async () => {
+    it('should return 400 error for invalid order ID', async () => {
       const response = await server.inject({
         method: 'GET',
         url: '/api/orders/invalid',
@@ -307,22 +307,23 @@ describe('Orders API', () => {
       expect(response.statusCode).toBe(400);
       const payload = JSON.parse(response.payload);
       expect(payload.success).toBe(false);
-      expect(payload.error).toContain('Invalid row number');
+      expect(payload.error).toContain('Invalid order ID');
     });
 
-    it('should return 400 error for row number less than 2', async () => {
+    it('should return 400 error for order ID less than 1', async () => {
+      // Issue #155: orderId >= 1 유효, orderId < 1 (0, 음수)는 무효
       const response = await server.inject({
         method: 'GET',
-        url: '/api/orders/1',
+        url: '/api/orders/0',
       });
 
       expect(response.statusCode).toBe(400);
       const payload = JSON.parse(response.payload);
       expect(payload.success).toBe(false);
-      expect(payload.error).toContain('Invalid row number');
+      expect(payload.error).toContain('Invalid order ID');
     });
 
-    it('should return 400 error for row number with non-numeric suffix', async () => {
+    it('should return 400 error for order ID with non-numeric suffix', async () => {
       // "2foo"는 parseInt로는 2가 되지만 엄격한 검증에서는 거부되어야 함
       const response = await server.inject({
         method: 'GET',
@@ -332,7 +333,7 @@ describe('Orders API', () => {
       expect(response.statusCode).toBe(400);
       const payload = JSON.parse(response.payload);
       expect(payload.success).toBe(false);
-      expect(payload.error).toContain('Invalid row number');
+      expect(payload.error).toContain('Invalid order ID');
     });
 
     it('should return 404 error when order not found', async () => {

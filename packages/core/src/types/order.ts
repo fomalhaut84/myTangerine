@@ -170,6 +170,12 @@ export interface SheetRow {
 
   /** Soft Delete 여부 (내부 사용) */
   _isDeleted?: boolean;
+
+  /** Issue #155: 배송사고 원본 주문 참조 (claim 주문만 값 있음) */
+  _originalRowNumber?: number;
+
+  /** Issue #155: 주문유형 (영문, 내부 필터링용) */
+  _orderType?: OrderType;
 }
 
 /**
@@ -221,6 +227,9 @@ export interface Order {
 
   /** 송장번호 (배송완료 시 입력) */
   trackingNumber?: string;
+
+  /** Issue #155: 배송사고 원본 주문 행 번호 (claim 주문만 값 있음) */
+  originalRowNumber?: number;
 
   /** 원본 시트 행 데이터 (디버깅용) */
   _raw?: SheetRow;
@@ -499,6 +508,8 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     isDeleted,
     deletedAt,
     trackingNumber: row['송장번호'] || undefined,
+    // Issue #155: 배송사고 원본 주문 참조
+    originalRowNumber: row._originalRowNumber,
     _raw: row,
   };
 }

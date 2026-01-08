@@ -76,10 +76,13 @@ export async function getOrders(status?: OrderStatusFilter): Promise<OrdersRespo
 
 /**
  * 특정 주문 조회
- * @param rowNumber - 스프레드시트 행 번호
+ * @param orderId - 주문 ID (sheetRowNumber 또는 DB ID)
+ * @param idType - ID 유형 ('rowNumber' | 'dbId'), 기본값 'rowNumber'
+ * Issue #155: claim 주문은 idType='dbId'로 조회
  */
-export async function getOrder(rowNumber: number): Promise<OrderResponse> {
-  return api.get(`api/orders/${rowNumber}`).json<OrderResponse>();
+export async function getOrder(orderId: number, idType?: 'rowNumber' | 'dbId'): Promise<OrderResponse> {
+  const url = idType ? `api/orders/${orderId}?idType=${idType}` : `api/orders/${orderId}`;
+  return api.get(url).json<OrderResponse>();
 }
 
 /**
@@ -372,20 +375,19 @@ export async function resolveConflict(
 }
 
 /**
- * 배송사고 주문 생성 (Issue #152)
+ * 배송사고 주문 생성 (Issue #152, #155)
  * 배송완료된 원본 주문을 복제하여 배송사고 유형의 신규 주문 생성
+ * Issue #155: DB만 저장 (Sheets 저장 제거)
  * @param rowNumber - 원본 주문의 스프레드시트 행 번호
  */
 export async function createClaimOrder(rowNumber: number): Promise<{
   success: boolean;
   data: {
+    /** Issue #155: 생성된 배송사고 주문의 DB id */
     claimOrderId: number;
+    /** 원본 주문의 sheetRowNumber */
     originalOrderId: number;
     message: string;
-    sheetsSynced: boolean;
-    sheetsRowNumber?: number;
-    rowNumberMismatch?: boolean;
-    sheetsError?: string;
   };
 }> {
   return api.post(`api/orders/${rowNumber}/claim`, { json: {} }).json<{
@@ -394,10 +396,6 @@ export async function createClaimOrder(rowNumber: number): Promise<{
       claimOrderId: number;
       originalOrderId: number;
       message: string;
-      sheetsSynced: boolean;
-      sheetsRowNumber?: number;
-      rowNumberMismatch?: boolean;
-      sheetsError?: string;
     };
   }>();
 }
