@@ -92,8 +92,10 @@ export default function LabelsPage() {
       .map((group) => {
         const header = `====================\n${group.date}\n====================\n`;
 
-        // 보내는분 정보 (항상 표시)
-        const senderInfo = `\n보내는분: ${group.sender.name} (${group.sender.phone})\n주소: ${group.sender.address}\n`;
+        // 보내는분 정보 (항상 표시, 빈 값 방어)
+        const phoneInfo = group.sender.phone ? ` (${group.sender.phone})` : '';
+        const addressInfo = group.sender.address ? `\n주소: ${group.sender.address}` : '';
+        const senderInfo = `\n보내는분: ${group.sender.name}${phoneInfo}${addressInfo}\n`;
 
         const orders = group.orders
           .map((order) => {

@@ -103,10 +103,14 @@ export class LabelFormatter {
       ? sender
       : this.config.defaultSender;
 
-    // 보내는분 정보 표시 (항상 표시)
+    // 보내는분 정보 표시 (항상 표시, 빈 값 방어)
+    const phoneInfo = validSender.phone ? ` (${validSender.phone})` : '';
+    const addressInfo = validSender.address ? `주소: ${validSender.address}\n` : '';
     labels.push('보내는분\n');
-    labels.push(`${validSender.name} (${validSender.phone})\n`);
-    labels.push(`주소: ${validSender.address}\n`);
+    labels.push(`${validSender.name}${phoneInfo}\n`);
+    if (addressInfo) {
+      labels.push(addressInfo);
+    }
     labels.push('\n');
 
     // 각 주문에 대한 수취인 정보 추가
