@@ -72,9 +72,10 @@ describe('LabelFormatter', () => {
       // 날짜 헤더 확인
       expect(result).toContain('=== 2024-12-05 ===');
 
-      // 주문자 정보 확인 (발송인과 같은 경우 주문자만 표시)
-      expect(result).toContain('주문자');
-      expect(result).toContain('김철수');
+      // 보내는분 정보 확인 (항상 표시)
+      expect(result).toContain('보내는분');
+      expect(result).toContain('김철수 (010-1234-5678)');
+      expect(result).toContain('주소: 서울시 강남구 테헤란로 123');
 
       // 수취인 정보 확인
       expect(result).toContain('받는사람');
@@ -116,7 +117,9 @@ describe('LabelFormatter', () => {
       const result = formatter.formatLabels(orders);
 
       // 기본 발송인 정보 확인
-      expect(result).toContain('제주도 제주시 정실3길 113 기본발송인 010-6395-0618');
+      expect(result).toContain('보내는분');
+      expect(result).toContain('기본발송인 (010-6395-0618)');
+      expect(result).toContain('주소: 제주도 제주시 정실3길 113');
     });
 
     it('should group orders by date', () => {
@@ -235,9 +238,9 @@ describe('LabelFormatter', () => {
       const dateHeaders = result.match(/=== 2024-12-05 ===/g);
       expect(dateHeaders).toHaveLength(1);
 
-      // 주문자 정보가 두 번 나타나야 함 (김철수, 이영희)
-      const ordererHeaders = result.match(/주문자/g);
-      expect(ordererHeaders).toHaveLength(2);
+      // 보내는분 정보가 두 번 나타나야 함 (김철수, 이영희)
+      const senderHeaders = result.match(/보내는분/g);
+      expect(senderHeaders).toHaveLength(2);
 
       // 김철수의 주문 2개가 함께 그룹화되어야 함
       const kimSection = result.split('이영희')[0];

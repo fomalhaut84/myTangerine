@@ -92,18 +92,8 @@ export default function LabelsPage() {
       .map((group) => {
         const header = `====================\n${group.date}\n====================\n`;
 
-        // 주문자 정보 (첫 번째 주문의 ordererName, 없으면 sender.name)
-        const firstOrder = group.orders[0];
-        const ordererName = firstOrder?.ordererName || group.sender.name;
-        const ordererEmail = firstOrder?.ordererEmail;
-
-        // 주문자 정보 표시 (이메일 주소 포함)
-        let ordererInfo = `\n주문자: ${ordererName}${ordererEmail ? ` (${ordererEmail})` : ''}\n`;
-
-        // 보내는분이 주문자와 다른 경우에만 표시
-        if (ordererName !== group.sender.name) {
-          ordererInfo += `보내는분: ${group.sender.name} (${group.sender.phone})\n주소: ${group.sender.address}\n`;
-        }
+        // 보내는분 정보 (항상 표시)
+        const senderInfo = `\n보내는분: ${group.sender.name} (${group.sender.phone})\n주소: ${group.sender.address}\n`;
 
         const orders = group.orders
           .map((order) => {
@@ -125,7 +115,7 @@ export default function LabelsPage() {
         const totalBoxes = group.summary['5kg'].count + group.summary['10kg'].count;
         const summary = `\n\n주문 수량:\n  5kg: ${group.summary['5kg'].count}박스\n  10kg: ${group.summary['10kg'].count}박스\n  총: ${totalBoxes}박스\n\n====================\n`;
 
-        return header + ordererInfo + orders + summary;
+        return header + senderInfo + orders + summary;
       })
       .join('\n');
   };
