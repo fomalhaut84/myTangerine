@@ -40,9 +40,9 @@ export default function LabelsPage() {
     setSelectedGroups(new Set());
   }, [statusFilter]);
 
-  // 그룹의 안정적인 고유 ID 생성
-  const getGroupId = (group: { date: string; sender: { name: string; phone: string } }) => {
-    return `${group.date}|${group.sender.name}|${group.sender.phone}`;
+  // 그룹의 안정적인 고유 ID 생성 (API 그룹화 키와 일치: date|name|phone|address)
+  const getGroupId = (group: { date: string; sender: { name: string; phone: string; address: string } }) => {
+    return `${group.date}|${group.sender.name}|${group.sender.phone}|${group.sender.address}`;
   };
 
   // 필터링 및 정렬된 그룹
