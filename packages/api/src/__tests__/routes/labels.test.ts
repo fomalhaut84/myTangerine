@@ -70,8 +70,8 @@ describe('Labels API', () => {
       expect(response.statusCode).toBe(200);
       const labels = response.payload;
 
-      // 라벨 포맷 확인 (주문자와 보내는분이 같으면 주문자만 표시)
-      expect(labels).toContain('주문자');
+      // 라벨 포맷 확인 (보내는분 정보 표시)
+      expect(labels).toContain('보내는분');
       expect(labels).toContain('받는사람');
       expect(labels).toContain('주문상품');
       // 날짜 구분선 확인

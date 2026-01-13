@@ -40,9 +40,9 @@ export default function LabelsPage() {
     setSelectedGroups(new Set());
   }, [statusFilter]);
 
-  // 그룹의 안정적인 고유 ID 생성
-  const getGroupId = (group: { date: string; sender: { name: string; phone: string } }) => {
-    return `${group.date}|${group.sender.name}|${group.sender.phone}`;
+  // 그룹의 안정적인 고유 ID 생성 (API 그룹화 키와 일치: date|name|phone|address)
+  const getGroupId = (group: { date: string; sender: { name: string; phone: string; address: string } }) => {
+    return `${group.date}|${group.sender.name}|${group.sender.phone}|${group.sender.address}`;
   };
 
   // 필터링 및 정렬된 그룹
@@ -92,18 +92,11 @@ export default function LabelsPage() {
       .map((group) => {
         const header = `====================\n${group.date}\n====================\n`;
 
-        // 주문자 정보 (첫 번째 주문의 ordererName, 없으면 sender.name)
-        const firstOrder = group.orders[0];
-        const ordererName = firstOrder?.ordererName || group.sender.name;
-        const ordererEmail = firstOrder?.ordererEmail;
-
-        // 주문자 정보 표시 (이메일 주소 포함)
-        let ordererInfo = `\n주문자: ${ordererName}${ordererEmail ? ` (${ordererEmail})` : ''}\n`;
-
-        // 보내는분이 주문자와 다른 경우에만 표시
-        if (ordererName !== group.sender.name) {
-          ordererInfo += `보내는분: ${group.sender.name} (${group.sender.phone})\n주소: ${group.sender.address}\n`;
-        }
+        // 보내는분 정보 (항상 표시, 빈 값 방어 - 공백 문자열 포함)
+        const senderName = group.sender.name?.trim() || '(이름 없음)';
+        const phoneInfo = group.sender.phone?.trim() ? ` (${group.sender.phone.trim()})` : '';
+        const addressInfo = group.sender.address?.trim() ? `\n주소: ${group.sender.address.trim()}` : '';
+        const senderInfo = `\n보내는분: ${senderName}${phoneInfo}${addressInfo}\n`;
 
         const orders = group.orders
           .map((order) => {
@@ -125,7 +118,7 @@ export default function LabelsPage() {
         const totalBoxes = group.summary['5kg'].count + group.summary['10kg'].count;
         const summary = `\n\n주문 수량:\n  5kg: ${group.summary['5kg'].count}박스\n  10kg: ${group.summary['10kg'].count}박스\n  총: ${totalBoxes}박스\n\n====================\n`;
 
-        return header + ordererInfo + orders + summary;
+        return header + senderInfo + orders + summary;
       })
       .join('\n');
   };

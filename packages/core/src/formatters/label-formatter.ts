@@ -88,8 +88,7 @@ export class LabelFormatter {
 
   /**
    * 발송인 그룹 포맷팅
-   * - 주문자 정보를 먼저 표시 (연락처 포함)
-   * - 보내는분은 주문자와 다른 경우에만 표시
+   * - 보내는분 정보를 항상 표시 (이름, 전화번호, 주소)
    */
   private formatSenderGroup(sender: Sender, orders: Order[]): string[] {
     const labels: string[] = [];
@@ -99,23 +98,19 @@ export class LabelFormatter {
       return labels;
     }
 
-    // 첫 번째 주문의 주문자 정보 가져오기
-    const firstOrder = orders[0];
-    const ordererName = firstOrder.ordererName || sender.name;
-    const ordererEmail = firstOrder.ordererEmail;
-
     // 발송인 정보 유효성 검사
     const validSender = LabelFormatter.isValidSender(sender.name, sender.address, sender.phone)
       ? sender
       : this.config.defaultSender;
 
-    // 주문자 정보 표시 (이메일 주소 포함)
-    labels.push('주문자\n');
-    labels.push(`${ordererName}${ordererEmail ? ` (${ordererEmail})` : ''}\n`);
-
-    // 보내는분이 주문자와 다른 경우에만 표시
-    if (ordererName !== validSender.name) {
-      labels.push(`보내는분: ${validSender.address} ${validSender.name} ${validSender.phone}\n`);
+    // 보내는분 정보 표시 (항상 표시, 빈 값 방어 - 공백 문자열 포함)
+    const senderName = validSender.name?.trim() || '(이름 없음)';
+    const phoneInfo = validSender.phone?.trim() ? ` (${validSender.phone.trim()})` : '';
+    const addressInfo = validSender.address?.trim() ? `주소: ${validSender.address.trim()}\n` : '';
+    labels.push('보내는분\n');
+    labels.push(`${senderName}${phoneInfo}\n`);
+    if (addressInfo) {
+      labels.push(addressInfo);
     }
     labels.push('\n');
 
