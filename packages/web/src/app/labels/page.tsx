@@ -92,10 +92,11 @@ export default function LabelsPage() {
       .map((group) => {
         const header = `====================\n${group.date}\n====================\n`;
 
-        // 보내는분 정보 (항상 표시, 빈 값 방어)
-        const phoneInfo = group.sender.phone ? ` (${group.sender.phone})` : '';
-        const addressInfo = group.sender.address ? `\n주소: ${group.sender.address}` : '';
-        const senderInfo = `\n보내는분: ${group.sender.name}${phoneInfo}${addressInfo}\n`;
+        // 보내는분 정보 (항상 표시, 빈 값 방어 - 공백 문자열 포함)
+        const senderName = group.sender.name?.trim() || '(이름 없음)';
+        const phoneInfo = group.sender.phone?.trim() ? ` (${group.sender.phone.trim()})` : '';
+        const addressInfo = group.sender.address?.trim() ? `\n주소: ${group.sender.address.trim()}` : '';
+        const senderInfo = `\n보내는분: ${senderName}${phoneInfo}${addressInfo}\n`;
 
         const orders = group.orders
           .map((order) => {

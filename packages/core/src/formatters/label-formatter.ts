@@ -103,11 +103,12 @@ export class LabelFormatter {
       ? sender
       : this.config.defaultSender;
 
-    // 보내는분 정보 표시 (항상 표시, 빈 값 방어)
-    const phoneInfo = validSender.phone ? ` (${validSender.phone})` : '';
-    const addressInfo = validSender.address ? `주소: ${validSender.address}\n` : '';
+    // 보내는분 정보 표시 (항상 표시, 빈 값 방어 - 공백 문자열 포함)
+    const senderName = validSender.name?.trim() || '(이름 없음)';
+    const phoneInfo = validSender.phone?.trim() ? ` (${validSender.phone.trim()})` : '';
+    const addressInfo = validSender.address?.trim() ? `주소: ${validSender.address.trim()}\n` : '';
     labels.push('보내는분\n');
-    labels.push(`${validSender.name}${phoneInfo}\n`);
+    labels.push(`${senderName}${phoneInfo}\n`);
     if (addressInfo) {
       labels.push(addressInfo);
     }
