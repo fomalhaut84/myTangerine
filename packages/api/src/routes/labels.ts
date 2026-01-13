@@ -216,7 +216,8 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
 
       orders.forEach((order) => {
         const date = new Date(order.timestamp).toLocaleDateString('ko-KR');
-        const key = `${date}|${order.sender.name}|${order.sender.phone}`;
+        // 그룹화 키에 sender.address 포함 (같은 이름/전화번호라도 주소가 다르면 별도 그룹)
+        const key = `${date}|${order.sender.name}|${order.sender.phone}|${order.sender.address}`;
 
         if (!grouped.has(key)) {
           grouped.set(key, []);
