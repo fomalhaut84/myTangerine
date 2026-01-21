@@ -1668,11 +1668,14 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // P2 Fix: 상태 전이 검증 - 입금확인만 배송완료로 변경 가능
+      // P2 리뷰 반영: 기존 claim 주문(신규주문 상태)도 배송완료 처리 가능
       const currentStatus = normalizeOrderStatus(order['비고']);
-      if (currentStatus !== '입금확인') {
+      const isClaim = order._orderType === 'claim';
+      const allowedStatuses = isClaim ? ['입금확인', '신규주문'] : ['입금확인'];
+      if (!allowedStatuses.includes(currentStatus)) {
         return reply.code(400).send({
           success: false,
-          error: `Cannot mark as delivered for order with status "${currentStatus}". Only "입금확인" orders can be marked as delivered.`,
+          error: `Cannot mark as delivered for order with status "${currentStatus}". ${isClaim ? 'Claim orders allow "입금확인" or "신규주문"' : 'Only "입금확인" orders can be marked as delivered'}.`,
           statusCode: 400,
           timestamp: new Date().toISOString(),
         });
