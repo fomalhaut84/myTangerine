@@ -270,16 +270,20 @@ export default function LabelsPage() {
       let failCount = 0;
 
       for (const order of deliveryOrders) {
+        // Issue #168: claim 주문은 dbId로 식별
+        const useDbId = order.idType === 'dbId';
+        const orderId = useDbId ? order.dbId! : order.rowNumber;
         try {
           const trackingNumber = trackingNumbers[order.rowNumber]?.trim() || undefined;
           await markDeliveredMutation.mutateAsync({
-            orderId: order.rowNumber,
+            orderId,
             trackingNumber,
+            idType: useDbId ? 'dbId' : undefined,
           });
           successCount++;
         } catch (error) {
           failCount++;
-          console.error(`Failed to mark delivered for order ${order.rowNumber}:`, error);
+          console.error(`Failed to mark delivered for order ${orderId}:`, error);
         }
       }
 
