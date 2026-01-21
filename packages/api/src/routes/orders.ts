@@ -1090,6 +1090,11 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       // SheetRow를 Order로 변환
       const order = sheetRowToOrder(sheetRow, config);
 
+      // Issue #168: claim 주문은 rowNumber가 0이므로 dbId를 기본 식별자로 사용
+      const isClaim = order.orderType === 'claim';
+      const hasDbId = order.dbId !== undefined && order.dbId !== null;
+      const useDbId = isClaim && hasDbId;
+
       return {
         success: true,
         order: {
@@ -1110,6 +1115,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           ordererEmail: order.ordererEmail,
           // Issue #155: 배송사고 원본 주문 참조
           originalRowNumber: sheetRow._originalRowNumber,
+          // Issue #168: claim 주문 식별용 DB ID
+          dbId: order.dbId,
+          // Issue #168: 프론트엔드에서 어떤 ID를 사용해야 하는지 명시
+          idType: useDbId ? 'dbId' : 'rowNumber',
         },
       };
     }
