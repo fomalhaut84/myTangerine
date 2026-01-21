@@ -30,13 +30,15 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
   }
 
   // Issue #165: claim 주문은 dbId로 식별해야 함
+  // P1 리뷰 반영: idType만 확인 (orderType === 'claim' 조건 제거)
+  // API에서 dbId가 있을 때만 idType='dbId'로 설정하므로 idType만 확인하면 됨
   const handleRowClick = (order: Order) => {
-    const isClaim = order.idType === 'dbId' || order.orderType === 'claim';
-    const orderId = isClaim ? order.dbId : order.rowNumber;
+    const useDbId = order.idType === 'dbId';
+    const orderId = useDbId ? order.dbId : order.rowNumber;
 
-    // idType 파라미터 설정 (claim은 dbId, 그 외는 생략)
+    // idType 파라미터 설정 (dbId 사용 시에만)
     const params = new URLSearchParams(searchParams?.toString() || '');
-    if (isClaim) {
+    if (useDbId) {
       params.set('idType', 'dbId');
     }
 
@@ -47,9 +49,10 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
     router.push(url);
   };
 
-  // Issue #165: 고유 키 생성 (claim 주문은 dbId 사용, 그 외는 rowNumber)
+  // Issue #165: 고유 키 생성 (idType='dbId'면 dbId 사용, 그 외는 rowNumber)
+  // P1 리뷰 반영: idType만 확인하여 undefined 키 방지
   const getOrderKey = (order: Order) => {
-    if (order.idType === 'dbId' || order.orderType === 'claim') {
+    if (order.idType === 'dbId') {
       return `db-${order.dbId}`;
     }
     return `row-${order.rowNumber}`;
