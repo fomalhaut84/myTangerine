@@ -273,7 +273,7 @@ export default function LabelsPage() {
         try {
           const trackingNumber = trackingNumbers[order.rowNumber]?.trim() || undefined;
           await markDeliveredMutation.mutateAsync({
-            rowNumber: order.rowNumber,
+            orderId: order.rowNumber,
             trackingNumber,
           });
           successCount++;

@@ -114,17 +114,26 @@ export function useConfirmPayment() {
 
 /**
  * 배송 완료 처리 훅 (입금확인 → 배송완료)
+ * Issue #168: idType 파라미터 추가 (claim 주문은 dbId 사용)
  */
 export function useMarkDelivered() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: ({ rowNumber, trackingNumber }: { rowNumber: number; trackingNumber?: string }) =>
-      markDelivered(rowNumber, trackingNumber),
-    onSuccess: (_, { rowNumber }) => {
+    mutationFn: ({
+      orderId,
+      trackingNumber,
+      idType,
+    }: {
+      orderId: number;
+      trackingNumber?: string;
+      idType?: 'rowNumber' | 'dbId';
+    }) => markDelivered(orderId, trackingNumber, idType),
+    onSuccess: (_, { orderId, idType }) => {
       queryClient.invalidateQueries({ queryKey: queryKeys.orders.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.labels.all });
-      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), rowNumber] });
+      // Issue #168: idType에 따라 적절한 캐시 무효화
+      queryClient.invalidateQueries({ queryKey: [...queryKeys.orders.detail(), orderId, idType] });
     },
   });
 }

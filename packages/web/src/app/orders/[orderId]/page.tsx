@@ -112,14 +112,20 @@ export default function OrderDetailPage() {
   };
 
   // 배송완료 처리 (송장번호 포함)
+  // Issue #168: claim 주문은 idType=dbId로 처리
   const handleMarkDelivered = async () => {
     if (!order) return;
 
     setIsProcessing(true);
     try {
+      // Issue #168: claim 주문은 dbId로 식별
+      const useDbId = order.idType === 'dbId';
+      const orderId = useDbId ? order.dbId! : order.rowNumber;
+
       await markDeliveredMutation.mutateAsync({
-        rowNumber: order.rowNumber,
+        orderId,
         trackingNumber: trackingNumber.trim() || undefined,
+        idType: useDbId ? 'dbId' : undefined,
       });
       toast.success(
         trackingNumber.trim()

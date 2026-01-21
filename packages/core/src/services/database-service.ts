@@ -539,6 +539,66 @@ export class DatabaseService {
   }
 
   /**
+   * 배송완료 처리 - DB ID 기반 (Issue #168: claim 주문용)
+   * @param dbId - DB ID
+   * @param trackingNumber - 송장번호 (선택)
+   * @param changedBy - 변경 주체
+   */
+  async markDeliveredById(dbId: number, trackingNumber?: string, changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
+    try {
+      // 변경 전 주문 조회 (이력 기록용)
+      const order = await this._prisma.order.findUnique({
+        where: { id: dbId },
+      });
+
+      if (!order) {
+        throw new Error(`Order not found with id: ${dbId}`);
+      }
+
+      if (order.deletedAt) {
+        throw new Error(`Cannot update deleted order with id: ${dbId}`);
+      }
+
+      await this._prisma.order.update({
+        where: { id: dbId },
+        data: {
+          status: '배송완료',
+          ...(trackingNumber && { trackingNumber }),
+          updatedAt: new Date(),
+        },
+      });
+
+      // 이력 기록 (claim 주문은 sheetRowNumber가 null이므로 change log 스킵)
+      // P2 리뷰 반영: claim 주문은 sheetRowNumber가 null이라 원본 주문의 sheetRowNumber로 기록하면
+      // 원본 주문의 히스토리에 claim 변경사항이 표시되어 혼란을 줌
+      if (order.sheetRowNumber !== null) {
+        const fieldChanges: Record<string, { old: unknown; new: unknown }> = {};
+
+        if (order.status !== '배송완료') {
+          fieldChanges.status = { old: order.status, new: '배송완료' };
+        }
+        if (trackingNumber && order.trackingNumber !== trackingNumber) {
+          fieldChanges.trackingNumber = { old: order.trackingNumber, new: trackingNumber };
+        }
+
+        if (Object.keys(fieldChanges).length > 0) {
+          await this.changeLogService.logChange({
+            orderId: order.id,
+            sheetRowNumber: order.sheetRowNumber,
+            changedBy,
+            action: 'status_change',
+            fieldChanges,
+            previousVersion: order.version ?? 1,
+          });
+        }
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to mark as delivered (id: ${dbId}): ${message}`);
+    }
+  }
+
+  /**
    * Soft Delete (Phase 3)
    * @param rowNumbers - 삭제할 행 번호 배열
    * @param changedBy - 변경 주체

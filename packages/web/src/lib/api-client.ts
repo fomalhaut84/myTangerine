@@ -127,14 +127,20 @@ export async function confirmPayment(rowNumber: number): Promise<{
 
 /**
  * 배송 완료 처리 (입금확인 → 배송완료)
- * @param rowNumber - 스프레드시트 행 번호
+ * @param orderId - 주문 ID (rowNumber 또는 dbId)
  * @param trackingNumber - 송장번호 (선택)
+ * @param idType - ID 타입 (기본: rowNumber, claim 주문은 dbId 사용) - Issue #168
  */
-export async function markDelivered(rowNumber: number, trackingNumber?: string): Promise<{
+export async function markDelivered(
+  orderId: number,
+  trackingNumber?: string,
+  idType?: 'rowNumber' | 'dbId'
+): Promise<{
   success: boolean;
   message: string;
 }> {
-  return api.post(`api/orders/${rowNumber}/mark-delivered`, {
+  const searchParams = idType === 'dbId' ? `?idType=dbId` : '';
+  return api.post(`api/orders/${orderId}/mark-delivered${searchParams}`, {
     json: trackingNumber ? { trackingNumber } : {}
   }).json<{
     success: boolean;
