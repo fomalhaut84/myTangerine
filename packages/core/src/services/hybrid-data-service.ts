@@ -442,6 +442,23 @@ export class HybridDataService {
   }
 
   /**
+   * 배송완료 처리 - DB ID 기반 (Issue #168: claim 주문용)
+   * claim 주문은 DB 전용이므로 시트 업데이트 없이 DB만 업데이트
+   * @param dbId - DB ID
+   * @param trackingNumber - 송장번호 (선택)
+   */
+  async markDeliveredById(dbId: number, trackingNumber?: string): Promise<void> {
+    // claim 주문은 DB 전용이므로 sheets 모드에서는 지원 안 함
+    if (this.mode === 'sheets') {
+      throw new Error('markDeliveredById is not supported in sheets mode. Claim orders require database mode.');
+    }
+
+    // database 또는 hybrid 모드: DB만 업데이트 (claim 주문은 시트에 없음)
+    await this.databaseService.markDeliveredById(dbId, trackingNumber, 'web');
+    this.logger?.info(`[${this.mode}] markDeliveredById DB success: id=${dbId}`);
+  }
+
+  /**
    * Soft Delete (Phase 3)
    * hybrid 모드: DB + Sheets 동시 업데이트
    * @param rowNumbers - 삭제할 행 번호 배열

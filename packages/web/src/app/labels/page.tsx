@@ -32,7 +32,16 @@ export default function LabelsPage() {
   // 배송완료 모달 관련 상태
   const [showDeliveryModal, setShowDeliveryModal] = useState(false);
   const [deliveryOrders, setDeliveryOrders] = useState<Order[]>([]);
-  const [trackingNumbers, setTrackingNumbers] = useState<Record<number, string>>({});
+  // Issue #168: claim 주문은 rowNumber=0으로 중복되므로 문자열 키 사용
+  const [trackingNumbers, setTrackingNumbers] = useState<Record<string, string>>({});
+
+  // Issue #168: 주문 고유 키 생성 (claim은 dbId, 일반은 rowNumber)
+  const getOrderKey = (order: Order): string => {
+    if (order.idType === 'dbId') {
+      return `db-${order.dbId}`;
+    }
+    return `row-${order.rowNumber}`;
+  };
   const [isProcessingDelivery, setIsProcessingDelivery] = useState(false);
 
   // 상태 필터가 변경되면 선택된 그룹 초기화
@@ -40,9 +49,9 @@ export default function LabelsPage() {
     setSelectedGroups(new Set());
   }, [statusFilter]);
 
-  // 그룹의 안정적인 고유 ID 생성
-  const getGroupId = (group: { date: string; sender: { name: string; phone: string } }) => {
-    return `${group.date}|${group.sender.name}|${group.sender.phone}`;
+  // 그룹의 안정적인 고유 ID 생성 (API 그룹화 키와 일치: date|name|phone|address)
+  const getGroupId = (group: { date: string; sender: { name: string; phone: string; address: string } }) => {
+    return `${group.date}|${group.sender.name}|${group.sender.phone}|${group.sender.address}`;
   };
 
   // 필터링 및 정렬된 그룹
@@ -92,18 +101,11 @@ export default function LabelsPage() {
       .map((group) => {
         const header = `====================\n${group.date}\n====================\n`;
 
-        // 주문자 정보 (첫 번째 주문의 ordererName, 없으면 sender.name)
-        const firstOrder = group.orders[0];
-        const ordererName = firstOrder?.ordererName || group.sender.name;
-        const ordererEmail = firstOrder?.ordererEmail;
-
-        // 주문자 정보 표시 (이메일 주소 포함)
-        let ordererInfo = `\n주문자: ${ordererName}${ordererEmail ? ` (${ordererEmail})` : ''}\n`;
-
-        // 보내는분이 주문자와 다른 경우에만 표시
-        if (ordererName !== group.sender.name) {
-          ordererInfo += `보내는분: ${group.sender.name} (${group.sender.phone})\n주소: ${group.sender.address}\n`;
-        }
+        // 보내는분 정보 (항상 표시, 빈 값 방어 - 공백 문자열 포함)
+        const senderName = group.sender.name?.trim() || '(이름 없음)';
+        const phoneInfo = group.sender.phone?.trim() ? ` (${group.sender.phone.trim()})` : '';
+        const addressInfo = group.sender.address?.trim() ? `\n주소: ${group.sender.address.trim()}` : '';
+        const senderInfo = `\n보내는분: ${senderName}${phoneInfo}${addressInfo}\n`;
 
         const orders = group.orders
           .map((order) => {
@@ -125,7 +127,7 @@ export default function LabelsPage() {
         const totalBoxes = group.summary['5kg'].count + group.summary['10kg'].count;
         const summary = `\n\n주문 수량:\n  5kg: ${group.summary['5kg'].count}박스\n  10kg: ${group.summary['10kg'].count}박스\n  총: ${totalBoxes}박스\n\n====================\n`;
 
-        return header + ordererInfo + orders + summary;
+        return header + senderInfo + orders + summary;
       })
       .join('\n');
   };
@@ -277,16 +279,21 @@ export default function LabelsPage() {
       let failCount = 0;
 
       for (const order of deliveryOrders) {
+        // Issue #168: claim 주문은 dbId로 식별
+        const useDbId = order.idType === 'dbId';
+        const orderId = useDbId ? order.dbId! : order.rowNumber;
+        const orderKey = getOrderKey(order);
         try {
-          const trackingNumber = trackingNumbers[order.rowNumber]?.trim() || undefined;
+          const trackingNumber = trackingNumbers[orderKey]?.trim() || undefined;
           await markDeliveredMutation.mutateAsync({
-            rowNumber: order.rowNumber,
+            orderId,
             trackingNumber,
+            idType: useDbId ? 'dbId' : undefined,
           });
           successCount++;
         } catch (error) {
           failCount++;
-          console.error(`Failed to mark delivered for order ${order.rowNumber}:`, error);
+          console.error(`Failed to mark delivered for order ${orderId}:`, error);
         }
       }
 
@@ -771,10 +778,10 @@ export default function LabelsPage() {
                       <Input
                         type="text"
                         placeholder="송장번호 입력"
-                        value={trackingNumbers[order.rowNumber] || ''}
+                        value={trackingNumbers[getOrderKey(order)] || ''}
                         onChange={(e) => setTrackingNumbers(prev => ({
                           ...prev,
-                          [order.rowNumber]: e.target.value,
+                          [getOrderKey(order)]: e.target.value,
                         }))}
                         className="w-full"
                       />

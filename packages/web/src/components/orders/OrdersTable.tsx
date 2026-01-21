@@ -29,12 +29,33 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
     );
   }
 
-  const handleRowClick = (orderId: number) => {
-    const queryString = searchParams?.toString();
+  // Issue #165: claim 주문은 dbId로 식별해야 함
+  // P1 리뷰 반영: idType만 확인 (orderType === 'claim' 조건 제거)
+  // API에서 dbId가 있을 때만 idType='dbId'로 설정하므로 idType만 확인하면 됨
+  const handleRowClick = (order: Order) => {
+    const useDbId = order.idType === 'dbId';
+    const orderId = useDbId ? order.dbId : order.rowNumber;
+
+    // idType 파라미터 설정 (dbId 사용 시에만)
+    const params = new URLSearchParams(searchParams?.toString() || '');
+    if (useDbId) {
+      params.set('idType', 'dbId');
+    }
+
+    const queryString = params.toString();
     const url = queryString
       ? `/orders/${orderId}?${queryString}`
       : `/orders/${orderId}`;
     router.push(url);
+  };
+
+  // Issue #165: 고유 키 생성 (idType='dbId'면 dbId 사용, 그 외는 rowNumber)
+  // P1 리뷰 반영: idType만 확인하여 undefined 키 방지
+  const getOrderKey = (order: Order) => {
+    if (order.idType === 'dbId') {
+      return `db-${order.dbId}`;
+    }
+    return `row-${order.rowNumber}`;
   };
 
   return (
@@ -68,8 +89,8 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
         <tbody className="bg-white divide-y divide-gray-200">
           {orders.map((order) => (
             <tr
-              key={order.rowNumber}
-              onClick={() => handleRowClick(order.rowNumber)}
+              key={getOrderKey(order)}
+              onClick={() => handleRowClick(order)}
               className={`transition-colors cursor-pointer ${
                 hasValidationError(order)
                   ? 'bg-red-50 hover:bg-red-100'
@@ -86,6 +107,12 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
                       role="img"
                     >
                       ⚠️
+                    </span>
+                  )}
+                  {/* Issue #165: claim 주문 표시 */}
+                  {order.orderType === 'claim' && (
+                    <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                      배송사고
                     </span>
                   )}
                   <StatusBadge status={order.status} isDeleted={order.isDeleted} />

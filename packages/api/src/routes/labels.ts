@@ -208,15 +208,26 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: [] };
       }
 
-      // SheetRow를 Order로 변환
-      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+      // SheetRow를 Order로 변환 후 idType 추가
+      // Issue #168: claim 주문은 rowNumber=0이므로 dbId를 기본 식별자로 사용
+      const orders = sheetRows.map((row) => {
+        const order = sheetRowToOrder(row, config);
+        const isClaim = order.orderType === 'claim';
+        const hasDbId = order.dbId !== undefined && order.dbId !== null;
+        const useDbId = isClaim && hasDbId;
+        return {
+          ...order,
+          idType: useDbId ? 'dbId' as const : 'rowNumber' as const,
+        };
+      });
 
       // 날짜 + 발신자별로 그룹화
       const grouped = new Map<string, Order[]>();
 
       orders.forEach((order) => {
         const date = new Date(order.timestamp).toLocaleDateString('ko-KR');
-        const key = `${date}|${order.sender.name}|${order.sender.phone}`;
+        // 그룹화 키에 sender.address 포함 (같은 이름/전화번호라도 주소가 다르면 별도 그룹)
+        const key = `${date}|${order.sender.name}|${order.sender.phone}|${order.sender.address}`;
 
         if (!grouped.has(key)) {
           grouped.set(key, []);

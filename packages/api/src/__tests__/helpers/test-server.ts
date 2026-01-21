@@ -172,6 +172,9 @@ export async function createTestServer(): Promise<{
       trackingNumber: { type: 'string' },
       ordererName: { type: 'string' },
       ordererEmail: { type: 'string' },
+      // Issue #165: claim 주문 식별용 필드
+      dbId: { type: 'integer', minimum: 1 },
+      idType: { type: 'string', enum: ['rowNumber', 'dbId'] },
     },
   });
 
