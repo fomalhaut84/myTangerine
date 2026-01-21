@@ -29,12 +29,30 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
     );
   }
 
-  const handleRowClick = (orderId: number) => {
-    const queryString = searchParams?.toString();
+  // Issue #165: claim 주문은 dbId로 식별해야 함
+  const handleRowClick = (order: Order) => {
+    const isClaim = order.idType === 'dbId' || order.orderType === 'claim';
+    const orderId = isClaim ? order.dbId : order.rowNumber;
+
+    // idType 파라미터 설정 (claim은 dbId, 그 외는 생략)
+    const params = new URLSearchParams(searchParams?.toString() || '');
+    if (isClaim) {
+      params.set('idType', 'dbId');
+    }
+
+    const queryString = params.toString();
     const url = queryString
       ? `/orders/${orderId}?${queryString}`
       : `/orders/${orderId}`;
     router.push(url);
+  };
+
+  // Issue #165: 고유 키 생성 (claim 주문은 dbId 사용, 그 외는 rowNumber)
+  const getOrderKey = (order: Order) => {
+    if (order.idType === 'dbId' || order.orderType === 'claim') {
+      return `db-${order.dbId}`;
+    }
+    return `row-${order.rowNumber}`;
   };
 
   return (
@@ -68,8 +86,8 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
         <tbody className="bg-white divide-y divide-gray-200">
           {orders.map((order) => (
             <tr
-              key={order.rowNumber}
-              onClick={() => handleRowClick(order.rowNumber)}
+              key={getOrderKey(order)}
+              onClick={() => handleRowClick(order)}
               className={`transition-colors cursor-pointer ${
                 hasValidationError(order)
                   ? 'bg-red-50 hover:bg-red-100'
@@ -86,6 +104,12 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
                       role="img"
                     >
                       ⚠️
+                    </span>
+                  )}
+                  {/* Issue #165: claim 주문 표시 */}
+                  {order.orderType === 'claim' && (
+                    <span className="inline-block px-2 py-0.5 rounded text-xs font-medium bg-purple-100 text-purple-700">
+                      배송사고
                     </span>
                   )}
                   <StatusBadge status={order.status} isDeleted={order.isDeleted} />
