@@ -745,15 +745,10 @@ export default function OrderDetailPage() {
                 {isProcessing ? '처리 중...' : '복원'}
               </button>
             )
-          ) : order.orderType === 'claim' ? (
-            /* Issue #155: claim 주문은 DB만 저장되어 상태 변경/삭제 불가 */
-            <div className="text-sm text-gray-500 italic">
-              배송사고 주문은 조회만 가능합니다.
-            </div>
           ) : (
             <>
-              {/* 신규주문 → 입금확인 */}
-              {order.status === '신규주문' && (
+              {/* 신규주문 → 입금확인 (claim 주문은 '입금확인' 상태로 생성되므로 이 버튼 불필요) */}
+              {order.status === '신규주문' && order.orderType !== 'claim' && (
                 <button
                   className="px-4 sm:px-6 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                   onClick={handleConfirmPayment}
@@ -763,7 +758,7 @@ export default function OrderDetailPage() {
                 </button>
               )}
 
-              {/* 입금확인 → 배송완료 */}
+              {/* 입금확인 → 배송완료 (Issue #168: claim 주문도 발송 처리 가능) */}
               {order.status === '입금확인' && (
                 <button
                   className="px-4 sm:px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
@@ -774,8 +769,9 @@ export default function OrderDetailPage() {
                 </button>
               )}
 
-              {/* 삭제 버튼 (배송완료가 아닌 경우에만) */}
-              {order.status !== '배송완료' && (
+              {/* 삭제 버튼 (배송완료가 아닌 경우에만, claim 주문 제외) */}
+              {/* Issue #168: claim 주문은 DB 전용이라 삭제 불가 */}
+              {order.status !== '배송완료' && order.orderType !== 'claim' && (
                 <button
                   className="px-4 sm:px-6 py-2 bg-red-600 hover:bg-red-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                   onClick={handleDelete}
@@ -785,9 +781,9 @@ export default function OrderDetailPage() {
                 </button>
               )}
 
-              {/* 배송사고 등록 버튼 (배송완료 상태에서만) - Issue #152 */}
-              {/* Note: claim 주문은 위에서 이미 분기되어 여기 도달 안 함 */}
-              {order.status === '배송완료' && (
+              {/* 배송사고 등록 버튼 (배송완료 상태에서만, claim 주문 제외) - Issue #152 */}
+              {/* Issue #168: claim 주문에서 또 배송사고 등록은 불필요 */}
+              {order.status === '배송완료' && order.orderType !== 'claim' && (
                 <button
                   className="px-4 sm:px-6 py-2 bg-amber-600 hover:bg-amber-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                   onClick={handleCreateClaim}

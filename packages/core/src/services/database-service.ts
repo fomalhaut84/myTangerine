@@ -1008,7 +1008,8 @@ export class DatabaseService {
 
           // 배송사고 설정
           orderType: 'claim',
-          status: '신규주문',
+          // Issue #168: claim 주문은 결제 없이 발송해야 하므로 '입금확인' 상태로 생성
+          status: '입금확인',
 
           // Issue #165: claim 주문은 DB 전용이므로 syncStatus를 'success'로 설정
           // (시트에 동기화하지 않으므로 이미 동기화 완료 상태로 간주)
