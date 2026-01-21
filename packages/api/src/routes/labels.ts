@@ -208,8 +208,18 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
         return { success: true, data: [] };
       }
 
-      // SheetRow를 Order로 변환
-      const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
+      // SheetRow를 Order로 변환 후 idType 추가
+      // Issue #168: claim 주문은 rowNumber=0이므로 dbId를 기본 식별자로 사용
+      const orders = sheetRows.map((row) => {
+        const order = sheetRowToOrder(row, config);
+        const isClaim = order.orderType === 'claim';
+        const hasDbId = order.dbId !== undefined && order.dbId !== null;
+        const useDbId = isClaim && hasDbId;
+        return {
+          ...order,
+          idType: useDbId ? 'dbId' as const : 'rowNumber' as const,
+        };
+      });
 
       // 날짜 + 발신자별로 그룹화
       const grouped = new Map<string, Order[]>();
