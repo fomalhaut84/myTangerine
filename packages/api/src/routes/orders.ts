@@ -1680,6 +1680,17 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
 
       // Issue #168: idType에 따라 배송완료 처리 방식 결정
       if (isDbIdMode) {
+        // P2 리뷰 반영: idType=dbId는 claim 주문(sheetRowNumber가 null)만 허용
+        // 일반 주문에 dbId 모드를 사용하면 시트는 업데이트되지 않아 데이터 불일치 발생
+        const hasSheetRowNumber = order._rowNumber !== null && order._rowNumber !== undefined;
+        if (hasSheetRowNumber) {
+          return reply.code(400).send({
+            success: false,
+            error: 'idType=dbId is only allowed for claim orders (orders without sheetRowNumber). Use rowNumber for regular orders.',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
         // DB ID 기반 처리 (claim 주문용)
         await dataService.markDeliveredById(orderId, trackingNumber);
       } else {
