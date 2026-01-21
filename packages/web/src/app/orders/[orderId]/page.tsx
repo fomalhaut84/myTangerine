@@ -765,7 +765,9 @@ export default function OrderDetailPage() {
               )}
 
               {/* 입금확인 → 배송완료 (Issue #168: claim 주문도 발송 처리 가능) */}
-              {order.status === '입금확인' && (
+              {/* P2 리뷰 반영: 기존 claim 주문(신규주문 상태)도 배송완료 처리 가능하도록 조건 완화 */}
+              {(order.status === '입금확인' ||
+                (order.orderType === 'claim' && order.status === '신규주문')) && (
                 <button
                   className="px-4 sm:px-6 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-400 text-white rounded-lg text-sm sm:text-base font-medium transition-colors"
                   onClick={handleOpenTrackingModal}
