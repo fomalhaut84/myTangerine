@@ -87,6 +87,8 @@ export class DatabaseService {
       _originalRowNumber: order.originalRowNumber || undefined,
       // Issue #155: 주문유형 (영문, 내부 필터링용)
       _orderType: (order.orderType as 'customer' | 'gift' | 'claim') || 'customer',
+      // Issue #165: DB ID (claim 주문 식별용)
+      _dbId: order.id,
     };
   }
 
@@ -1007,6 +1009,10 @@ export class DatabaseService {
           // 배송사고 설정
           orderType: 'claim',
           status: '신규주문',
+
+          // Issue #165: claim 주문은 DB 전용이므로 syncStatus를 'success'로 설정
+          // (시트에 동기화하지 않으므로 이미 동기화 완료 상태로 간주)
+          syncStatus: 'success',
 
           // 메타데이터
           createdAt: now,

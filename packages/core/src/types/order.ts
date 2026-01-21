@@ -176,6 +176,9 @@ export interface SheetRow {
 
   /** Issue #155: 주문유형 (영문, 내부 필터링용) */
   _orderType?: OrderType;
+
+  /** Issue #165: DB ID (claim 주문 등 sheetRowNumber가 null인 경우 식별용) */
+  _dbId?: number;
 }
 
 /**
@@ -230,6 +233,9 @@ export interface Order {
 
   /** Issue #155: 배송사고 원본 주문 행 번호 (claim 주문만 값 있음) */
   originalRowNumber?: number;
+
+  /** Issue #165: DB ID (claim 주문 등 sheetRowNumber가 null인 경우 식별용) */
+  dbId?: number;
 
   /** 원본 시트 행 데이터 (디버깅용) */
   _raw?: SheetRow;
@@ -510,6 +516,8 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     trackingNumber: row['송장번호'] || undefined,
     // Issue #155: 배송사고 원본 주문 참조
     originalRowNumber: row._originalRowNumber,
+    // Issue #165: DB ID (claim 주문 식별용)
+    dbId: row._dbId,
     _raw: row,
   };
 }

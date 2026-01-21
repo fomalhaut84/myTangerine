@@ -237,33 +237,42 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     const sheetRows = await dataService.getOrdersByStatus(status);
 
     // SheetRow를 Order로 변환
-    // Issue #155: claim 주문은 목록에서 제외 (sheetRowNumber가 null이라 rowNumber=0으로 표시됨)
-    // claim 주문은 원본 주문 상세 페이지의 "원본 주문" 링크로만 접근 가능
-    // P2 리뷰 반영: DB 모드(_orderType)와 Sheets 모드('주문유형') 모두 처리
-    const orders = sheetRows
-      .filter((row) => row._orderType !== 'claim' && row['주문유형'] !== '배송사고')
-      .map((row) => sheetRowToOrder(row, config));
+    // Issue #165: claim 주문도 목록에 포함 (dbId로 식별 가능)
+    const orders = sheetRows.map((row) => sheetRowToOrder(row, config));
 
     return {
       success: true,
       count: orders.length,
-      orders: orders.map((order) => ({
-        timestamp: order.timestamp.toISOString(),
-        timestampRaw: order.timestampRaw,
-        status: order.status,
-        sender: order.sender,
-        recipient: order.recipient,
-        productType: order.productType,
-        quantity: order.quantity,
-        rowNumber: order.rowNumber,
-        validationError: order.validationError,
-        orderType: order.orderType,
-        isDeleted: order.isDeleted,
-        deletedAt: order.deletedAt?.toISOString(),
-        trackingNumber: order.trackingNumber,
-        ordererName: order.ordererName,
-        ordererEmail: order.ordererEmail,
-      })),
+      orders: orders.map((order) => {
+        // Issue #165: claim 주문은 rowNumber가 0이므로 dbId를 기본 식별자로 사용
+        // P2 리뷰 반영: dbId가 없는 경우(Sheets-only 모드 등)에는 rowNumber로 fallback
+        const isClaim = order.orderType === 'claim';
+        const hasDbId = order.dbId !== undefined && order.dbId !== null;
+        const useDbId = isClaim && hasDbId;
+        return {
+          timestamp: order.timestamp.toISOString(),
+          timestampRaw: order.timestampRaw,
+          status: order.status,
+          sender: order.sender,
+          recipient: order.recipient,
+          productType: order.productType,
+          quantity: order.quantity,
+          rowNumber: order.rowNumber,
+          validationError: order.validationError,
+          orderType: order.orderType,
+          isDeleted: order.isDeleted,
+          deletedAt: order.deletedAt?.toISOString(),
+          trackingNumber: order.trackingNumber,
+          ordererName: order.ordererName,
+          ordererEmail: order.ordererEmail,
+          // Issue #165: claim 주문 식별용 DB ID와 원본 주문 참조
+          dbId: order.dbId,
+          originalRowNumber: order.originalRowNumber,
+          // Issue #165: 프론트엔드에서 어떤 ID를 사용해야 하는지 명시
+          // claim 주문이고 dbId가 있을 때만 'dbId', 그 외에는 'rowNumber'
+          idType: useDbId ? 'dbId' : 'rowNumber',
+        };
+      }),
     };
   });
 

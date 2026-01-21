@@ -309,6 +309,19 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
         description: '주문자 이메일',
         example: 'hong@example.com',
       },
+      // Issue #165: claim 주문 식별용 필드
+      dbId: {
+        type: 'integer',
+        minimum: 1,
+        description: 'DB ID (claim 주문 식별용)',
+        example: 123,
+      },
+      idType: {
+        type: 'string',
+        enum: ['rowNumber', 'dbId'],
+        description: '주문 식별자 타입 (rowNumber: 시트 행번호, dbId: DB ID)',
+        example: 'rowNumber',
+      },
     },
   });
 

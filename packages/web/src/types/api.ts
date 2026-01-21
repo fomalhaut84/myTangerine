@@ -40,6 +40,10 @@ export interface Order {
   ordererEmail?: string;
   /** Issue #155: 배송사고 원본 주문 참조 (claim 주문만 값 있음) */
   originalRowNumber?: number;
+  /** Issue #165: DB ID (claim 주문 식별용) */
+  dbId?: number;
+  /** Issue #165: 주문 식별자 타입 (claim은 'dbId', 그 외는 'rowNumber') */
+  idType?: 'rowNumber' | 'dbId';
 }
 
 export interface ProductSummary {
