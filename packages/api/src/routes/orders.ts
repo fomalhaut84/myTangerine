@@ -1090,6 +1090,11 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       // SheetRow를 Order로 변환
       const order = sheetRowToOrder(sheetRow, config);
 
+      // Issue #168: claim 주문은 rowNumber가 0이므로 dbId를 기본 식별자로 사용
+      const isClaim = order.orderType === 'claim';
+      const hasDbId = order.dbId !== undefined && order.dbId !== null;
+      const useDbId = isClaim && hasDbId;
+
       return {
         success: true,
         order: {
@@ -1110,6 +1115,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           ordererEmail: order.ordererEmail,
           // Issue #155: 배송사고 원본 주문 참조
           originalRowNumber: sheetRow._originalRowNumber,
+          // Issue #168: claim 주문 식별용 DB ID
+          dbId: order.dbId,
+          // Issue #168: 프론트엔드에서 어떤 ID를 사용해야 하는지 명시
+          idType: useDbId ? 'dbId' : 'rowNumber',
         },
       };
     }
@@ -1538,9 +1547,11 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
   /**
    * POST /api/orders/:rowNumber/mark-delivered
    * 주문을 "배송완료" 상태로 변경 (Phase 3)
+   * Issue #168: idType=dbId 쿼리 파라미터로 DB ID 기반 처리 지원 (claim 주문)
    */
   fastify.post<{
     Params: { rowNumber: string };
+    Querystring: { idType?: 'rowNumber' | 'dbId' };
     Body: { trackingNumber?: string };
   }>(
     '/api/orders/:rowNumber/mark-delivered',
@@ -1548,15 +1559,26 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['orders'],
         summary: '배송 완료 처리',
-        description: '주문을 "배송완료" 상태로 변경합니다. 송장번호를 함께 저장할 수 있습니다.',
+        description: '주문을 "배송완료" 상태로 변경합니다. 송장번호를 함께 저장할 수 있습니다. idType=dbId 시 DB ID로 조회합니다.',
         params: {
           type: 'object',
           required: ['rowNumber'],
           properties: {
             rowNumber: {
               type: 'string',
-              description: '스프레드시트 행 번호',
+              description: '주문 ID (sheetRowNumber 또는 DB ID)',
               example: '5',
+            },
+          },
+        },
+        querystring: {
+          type: 'object',
+          properties: {
+            idType: {
+              type: 'string',
+              enum: ['rowNumber', 'dbId'],
+              description: 'ID 타입 (기본값: rowNumber, claim 주문은 dbId 사용)',
+              example: 'rowNumber',
             },
           },
         },
@@ -1591,24 +1613,44 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     },
     async (request, reply) => {
       const { dataService } = fastify.core;
-      const rowNumber = parseInt(request.params.rowNumber, 10);
+      const orderId = parseInt(request.params.rowNumber, 10);
       const { trackingNumber } = request.body || {};
+      const idType = request.query.idType || 'rowNumber';
 
-      if (isNaN(rowNumber) || rowNumber < 2) {
+      if (isNaN(orderId) || orderId < 1) {
         return reply.code(400).send({
           success: false,
-          error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+          error: 'Invalid order ID. Must be a positive integer.',
           statusCode: 400,
           timestamp: new Date().toISOString(),
         });
       }
 
-      // 주문 존재 여부 확인
-      const order = await dataService.getOrderByRowNumber(rowNumber);
+      // Issue #168: idType에 따라 조회 방식 결정
+      let order;
+      let isDbIdMode = false;
+
+      if (idType === 'dbId') {
+        // DB ID로 조회 (claim 주문용)
+        order = await dataService.getOrderById(orderId);
+        isDbIdMode = true;
+      } else {
+        // 기본: sheetRowNumber로 조회
+        if (orderId < 2) {
+          return reply.code(400).send({
+            success: false,
+            error: 'Invalid row number. Row number must be a positive integer greater than 1.',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        order = await dataService.getOrderByRowNumber(orderId);
+      }
+
       if (!order) {
         return reply.code(404).send({
           success: false,
-          error: `Order not found at row ${rowNumber}`,
+          error: isDbIdMode ? `Order not found with id ${orderId}` : `Order not found at row ${orderId}`,
           statusCode: 404,
           timestamp: new Date().toISOString(),
         });
@@ -1626,18 +1668,38 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // P2 Fix: 상태 전이 검증 - 입금확인만 배송완료로 변경 가능
+      // P2 리뷰 반영: 기존 claim 주문(신규주문 상태)도 배송완료 처리 가능
       const currentStatus = normalizeOrderStatus(order['비고']);
-      if (currentStatus !== '입금확인') {
+      const isClaim = order._orderType === 'claim';
+      const allowedStatuses = isClaim ? ['입금확인', '신규주문'] : ['입금확인'];
+      if (!allowedStatuses.includes(currentStatus)) {
         return reply.code(400).send({
           success: false,
-          error: `Cannot mark as delivered for order with status "${currentStatus}". Only "입금확인" orders can be marked as delivered.`,
+          error: `Cannot mark as delivered for order with status "${currentStatus}". ${isClaim ? 'Claim orders allow "입금확인" or "신규주문"' : 'Only "입금확인" orders can be marked as delivered'}.`,
           statusCode: 400,
           timestamp: new Date().toISOString(),
         });
       }
 
-      // 배송완료 처리 (송장번호 포함)
-      await dataService.markDelivered([rowNumber], trackingNumber);
+      // Issue #168: idType에 따라 배송완료 처리 방식 결정
+      if (isDbIdMode) {
+        // P2 리뷰 반영: idType=dbId는 claim 주문(sheetRowNumber가 null)만 허용
+        // 일반 주문에 dbId 모드를 사용하면 시트는 업데이트되지 않아 데이터 불일치 발생
+        const hasSheetRowNumber = order._rowNumber !== null && order._rowNumber !== undefined;
+        if (hasSheetRowNumber) {
+          return reply.code(400).send({
+            success: false,
+            error: 'idType=dbId is only allowed for claim orders (orders without sheetRowNumber). Use rowNumber for regular orders.',
+            statusCode: 400,
+            timestamp: new Date().toISOString(),
+          });
+        }
+        // DB ID 기반 처리 (claim 주문용)
+        await dataService.markDeliveredById(orderId, trackingNumber);
+      } else {
+        // 기본: sheetRowNumber 기반 처리
+        await dataService.markDelivered([orderId], trackingNumber);
+      }
 
       // 통계 캐시 무효화
       statsCache.invalidate(/^stats:/);
