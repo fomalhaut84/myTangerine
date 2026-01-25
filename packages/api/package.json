@@ -31,7 +31,7 @@
     "dotenv": "^17.2.3",
     "exceljs": "^4.4.0",
     "fastify": "^4.0.0",
-    "fastify-plugin": "^4.0.0",
+    "fastify-plugin": "^5.1.0",
     "pdfmake": "^0.2.21",
     "zod": "^3.22.0"
   },
