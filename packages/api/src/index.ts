@@ -14,6 +14,7 @@ import ordersRoutes from './routes/orders.js';
 import labelsRoutes from './routes/labels.js';
 import syncRoutes from './routes/sync.js';
 import { errorHandler } from './middleware/error-handler.js';
+import { buildCorsOptions } from './cors-options.js';
 
 /**
  * Fastify 서버 생성 및 설정
@@ -43,9 +44,7 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
   });
 
   // CORS 설정 (환경 변수에서 읽기)
-  await server.register(cors, {
-    origin: env.CORS_ORIGIN === '*' ? true : env.CORS_ORIGIN,
-  });
+  await server.register(cors, buildCorsOptions(env.CORS_ORIGIN));
 
   // Package metadata 로드 (Swagger 설정에 필요)
   const packageMetadata = await loadPackageMetadata();

@@ -525,6 +525,35 @@ describe('Orders API', () => {
     });
   });
 
+  describe('Fastify 5 regressions', () => {
+    // 회귀: @fastify/cors 11 의 기본 methods 는 GET,HEAD,POST — 웹의 주문 수정(PATCH)이 preflight 에서 막혔다
+    it.each(['PATCH', 'POST', 'DELETE'])('allows %s in CORS preflight', async (method) => {
+      const response = await server.inject({
+        method: 'OPTIONS',
+        url: '/api/orders/10',
+        headers: {
+          origin: 'https://web.example.com',
+          'access-control-request-method': method,
+        },
+      });
+
+      expect(response.statusCode).toBe(204);
+      expect(String(response.headers['access-control-allow-methods'])).toContain(method);
+    });
+
+    // 회귀: 400 응답 스키마가 setErrorHandler 의 검증 오류 필드를 잘라냈다
+    it('keeps the full error shape for validation errors on report routes', async () => {
+      const response = await server.inject({ method: 'GET', url: '/api/orders/report?limit=5000' });
+
+      expect(response.statusCode).toBe(400);
+      const payload = JSON.parse(response.payload);
+      expect(payload.success).toBe(false);
+      expect(payload.statusCode).toBe(400);
+      expect(typeof payload.timestamp).toBe('string');
+      expect(typeof payload.error).toBe('string');
+    });
+  });
+
   describe('GET /api/orders/stats', () => {
     it('should return stats with default parameters (scope=completed, range=12m)', async () => {
       // Mock: 완료된 주문 설정
