@@ -68,7 +68,7 @@ export function loadEnv(): Env {
     return envSchema.parse(process.env);
   } catch (error) {
     if (error instanceof z.ZodError) {
-      const missingVars = error.errors.map((err) => err.path.join('.')).join(', ');
+      const missingVars = error.issues.map((err) => err.path.map(String).join('.')).join(', ');
       throw new Error(
         `환경 변수 검증 실패:\n` +
           `누락된 변수: ${missingVars}\n\n` +
