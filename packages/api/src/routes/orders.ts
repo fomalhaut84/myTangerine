@@ -470,10 +470,15 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             description: 'PDF 파일 (application/pdf)',
           },
           400: {
+            // 핸들러의 {error, message} 와 setErrorHandler 의 검증 오류 {success, error, statusCode, timestamp} 를 모두 담는다
+            // (선언하지 않은 필드는 직렬화에서 빠진다 — Fastify 5 이전 사전 리뷰 major)
             type: 'object',
             properties: {
+              success: { type: 'boolean' },
               error: { type: 'string' },
               message: { type: 'string' },
+              statusCode: { type: 'integer' },
+              timestamp: { type: 'string' },
             },
           },
           500: {
@@ -637,10 +642,15 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             description: 'PDF 파일 (application/pdf)',
           },
           400: {
+            // 핸들러의 {error, message} 와 setErrorHandler 의 검증 오류 {success, error, statusCode, timestamp} 를 모두 담는다
+            // (선언하지 않은 필드는 직렬화에서 빠진다 — Fastify 5 이전 사전 리뷰 major)
             type: 'object',
             properties: {
+              success: { type: 'boolean' },
               error: { type: 'string' },
               message: { type: 'string' },
+              statusCode: { type: 'integer' },
+              timestamp: { type: 'string' },
             },
           },
           500: {
@@ -782,10 +792,15 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             description: 'Excel 파일 (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)',
           },
           400: {
+            // 핸들러의 {error, message} 와 setErrorHandler 의 검증 오류 {success, error, statusCode, timestamp} 를 모두 담는다
+            // (선언하지 않은 필드는 직렬화에서 빠진다 — Fastify 5 이전 사전 리뷰 major)
             type: 'object',
             properties: {
+              success: { type: 'boolean' },
               error: { type: 'string' },
               message: { type: 'string' },
+              statusCode: { type: 'integer' },
+              timestamp: { type: 'string' },
             },
           },
           500: {
@@ -947,10 +962,15 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             description: 'Excel 파일 (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)',
           },
           400: {
+            // 핸들러의 {error, message} 와 setErrorHandler 의 검증 오류 {success, error, statusCode, timestamp} 를 모두 담는다
+            // (선언하지 않은 필드는 직렬화에서 빠진다 — Fastify 5 이전 사전 리뷰 major)
             type: 'object',
             properties: {
+              success: { type: 'boolean' },
               error: { type: 'string' },
               message: { type: 'string' },
+              statusCode: { type: 'integer' },
+              timestamp: { type: 'string' },
             },
           },
           500: {
