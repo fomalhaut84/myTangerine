@@ -12,7 +12,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 세션마다 맨 위에 한 문단을 추가한다(`tangerine-handoff`). 새 세션은 이 절과 최신 인계 노트로 시작한다(`tangerine-resume`).
 
-**2026-11-17 · 하네스 세팅 · 프로젝트 분석 — 코드 변경 0 · 실데이터 영향 없음.** pleiades 를 참고해 `.claude/` 하네스 구성(규칙 `workflow.md`·`data-safety.md` · 훅 `safety_guard.py` · 스킬 6 · 에이전트 3) · **리뷰를 pleiades 방식으로 전환**(사전 `code-reviewer` 에이전트 → GitHub Codex bot · codex-cli 미사용 · 사용자 결정) · CLAUDE.md 개요를 TS 모노레포로 교체 · 분석 `docs/research/project-analysis.md`(테스트 통과 · 타입체크·lint 전 패키지 실패 · API 쓰기 라우트 인증 없음 · hybrid 부분 실패 삼킴 · Prisma 마이그레이션 루트 7/core 6 이원화). `.claude/` 추적 시작(`settings.local.json` 만 제외 · 이슈 #192). 인계 `docs/handoff/2026-11-17-harness-setup-analysis.md`. 다음 = **#192 PR 머지(사용자)** · API 인증 이슈 · 실제 DB `_prisma_migrations` 확인(사용자) · 검증 체계 복구.
+**2026-11-17 · 하네스 세팅 · 프로젝트 분석 — 코드 변경 0 · 실데이터 영향 없음.** pleiades 를 참고해 `.claude/` 하네스 구성(규칙 `workflow.md`·`data-safety.md` · 훅 `safety_guard.py` · 스킬 6 · 에이전트 3) · **리뷰를 pleiades 방식으로 전환**(사전 `code-reviewer` 에이전트 → GitHub Codex bot · codex-cli 미사용 · 사용자 결정) · CLAUDE.md 개요를 TS 모노레포로 교체 · 프로젝트 분석(로컬 전용 `docs/research/project-analysis.md` · 미추적 — 테스트 통과 · 타입체크·lint 전 패키지 실패 · Prisma 마이그레이션 루트 7/core 6 이원화 · 보안 항목은 문서에만). `.claude/` 추적 시작(`settings.local.json` 만 제외 · 이슈 #192). 인계 `docs/handoff/2026-11-17-harness-setup-analysis.md`. 다음 = **#192 PR 머지(사용자)** · 분석 문서 3절 보안 항목 착수 · 실제 DB `_prisma_migrations` 확인(사용자) · 검증 체계 복구.
 
 ## Development Workflow
 
@@ -172,7 +172,7 @@ gh release create v1.0.0 --title "v1.0.0" --notes "## 주요 변경사항
 
 myTangerine 은 구글 폼으로 들어오는 감귤 주문(스프레드시트 "감귤 주문서(응답)")을 PostgreSQL 로 동기화하고,
 주문 상태 관리·배송 라벨·PDF/Excel 보고서·통계·배송사고(claim) 처리를 제공하는 **pnpm TypeScript 모노레포**입니다.
-분석 기준선과 위험 목록은 `docs/research/project-analysis.md` (2026-11-17).
+분석 기준선과 위험 목록은 `docs/research/project-analysis.md` (2026-11-17 · **로컬 전용 — 공개 저장소라 gitignore**. 보안 위험의 위치·재현 방법을 이슈·PR·커밋에 적지 않는다).
 
 ## 패키지 구조
 

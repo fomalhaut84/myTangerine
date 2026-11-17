@@ -14,7 +14,7 @@
    - 스킬: `tangerine-orchestrator` · `tangerine-resume` · `tangerine-handoff` · `codex-loop` · `orphan-check` · `release`
    - 에이전트: `codebase-surveyor` · `verifier` · `data-safety-auditor`
 2. **CLAUDE.md 갱신** — 리뷰 절차 교체 · 하네스 표 · "현재 상태" 절 신설 · Python 시절 개요/아키텍처/의존성을 TS 모노레포 설명으로 교체
-3. **프로젝트 분석** — `docs/research/project-analysis.md` (영역별 읽기 전용 에이전트 3 + 로컬 검증 실측 · 핵심 주장은 직접 재확인)
+3. **프로젝트 분석** — `docs/research/project-analysis.md` (**로컬 전용 · gitignore** — 저장소가 공개라 보안 위험 목록을 올리지 않는다. PR #193 첫 커밋 `76c2465` 에는 들어가 공개됐다) (영역별 읽기 전용 에이전트 3 + 로컬 검증 실측 · 핵심 주장은 직접 재확인)
 
 ## 결정된 것
 
@@ -33,7 +33,7 @@
 ## 다음 세션의 첫 액션 후보
 
 1. **#192 PR 확인** — 사용자 머지 대기 · 봇 리뷰 결과 대응(`codex-loop`) · 머지 뒤 `orphan-check`
-2. **API 인증** — orders·labels 라우트 인증 + CORS 허용 목록 + rate limit · web sync 프록시 호출자 인증 (보안 · `tangerine-orchestrator` · web 이 API 를 직접 부르는 구조라 인증 방식 설계가 먼저)
+2. **보안 항목** — 로컬 분석 문서 3절의 '높음' 보안 행부터 (설계 먼저 · `tangerine-orchestrator`). 세부 위치는 공개 문서에 적지 않는다
 3. **Prisma 단일화** — 사용자 DB 확인 → 정본 스키마 결정 (데이터 · `data-safety-auditor` 필수)
 4. **검증 복구** — core `dts` · TS 오류 8 · api eslint 설정 · `next lint` 교체 · CI 에 type-check·web·sync-service
 
