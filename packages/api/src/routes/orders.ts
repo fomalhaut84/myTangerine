@@ -469,6 +469,13 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             type: 'string',
             description: 'PDF 파일 (application/pdf)',
           },
+          400: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
           500: {
             type: 'object',
             properties: {
@@ -629,6 +636,13 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             type: 'string',
             description: 'PDF 파일 (application/pdf)',
           },
+          400: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
           500: {
             type: 'object',
             properties: {
@@ -766,6 +780,13 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           200: {
             type: 'string',
             description: 'Excel 파일 (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)',
+          },
+          400: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
           },
           500: {
             type: 'object',
@@ -924,6 +945,13 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           200: {
             type: 'string',
             description: 'Excel 파일 (application/vnd.openxmlformats-officedocument.spreadsheetml.sheet)',
+          },
+          400: {
+            type: 'object',
+            properties: {
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
           },
           500: {
             type: 'object',
