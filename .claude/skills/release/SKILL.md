@@ -30,10 +30,23 @@ git checkout main && git pull
 git log -1 --format=%P | wc -w        # 2 여야 한다
 git tag -a "$V" -m "Release $V: <요약>"
 git push origin "$V"                  # --tags 금지 (W-3)
-gh release create "$V" --title "$V" --notes-file "$SCRATCH/notes.md"
+gh release create "$V" --title "$V" --notes-file "$SCRATCH/notes.md"   # ← 발행 즉시 서버 자동 배포 (#201)
+#   스키마·마이그레이션 변경 → --prerelease (자동 배포 건너뜀 · 런북 수동 절차)
+#   서버 .env 새 키 등 조치 필요 → --draft (사용자 조치 뒤 GitHub 에서 Publish)
 git checkout dev
 ```
 부모가 1개(squash 됨)면: `dev` 에서 `feature/issue-<N>-sync-main` → `git merge -s ours --no-ff origin/main` → PR(base dev, merge commit) 으로 히스토리 복구. 다음 릴리즈 전에 한다.
+
+## 배포 확인 (발행 뒤)
+
+```bash
+gh run list --workflow deploy.yml --limit 1          # 상태
+gh run view <run-id> --log | sed -n '/=== 판정 양식/,/=== 끝/p'
+```
+- `결과: 통과` / `이미 배포됨` → 사용자에게 보고하고 끝
+- rc 1 → 서비스 그대로. `결과:` 줄 원인을 해결한 뒤 Actions 재실행
+- rc 4 → **서비스가 불완전할 수 있다** — 판정 양식의 `되돌리기:` · `재시도:` 줄을 사용자에게 전달(서버 실행은 사용자 · 자동 롤백 없음)
+- 런북: `docs/runbooks/auto-deploy.md`
 
 ## 핫픽스
 

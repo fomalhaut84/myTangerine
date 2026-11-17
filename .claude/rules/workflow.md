@@ -60,6 +60,7 @@ git checkout dev && git pull && git checkout -b feature/issue-<N>-<설명>
 | `@mytangerine/web` | `pnpm --filter @mytangerine/web lint` | (빌드가 타입체크) | `pnpm --filter @mytangerine/web test` | `pnpm --filter @mytangerine/web build` |
 | `@mytangerine/sync-service` | 해당 없음(스크립트 없음) | `pnpm --filter @mytangerine/sync-service type-check` | 해당 없음(테스트 없음) | `pnpm --filter @mytangerine/sync-service build` |
 | `.claude/hooks` | 해당 없음 | 해당 없음 | `python3 -m unittest discover -s .claude/hooks` | 해당 없음 |
+| `deploy/` · `.github/workflows/deploy.yml` (#201) | 해당 없음 | `bash -n deploy/*.sh` | `python3 -m unittest discover -s deploy` (임시 git 저장소 + 가짜 pnpm·pm2·curl · 약 25초 · CI `deploy-scripts` job) | 해당 없음 |
 
 - core·api 의 `test` 스크립트는 `vitest`(watch 기본)라 **`exec vitest run`** 으로 1회 실행한다
 - 빌드는 `DATABASE_URL` 이 있어야 prisma generate 가 돈다(CI 는 더미 값 — S-4)
@@ -140,4 +141,10 @@ git checkout dev && git pull
 ## 릴리즈·핫픽스
 
 `release` 스킬을 쓴다. 요지: `dev` → `main` PR(merge commit) → 사용자 머지 → 부모 2개 확인 → 태그 하나 push → `gh release create`.
+
+> **Release 발행 = 서버 배포 (#201 · 사용자 2026-11-17).** `gh release create` 는 Actions(`deploy.yml`)로 서버 자동 배포를 시작한다 — 별도 승인 없음.
+> - 스키마·마이그레이션이 바뀐 릴리즈는 **`--prerelease`** 로 발행한다(자동 배포 건너뜀 → 런북 수동 절차). 스크립트도 그런 태그에서는 바꾸기 전에 멈춘다
+> - 서버 조치(`.env` 새 키 · pm2 이름·포트)가 필요한 릴리즈는 **`--draft`** → 사용자 서버 조치 → GitHub 에서 Publish
+> - 실패 시 자동 롤백 없음 — Actions 실행 요약의 판정 양식(`되돌리기:` 줄)을 사용자에게 전달한다. Claude 는 서버에 접속하지 않는다
+> - 런북: `docs/runbooks/auto-deploy.md`
 핫픽스는 `main` 머지·태그 뒤 **`main` → `dev` 동기화 필수**.
