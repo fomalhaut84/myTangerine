@@ -31,7 +31,7 @@ export function OrdersTable({ orders, searchParams, showDeleted = false }: Order
 
   // Issue #165: claim 주문은 dbId로 식별해야 함
   // P1 리뷰 반영: idType만 확인 (orderType === 'claim' 조건 제거)
-  // API에서 dbId가 있을 때만 idType='dbId'로 설정하므로 idType만 확인하면 됨
+  // API 가 시트 행이 없는 DB 전용 claim 에만 idType='dbId' 를 주므로 idType 만 확인하면 됨 (#199)
   const handleRowClick = (order: Order) => {
     const useDbId = order.idType === 'dbId';
     const orderId = useDbId ? order.dbId : order.rowNumber;

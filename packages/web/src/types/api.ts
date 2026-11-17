@@ -42,7 +42,7 @@ export interface Order {
   originalRowNumber?: number;
   /** Issue #165: DB ID (claim 주문 식별용) */
   dbId?: number;
-  /** Issue #165: 주문 식별자 타입 (claim은 'dbId', 그 외는 'rowNumber') */
+  /** Issue #165 · #199: 주문 식별자 타입 (시트 행이 없는 DB 전용 claim 만 'dbId', 그 외는 'rowNumber') */
   idType?: 'rowNumber' | 'dbId';
 }
 
