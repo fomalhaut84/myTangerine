@@ -13,16 +13,16 @@
   },
   "dependencies": {
     "@mytangerine/core": "workspace:*",
-    "dotenv": "^16.4.7",
-    "node-cron": "^4.2.1",
-    "pino": "^10.1.0",
-    "pino-pretty": "^13.0.0"
+    "dotenv": "^16.6.1",
+    "node-cron": "^4.6.0",
+    "pino": "^10.4.0",
+    "pino-pretty": "^13.2.0"
   },
   "devDependencies": {
-    "@types/node": "^22.10.2",
+    "@types/node": "^22.20.5",
     "@types/node-cron": "^3.0.11",
-    "tsup": "^8.0.0",
-    "tsx": "^4.19.2",
-    "typescript": "^5.7.2"
+    "tsup": "^8.5.1",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
   }
 }

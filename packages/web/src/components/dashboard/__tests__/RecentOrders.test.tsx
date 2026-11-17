@@ -21,12 +21,17 @@ vi.mock('next/link', () => ({
 
 import { useOrders } from '@/hooks/use-orders';
 
+// useOrders 반환값 mock — 테스트에 필요한 필드만 채우고 나머지는 UseQueryResult 타입으로 맞춘다(vitest 4 의 엄격한 Mock 타입)
+type UseOrdersResult = ReturnType<typeof useOrders>;
+const mockUseOrders = (result: Partial<UseOrdersResult>) =>
+  vi.mocked(useOrders).mockReturnValue(result as UseOrdersResult);
+
 describe('RecentOrders', () => {
   const baseOrder: Order = {
     rowNumber: 1,
     timestamp: '2025-01-01T10:00:00Z',
     timestampRaw: '2025. 1. 1. 오전 10:00:00',
-    status: '미확인',
+    status: '신규주문',
     sender: {
       name: '발송자',
       phone: '010-1234-5678',
@@ -39,10 +44,12 @@ describe('RecentOrders', () => {
     },
     quantity: 2,
     productType: '5kg',
+    orderType: 'customer',
+    isDeleted: false,
   };
 
   it('should display loading skeleton when isLoading is true', () => {
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: undefined,
       isLoading: true,
       error: null,
@@ -59,7 +66,7 @@ describe('RecentOrders', () => {
   });
 
   it('should display error message when error occurs', () => {
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: undefined,
       isLoading: false,
       error: new Error('Network error'),
@@ -75,7 +82,7 @@ describe('RecentOrders', () => {
   });
 
   it('should display empty state when no orders', () => {
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: { success: true, orders: [], count: 0 },
       isLoading: false,
       error: null,
@@ -97,7 +104,7 @@ describe('RecentOrders', () => {
       validationError: '유효하지 않은 상품 타입',
     };
 
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: { success: true, orders: [orderWithError], count: 1 },
       isLoading: false,
       error: null,
@@ -126,7 +133,7 @@ describe('RecentOrders', () => {
       quantity: 3,
     };
 
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: { success: true, orders: [orderWith5kg], count: 1 },
       isLoading: false,
       error: null,
@@ -152,7 +159,7 @@ describe('RecentOrders', () => {
       quantity: 2,
     };
 
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: { success: true, orders: [orderWith10kg], count: 1 },
       isLoading: false,
       error: null,
@@ -177,7 +184,7 @@ describe('RecentOrders', () => {
       productType: null,
     };
 
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: { success: true, orders: [orderWithUnknown], count: 1 },
       isLoading: false,
       error: null,
@@ -203,7 +210,7 @@ describe('RecentOrders', () => {
       validationError: '검증 실패',
     };
 
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: { success: true, orders: [orderWithBoth], count: 1 },
       isLoading: false,
       error: null,
@@ -229,7 +236,7 @@ describe('RecentOrders', () => {
       { ...baseOrder, rowNumber: 4, productType: null, validationError: '검증 에러' },
     ];
 
-    vi.mocked(useOrders).mockReturnValue({
+    mockUseOrders({
       data: { success: true, orders, count: 4 },
       isLoading: false,
       error: null,
