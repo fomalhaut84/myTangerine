@@ -12,6 +12,7 @@ export class MockSheetService {
   private mockCompletedOrders: SheetRow[] = [];
   private mockAllOrders: SheetRow[] = [];
   private confirmedCount = 0;
+  private deliveredCalls: ReadonlyArray<{ rowNumbers: number[]; trackingNumber?: string }> = [];
 
   /**
    * Mock 데이터 설정 (신규 주문)
@@ -118,6 +119,22 @@ export class MockSheetService {
   }
 
   /**
+   * 배송완료 처리 (mock) — 호출 인자를 기록한다
+   * @param rowNumbers 스프레드시트 행 번호 배열
+   * @param trackingNumber 송장번호 (선택)
+   */
+  async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
+    this.deliveredCalls = [...this.deliveredCalls, { rowNumbers, trackingNumber }];
+  }
+
+  /**
+   * markDelivered 호출 기록 (테스트용)
+   */
+  getDeliveredCalls(): ReadonlyArray<{ rowNumbers: number[]; trackingNumber?: string }> {
+    return this.deliveredCalls;
+  }
+
+  /**
    * 확인된 개수 조회 (테스트용)
    */
   getConfirmedCount(): number {
@@ -132,6 +149,7 @@ export class MockSheetService {
     this.mockCompletedOrders = [];
     this.mockAllOrders = [];
     this.confirmedCount = 0;
+    this.deliveredCalls = [];
   }
 }
 

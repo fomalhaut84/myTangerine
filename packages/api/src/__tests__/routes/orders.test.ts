@@ -420,6 +420,64 @@ describe('Orders API', () => {
     });
   });
 
+  describe('POST /api/orders/:orderId/mark-delivered', () => {
+    // 테스트 서버의 dataService 는 MockSheetService — 시트 모드처럼 `_orderType` 이 없는 행을 돌려준다
+    const markDelivered = (rowNumber: number) =>
+      server.inject({
+        method: 'POST',
+        url: `/api/orders/${rowNumber}/mark-delivered`,
+        payload: {},
+      });
+
+    // 회귀: #194 — 시트 모드에서 claim 판정이 `_orderType` 에만 의존해 신규주문 claim 이 400 이 났다
+    it('allows a sheet-sourced claim order in 신규주문 to be marked as delivered', async () => {
+      mockSheetService.setMockNewOrders([
+        createMockSheetRow({ _rowNumber: 391, '비고': '', '주문유형': '배송사고' }),
+      ]);
+
+      const response = await markDelivered(391);
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload).success).toBe(true);
+      expect(mockSheetService.getDeliveredCalls()).toEqual([{ rowNumbers: [391], trackingNumber: undefined }]);
+    });
+
+    it('still rejects a regular order in 신규주문', async () => {
+      mockSheetService.setMockNewOrders([
+        createMockSheetRow({ _rowNumber: 392, '비고': '', '주문유형': '판매' }),
+      ]);
+
+      const response = await markDelivered(392);
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.payload).error).toContain('Only "입금확인" orders');
+      expect(mockSheetService.getDeliveredCalls()).toEqual([]);
+    });
+
+    it('allows a regular order in 입금확인', async () => {
+      mockSheetService.setMockAllOrders([
+        createMockSheetRow({ _rowNumber: 393, '비고': '입금확인' }),
+      ]);
+
+      const response = await markDelivered(393);
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSheetService.getDeliveredCalls()).toEqual([{ rowNumbers: [393], trackingNumber: undefined }]);
+    });
+
+    it('rejects a sheet-sourced claim order that is already 배송완료', async () => {
+      mockSheetService.setMockCompletedOrders([
+        createMockSheetRow({ _rowNumber: 394, '비고': '배송완료', '주문유형': '배송사고' }),
+      ]);
+
+      const response = await markDelivered(394);
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.payload).error).toContain('Claim orders allow');
+      expect(mockSheetService.getDeliveredCalls()).toEqual([]);
+    });
+  });
+
   describe('GET /api/orders/stats', () => {
     it('should return stats with default parameters (scope=completed, range=12m)', async () => {
       // Mock: 완료된 주문 설정

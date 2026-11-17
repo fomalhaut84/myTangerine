@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, ChangeLogService } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, parseOrderType, ChangeLogService } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -1670,7 +1670,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       // P2 Fix: 상태 전이 검증 - 입금확인만 배송완료로 변경 가능
       // P2 리뷰 반영: 기존 claim 주문(신규주문 상태)도 배송완료 처리 가능
       const currentStatus = normalizeOrderStatus(order['비고']);
-      const isClaim = order._orderType === 'claim';
+      // #194: `_orderType` 은 DB 에서 읽은 행에만 있다(기본값 'customer' 라 DB 행은 오른쪽으로 넘어가지 않는다).
+      // 시트 모드 행은 '주문유형' 컬럼으로 판정한다 — GET 응답의 orderType 과 같은 parseOrderType 이라
+      // 화면의 배송완료 버튼 노출 조건과 일치한다
+      const isClaim = (order._orderType ?? parseOrderType(order['주문유형'])) === 'claim';
       const allowedStatuses = isClaim ? ['입금확인', '신규주문'] : ['입금확인'];
       if (!allowedStatuses.includes(currentStatus)) {
         return reply.code(400).send({
