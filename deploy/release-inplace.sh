@@ -1,11 +1,12 @@
 #!/usr/bin/env bash
 # release-inplace.sh — 서버 체크아웃(~/myTangerine)에 새 태그를 제자리 배포하고 판정 양식만 출력한다 (#201).
 #
-# 사용:  deploy/release-inplace.sh <vX.Y.Z> [--yes] [--dry-run] [--retry] [--allow-downgrade]
+# 사용:  deploy/release-inplace.sh <vX.Y.Z> [--yes] [--dry-run] [--retry] [--allow-downgrade] [--confirm-manual]
 #   --yes              확인을 묻지 않는다 (Actions 경로 · ssh-deploy.sh)
 #   --dry-run          검사만 — 체크아웃·서비스·기록은 그대로 (헬스 확인은 읽기만 한다)
 #   --retry            HEAD 가 이미 <vX.Y.Z> 일 때 같은 태그로 다시 빌드·재시작한다
 #   --allow-downgrade  지금보다 낮은 태그로 간다 — 되돌리기 전용. 사람이 서버에서만 쓴다(자동 경로는 붙이지 않는다)
+#   --confirm-manual   손으로 배포한 지금 태그(HEAD = <vX.Y.Z>)를 헬스 확인 뒤 성공으로 기록한다 — 수동 마이그레이션 뒤. 사람만
 # 종료 코드: 0 통과 · 이미 배포됨(헬스 확인) · dry-run   1 중단 — 서비스 재시작 없음·체크아웃 직전 태그   2 사용법
 #            4 사람 개입 필요 — 재시작·헬스 실패 · 빌드 복구 실패 · 지난 배포가 성공하지 않은 상태 (자동 롤백 없음)
 # 출력은 판정 양식뿐이다 — Actions 로그는 공개된다. 홈 경로는 ~ 로 가리고 .env · pm2 env 값은 출력하지 않는다.
@@ -18,7 +19,7 @@ BUILD_PACKAGES=(core api sync-service web)
 # Prisma 스키마가 두 벌이다(.claude/rules/data-safety.md) — 어느 쪽이 바뀌어도 자동 배포하지 않는다
 MIGRATION_PATHS=(prisma packages/core/prisma)
 
-usage() { sed -n '4,9p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
+usage() { sed -n '4,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }
 redact() { sed -E "s#${HOME}#~#g; s#/(home|Users)/[^/[:space:]]+#~#g"; }
 count_lines() { [[ -z "$1" ]] && echo 0 || printf '%s\n' "$1" | wc -l | tr -d ' '; }
 is_newer() { [[ "$1" != "$2" && "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" == "$1" ]]; }  # $1 > $2
@@ -145,20 +146,24 @@ health() {
   return 1
 }
 
-record_ok() {  # <태그>
-  printf '%s\n' "$1" > "$PRIV/last-ok.tmp" && mv -f "$PRIV/last-ok.tmp" "$PRIV/last-ok"
+record_ok() {  # <태그> — 성공 기록을 쓰고 진행 중 표지를 지운다
+  printf '%s\n' "$1" > "$PRIV/last-ok.tmp" && mv -f "$PRIV/last-ok.tmp" "$PRIV/last-ok" && rm -f "$PRIV/pending"
 }
+# 진행 중 표지 — 시도를 시작할 때 쓰고 성공(또는 직전 태그로 복구)했을 때만 지운다.
+# 남아 있으면 지난 시도가 실패·중단된 것이다(회귀: PR #203 Codex P2 — 실패한 재시도를 이전 성공 기록이 덮었다)
+mark_pending() { printf '%s\n' "$1" > "$PRIV/pending.tmp" && mv -f "$PRIV/pending.tmp" "$PRIV/pending"; }
 
 main() {
   set -uo pipefail
   export LC_ALL=C GIT_TERMINAL_PROMPT=0
-  local V="" yes=0 dry=0 retry=0 downgrade=0 arg
+  local V="" yes=0 dry=0 retry=0 downgrade=0 manual=0 arg
   for arg in "$@"; do
     case "$arg" in
       --yes) yes=1 ;;
       --dry-run) dry=1 ;;
       --retry) retry=1 ;;
       --allow-downgrade) downgrade=1 ;;
+      --confirm-manual) manual=1 ;;
       -*) usage ;;
       *) [[ -z "$V" ]] || usage; V=$arg ;;
     esac
@@ -202,11 +207,29 @@ main() {
   form "직전: $P"
   [[ -f "$PRIV/last-ok" ]] && last=$(head -1 "$PRIV/last-ok")
 
+  local pending=""
+  [[ -f "$PRIV/pending" ]] && pending=$(head -1 "$PRIV/pending")
+  (( ! manual )) || [[ "$P" == "$V" ]] || stop 2 "--confirm-manual 은 HEAD 가 $V 일 때만 쓴다(지금 $P)"
+
   if [[ "$P" == "$V" && $retry -eq 0 ]]; then
     # 같은 태그 — 지난 배포가 성공으로 끝났는지 기록과 헬스로 확인한다(실패한 배포를 "이미 배포됨"으로 덮지 않는다)
+    if (( manual )); then
+      # 손으로 배포한 태그를 성공으로 기록한다 (회귀: PR #203 Codex P2 — 수동 마이그레이션 뒤 기록을 맞출 길이 없었다)
+      health || { emit "실패 — 손 배포 확인: 헬스 실패"; exit 4; }
+      if (( dry )); then emit "dry-run — 손 배포 확인 가능(헬스 정상) · 기록하지 않았다"; exit 0; fi
+      record_ok "$V" || stop 4 "성공 기록(last-ok)을 쓰지 못했다"
+      emit "손 배포 확인 — $V 를 성공으로 기록했다${last:+ (이전 기록 $last)}"
+      exit 0
+    fi
+    if [[ -n "$pending" ]]; then
+      form "끝나지 않은 시도: $pending"
+      form "재시도: deploy/release-inplace.sh $V --yes --retry"
+      stop 4 "지난 배포 시도가 성공으로 끝나지 않았다"
+    fi
     if [[ -n "$last" && "$last" != "$V" ]]; then
       form "마지막 성공 배포: $last"
       form "재시도: deploy/release-inplace.sh $V --yes --retry"
+      form "손으로 배포했다면: deploy/release-inplace.sh $V --yes --confirm-manual"
       stop 4 "HEAD 는 $V 지만 그 배포는 성공으로 끝나지 않았다"
     fi
     if ! health; then
@@ -268,10 +291,12 @@ main() {
   #     새 태그로 가는 중 실패하면 직전 태그로 다시 빌드해 디스크를 원래대로(서비스 재시작 없음).
   #     재시도(같은 태그) 실패는 더 옛 태그로 내려가지 않는다 — 그 구간의 마이그레이션을 검사하지 않았기 때문이다.
   local t0=$SECONDS failed
+  mark_pending "$V" || stop 1 "진행 중 표지를 쓰지 못했다"
   if ! build "$V"; then
     failed=$STEP
     form "빌드: 실패 — $failed"
     if [[ "$P" != "$V" ]] && build "$P"; then
+      rm -f "$PRIV/pending"   # 디스크가 실행 중인 직전 태그와 다시 같아졌다
       stop 1 "$failed 실패 — 직전 태그 $P 로 다시 빌드했다(서비스 재시작 없음 · 빌드 중 웹이 잠시 오류를 냈을 수 있다)"
     fi
     [[ "$P" == "$V" ]] && form "복구: 재시도라 직전 태그로 내려가지 않았다" || form "복구: 실패 — ${STEP:-?}"

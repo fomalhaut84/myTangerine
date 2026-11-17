@@ -269,6 +269,58 @@ class SameTag(Base):
         self.assertIn("재시도: deploy/release-inplace.sh v1.1.0 --yes --retry", res.stdout)
 
 
+class Pending(Base):
+    # 회귀: PR #203 Codex P2 — 성공했던 태그의 --retry 가 실패하면 이전 성공 기록이 그 실패를 덮었다
+    def test_failed_retry_is_not_certified_by_earlier_success(self) -> None:
+        self.assertEqual(0, self.box.run("v1.1.0", "--yes").returncode)
+        self.assertEqual(4, self.box.run("v1.1.0", "--yes", "--retry", STUB_PNPM_FAIL="web").returncode)
+        res = self.box.run("v1.1.0", "--yes")
+        self.assertEqual(4, res.returncode, res.stdout)
+        self.assertIn("지난 배포 시도가 성공으로 끝나지 않았다", res.stdout)
+        self.assertEqual(0, self.box.run("v1.1.0", "--yes", "--retry").returncode)  # 재시도 성공이면 풀린다
+        self.assertEqual(0, self.box.run("v1.1.0", "--yes").returncode)
+
+    def test_restored_build_failure_clears_pending(self) -> None:
+        self.assertEqual(1, self.box.run("v1.1.0", "--yes", STUB_PNPM_FAIL="web", STUB_FAIL_TAG="v1.1.0").returncode)
+        self.assertFalse((self.box.priv / "pending").exists())
+        self.assertEqual(0, self.box.run("v1.1.0", "--yes").returncode)
+
+
+class ConfirmManual(Base):
+    def setUp(self) -> None:
+        super().setUp()
+        self.assertEqual(0, self.box.run("v1.1.0", "--yes").returncode)
+        self.box.checkout("v1.2.0")  # 사람이 마이그레이션 릴리즈를 손으로 배포했다
+        self.box.calls.write_text("")
+
+    # 회귀: PR #203 Codex P2 — 수동 마이그레이션 배포 뒤 성공 기록을 맞출 길이 없었다
+    def test_manual_deploy_needs_confirmation_then_records(self) -> None:
+        res = self.box.run("v1.2.0", "--yes")
+        self.assertEqual(4, res.returncode, res.stdout)
+        self.assertIn("--confirm-manual", res.stdout)
+        res = self.box.run("v1.2.0", "--yes", "--confirm-manual")
+        self.assertEqual(0, res.returncode, res.stdout)
+        self.assertIn("손 배포 확인", res.stdout)
+        self.assertEqual("v1.2.0", self.box.last_ok())
+        self.assertNotIn("pm2 restart", self.box.calls_text())  # 확인만 한다 — 빌드·재시작 없음
+        self.assertNotIn("pnpm", self.box.calls_text())
+        self.assertIn("이미 배포됨", self.box.run("v1.2.0", "--yes").stdout)
+
+    def test_manual_confirmation_requires_health(self) -> None:
+        res = self.box.run("v1.2.0", "--yes", "--confirm-manual", STUB_HTTP="503")
+        self.assertEqual(4, res.returncode, res.stdout)
+        self.assertEqual("v1.1.0", self.box.last_ok())
+
+    def test_manual_confirmation_dry_run_does_not_record(self) -> None:
+        res = self.box.run("v1.2.0", "--dry-run", "--confirm-manual")
+        self.assertEqual(0, res.returncode, res.stdout)
+        self.assertEqual("v1.1.0", self.box.last_ok())
+
+    def test_manual_confirmation_only_for_current_head(self) -> None:
+        res = self.box.run("v1.1.0", "--yes", "--confirm-manual", "--allow-downgrade")
+        self.assertEqual(2, res.returncode, res.stdout)
+
+
 class Deploy(Base):
     def test_happy_path(self) -> None:
         res = self.box.run("v1.1.0", "--yes")
@@ -342,6 +394,7 @@ class Deploy(Base):
 
 class SshDeploy(Base):
     REJECT = ["", "deploy", "deploy v1.2", "deploy v1.1.0 --retry", "deploy v1.1.0 --allow-downgrade",
+              "deploy v1.1.0 --confirm-manual",
               "deploy v1.1.0; id", "deploy  v1.1.0", "deploy v1.1.0\nid", "bash", "release v1.1.0",
               "deploy $(id)", "deploy v1.1.0 && id", "internal-sftp"]
 

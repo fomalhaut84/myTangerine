@@ -129,7 +129,7 @@ prerelease 를 나중에 정식으로 바꿔도 배포는 돌지 않는다(`rele
 | 0 `이미 배포됨` | 같은 태그가 성공 기록돼 있고 헬스도 정상(재실행 등) | — |
 | 1 | 멈춤 — 서비스 재시작 없음 (태그 없음 · main 에 없는 태그 · 낮은 태그 · 작업 트리 변경 · 스키마 변경 · 락 · 빌드 실패 후 직전 태그로 복구 — 빌드 중 웹이 잠시 오류를 냈을 수 있다) | `결과:` 줄의 원인 해결 → Actions "Re-run jobs" 또는 서버에서 `deploy/release-inplace.sh vX.Y.Z --yes` |
 | 2 | 사용법 · 명령 거부 | 태그 형식 · forced command 확인 |
-| 4 | 재시작·헬스 실패 · 빌드 복구 실패 · 지난 배포가 성공으로 끝나지 않은 상태 — **서비스가 불완전할 수 있다** | 양식의 `되돌리기:` 줄(직전 태그 · `--allow-downgrade`) 또는 `재시도:` 줄(`--retry`)을 서버에서 실행. 원본 로그 확인 |
+| 4 | 재시작·헬스 실패 · 빌드 복구 실패 · 지난 시도가 끝나지 않음(`pending`) · 성공 기록과 HEAD 가 다름(손 배포 뒤라면 `--confirm-manual`) — **서비스가 불완전할 수 있다** | 양식의 `되돌리기:` 줄(직전 태그 · `--allow-downgrade`) 또는 `재시도:` 줄(`--retry`)을 서버에서 실행. 원본 로그 확인 |
 | 124 | Actions 쪽 시간 초과(25분) — 서버 쪽 배포는 계속 돌았을 수 있다 | 서버 `~/mytangerine-private/` 의 최신 로그와 `last-ok` 확인 |
 | 255 | ssh 연결 실패 | 호스트 · 포트 · 키 · known_hosts · authorized_keys 줄 확인 |
 
@@ -140,7 +140,8 @@ prerelease 를 나중에 정식으로 바꿔도 배포는 돌지 않는다(`rele
 1. sync-service 정지: `pm2 stop myTangerineSync`
 2. 백업: `sudo -u postgres pg_dump -Fc mytangerine > ~/mytangerine-$(date +%Y%m%d-%H%M).dump`
 3. `git fetch --tags && git checkout vX.Y.Z` → `npx prisma migrate status` (정본 스키마 위치에서) → 적용 → 빌드 → `pm2 restart …`
-4. `deploy/release-inplace.sh vX.Y.Z --dry-run` 이 `이미 배포됨` 인지 확인
+4. `deploy/release-inplace.sh vX.Y.Z --yes --confirm-manual` — 헬스 확인 뒤 이 태그를 성공으로 기록한다(`손 배포 확인`). 이걸 하지 않으면 다음 자동 배포 · 재실행이 "성공으로 끝나지 않았다"(rc 4)로 멈춘다
+5. sync-service 재개: `pm2 start myTangerineSync`
 
 ## 되돌리기 (이 자동화 자체)
 
