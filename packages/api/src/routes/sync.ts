@@ -222,6 +222,14 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
               },
             },
           },
+          409: {
+            type: 'object',
+            properties: {
+              success: { type: 'boolean' },
+              error: { type: 'string' },
+              message: { type: 'string' },
+            },
+          },
           500: {
             type: 'object',
             properties: {

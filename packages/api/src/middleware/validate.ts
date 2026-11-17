@@ -3,7 +3,7 @@
  */
 
 import { FastifyRequest, FastifyReply } from 'fastify';
-import { ZodSchema, ZodError } from 'zod';
+import { ZodError, type ZodType } from 'zod';
 
 /**
  * 검증 타겟 타입
@@ -31,7 +31,7 @@ export type ValidateTarget = 'body' | 'query' | 'params';
  * });
  * ```
  */
-export function validate(schema: ZodSchema, target: ValidateTarget = 'body') {
+export function validate(schema: ZodType, target: ValidateTarget = 'body') {
   return async (
     request: FastifyRequest,
     reply: FastifyReply
@@ -45,8 +45,8 @@ export function validate(schema: ZodSchema, target: ValidateTarget = 'body') {
       request[target] = parsed;
     } catch (error) {
       if (error instanceof ZodError) {
-        const formattedErrors = error.errors.map((err) => ({
-          path: err.path.join('.'),
+        const formattedErrors = error.issues.map((err) => ({
+          path: err.path.map(String).join('.'),
           message: err.message,
         }));
 

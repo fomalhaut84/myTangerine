@@ -11,6 +11,7 @@ import { MockSheetService } from './mock-sheet-service.js';
 import ordersRoutes from '../../routes/orders.js';
 import labelsRoutes from '../../routes/labels.js';
 import { errorHandler } from '../../middleware/error-handler.js';
+import { buildCorsOptions } from '../../cors-options.js';
 
 /**
  * 테스트용 Fastify 서버 생성
@@ -48,7 +49,7 @@ export async function createTestServer(): Promise<{
   });
 
   // CORS
-  await server.register(cors, { origin: true });
+  await server.register(cors, buildCorsOptions('*')); // 운영과 같은 설정
 
   // Swagger (스키마 참조를 위해 필요)
   await server.register(swagger, {

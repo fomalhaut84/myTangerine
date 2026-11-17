@@ -49,7 +49,7 @@ export function loadEnv(): Env {
 
   if (!parsed.success) {
     console.error('❌ 환경 변수 검증 실패:');
-    console.error(parsed.error.format());
+    console.error(z.prettifyError(parsed.error));
     process.exit(1);
   }
 
