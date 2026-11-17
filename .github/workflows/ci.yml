@@ -72,3 +72,17 @@ jobs:
         with:
           fail_ci_if_error: false
           files: ./packages/core/coverage/coverage-final.json,./packages/api/coverage/coverage-final.json
+
+  deploy-scripts:
+    # 배포 스크립트 시험 (#201) — 임시 git 저장소 + 가짜 pnpm·pm2·curl 로 돌린다. 서버·secrets 를 쓰지 않는다
+    name: Deploy scripts
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Syntax check
+        run: bash -n deploy/release-inplace.sh && bash -n deploy/ssh-deploy.sh
+
+      - name: Test (deploy)
+        run: python3 -m unittest discover -s deploy -v
