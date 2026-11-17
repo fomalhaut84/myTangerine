@@ -30,7 +30,7 @@ export function findProjectRoot(startDir: string = process.cwd()): string {
         if (packageJson.workspaces) {
           return currentDir;
         }
-      } catch (error) {
+      } catch {
         // package.json 파싱 실패 시 무시
       }
     }
