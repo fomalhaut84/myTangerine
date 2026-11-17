@@ -23,7 +23,7 @@
   "author": "fomalhaut84",
   "license": "MIT",
   "engines": {
-    "node": ">=18.17.0"
+    "node": ">=20.9.0"
   },
   "pnpm": {
     "overrides": {

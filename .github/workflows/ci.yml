@@ -16,14 +16,14 @@ jobs:
 
     strategy:
       matrix:
-        node-version: [20.x]
+        node-version: [24.x]  # 운영 서버와 같은 메이저 (#206)
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
 
       - name: Setup pnpm
-        uses: pnpm/action-setup@v4
+        uses: pnpm/action-setup@v5
         with:
           version: 9
 
@@ -67,7 +67,7 @@ jobs:
           DATABASE_URL: postgresql://user:password@localhost:5432/test
 
       - name: Upload coverage
-        uses: codecov/codecov-action@v5
+        uses: codecov/codecov-action@v6
         if: always()
         with:
           fail_ci_if_error: false
