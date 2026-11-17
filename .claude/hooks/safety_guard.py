@@ -26,6 +26,7 @@ SECRET_READERS = {"cat", "less", "more", "head", "tail", "bat", "nl", "strings",
 SHEET_MUTATORS = re.compile(r"(?:^|/)scripts/(?:add-sync-columns|check-and-add-columns)\.js$")
 DESTRUCTIVE_SQL = re.compile(r"\b(?:drop\s+(?:database|table|schema)|truncate\b|delete\s+from)\b", re.IGNORECASE)
 SEPARATORS = re.compile(r"\s*(?:&&|\|\||;|\||\n)\s*")
+OPERATOR_CHARS = "();<>|&\n"
 ENV_ASSIGN = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*=")
 WRAPPERS = {"sudo", "command", "exec", "nohup", "time", "env", "npx", "pnpm", "dotenv"}
 
@@ -36,19 +37,39 @@ class Violation:
     reason: str
 
 
+def _shell_tokens(body: str) -> list[str]:
+    """따옴표를 인식해 토큰화한다 — 연산자(; && || | & ( ) 줄바꿈)는 따옴표 밖에 있을 때만 별도 토큰이 된다.
+
+    회귀: PR #193 Codex P2 — 먼저 연산자로 자르면 `git commit -m 'a; git push origin main'` 의 메시지가 명령으로 읽혔다.
+    """
+    lexer = shlex.shlex(body, posix=True, punctuation_chars=OPERATOR_CHARS)
+    lexer.whitespace = " \t\r"
+    lexer.whitespace_split = True
+    lexer.commenters = "#"
+    return list(lexer)
+
+
 def _segments(command: str) -> list[list[str]]:
-    """명령을 &&·||·;·| 로 자르고 각 조각을 토큰화한다. heredoc 본문은 데이터라 버린다."""
+    """명령을 따옴표 밖의 연산자로 자르고 각 조각을 토큰 목록으로 돌려준다. heredoc 본문은 데이터라 버린다."""
     body = re.sub(r"<<-?\s*(['\"]?)(\w+)\1.*?^\2$", "", command, flags=re.DOTALL | re.MULTILINE)
+    try:
+        tokens = _shell_tokens(body)
+    except ValueError:
+        # 따옴표가 닫히지 않으면 셸도 실행하지 못한다 — 보수적으로 예전 방식(연산자 우선 분할)으로 검사한다
+        tokens = []
+        for part in SEPARATORS.split(body):
+            tokens += part.split() + [";"]
     out: list[list[str]] = []
-    for part in SEPARATORS.split(body):
-        try:
-            tokens = shlex.split(part, comments=True)
-        except ValueError:
-            tokens = part.split()
-        while tokens and ENV_ASSIGN.match(tokens[0]):
-            tokens = tokens[1:]
-        if tokens:
-            out.append(tokens)
+    current: list[str] = []
+    for tok in tokens + [";"]:
+        if tok and set(tok) <= set(OPERATOR_CHARS) - set("<>"):
+            while current and ENV_ASSIGN.match(current[0]):
+                current = current[1:]
+            if current:
+                out.append(current)
+            current = []
+        else:
+            current.append(tok)
     return out
 
 
@@ -93,18 +114,52 @@ def _check_git(args: list[str], cwd: str | None, branch_of=_current_branch) -> l
     if sub == "commit" and branch_of(cwd) == "main":
         found.append(Violation("W-1", "main 브랜치 직접 커밋 금지 — feature/* 또는 hotfix/* 브랜치에서 커밋한다"))
     if sub == "push":
-        refs = [r for r in rest if not r.startswith("-")]
-        targets = {r.split(":")[-1].removeprefix("refs/heads/").lstrip("+") for r in refs[1:]}
-        forced = any(r in {"-f", "--force", "--force-with-lease"} or r.startswith("--force") for r in rest) \
-            or any(r.startswith("+") for r in refs[1:])
-        if "main" in targets:
-            found.append(Violation("W-1", "main 으로 직접 push 금지 — main 은 PR 머지로만 바뀐다"))
-        if forced and (targets & set(PROTECTED_BRANCHES) or not refs[1:]):
-            found.append(Violation("W-2", "보호 브랜치(main·dev) 또는 대상 미지정 force push 금지"))
-        if "--tags" in rest or "--follow-tags" in rest:
-            found.append(Violation("W-3", "태그 일괄 push 금지 — `git push origin vX.Y.Z` 로 하나만 올린다"))
-        if "--mirror" in rest or "--delete" in rest or any(r.startswith(":") for r in refs[1:]):
-            found.append(Violation("W-2", "원격 브랜치 삭제·mirror push 금지 — 사용자가 직접 한다"))
+        found += _check_push(rest, cwd, branch_of)
+    return found
+
+
+def _push_targets(refspecs: list[str], cwd: str | None, branch_of) -> set[str] | None:
+    """push 가 갱신할 원격 브랜치 이름들. 판정할 수 없으면 None.
+
+    refspec 을 생략하거나 HEAD 를 쓰면 현재 브랜치가 대상이다(push.default=simple · 같은 이름 upstream).
+    회귀: PR #193 Codex P2 — main 에서 `git push` · `git push origin` · `git push origin HEAD` 가 W-1 을 통과했다.
+    """
+    current = branch_of(cwd)
+    if not refspecs:
+        return {current} if current else None
+    targets: set[str] = set()
+    for spec in refspecs:
+        spec = spec.lstrip("+")
+        dst = spec.split(":")[-1] if ":" in spec else spec
+        dst = dst.removeprefix("refs/heads/")
+        if dst == "HEAD":
+            if not current:
+                return None
+            dst = current
+        targets.add(dst)
+    return targets
+
+
+def _check_push(rest: list[str], cwd: str | None, branch_of) -> list[Violation]:
+    found: list[Violation] = []
+    refs = [r for r in rest if not r.startswith("-")]
+    refspecs = refs[1:]
+    if "--delete" in rest or "--mirror" in rest or any(r.startswith(":") for r in refspecs):
+        return [Violation("W-2", "원격 브랜치 삭제·mirror push 금지 — 사용자가 직접 한다")]
+    if "--tags" in rest or "--follow-tags" in rest:
+        found.append(Violation("W-3", "태그 일괄 push 금지 — `git push origin vX.Y.Z` 로 하나만 올린다"))
+    if "--all" in rest:
+        return found + [Violation("W-1", "--all push 금지 — main 을 포함한다. 브랜치를 명시한다")]
+    targets = _push_targets(refspecs, cwd, branch_of)
+    forced = any(r in {"-f", "--force"} or r.startswith("--force") for r in rest) \
+        or any(r.startswith("+") for r in refspecs)
+    if targets is None:
+        found.append(Violation("W-1", "push 대상 브랜치를 판정할 수 없다(detached HEAD 등) — `git push origin <branch>` 로 명시한다"))
+        return found
+    if "main" in targets:
+        found.append(Violation("W-1", "main 으로 직접 push 금지 — main 은 PR 머지로만 바뀐다"))
+    if forced and targets & set(PROTECTED_BRANCHES):
+        found.append(Violation("W-2", "보호 브랜치(main·dev) force push 금지"))
     return found
 
 

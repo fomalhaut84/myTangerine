@@ -28,7 +28,6 @@ class Blocked(unittest.TestCase):
         ("git push origin HEAD:main", "W-1"),
         ("git push origin feature/x:refs/heads/main", "W-1"),
         ("git push --force origin dev", "W-2"),
-        ("git push -f", "W-2"),
         ("git push origin +dev", "W-2"),
         ("git push origin --delete feature/x", "W-2"),
         ("git push origin --tags", "W-3"),
@@ -55,6 +54,29 @@ class Blocked(unittest.TestCase):
     def test_commit_on_main(self):
         self.assertIn("W-1", rules("git commit -m 'x'", branch="main"))
 
+    def test_implicit_push_destination_on_main(self):
+        # 회귀: PR #193 Codex P2 — refspec 생략·HEAD 는 현재 브랜치(main)를 갱신한다
+        for cmd in ["git push", "git push origin", "git push origin HEAD", "git push -u origin HEAD", "git push origin +HEAD"]:
+            with self.subTest(cmd=cmd):
+                self.assertIn("W-1", rules(cmd, branch="main"))
+
+    def test_implicit_force_push_on_dev(self):
+        self.assertIn("W-2", rules("git push -f", branch="dev"))
+        self.assertIn("W-2", rules("git push --force-with-lease origin HEAD", branch="dev"))
+
+    def test_undeterminable_destination(self):
+        # detached HEAD 등으로 현재 브랜치를 모르면 막는다 — 명시적 refspec 을 요구
+        self.assertIn("W-1", [v.rule for v in check("git push", "/tmp", branch_of=lambda _c: None)])
+
+    def test_push_all(self):
+        self.assertIn("W-1", rules("git push --all origin"))
+
+    def test_operator_outside_quotes_still_splits(self):
+        self.assertIn("W-4", rules("ls; gh pr merge 1"))
+        self.assertIn("W-4", rules("echo 'x' && gh pr merge 1"))
+        self.assertIn("S-1", rules("cat .env 2>&1 | head"))
+        self.assertIn("W-4", rules("ls\ngh pr merge 1"))
+
 
 class Allowed(unittest.TestCase):
     CASES = [
@@ -73,6 +95,13 @@ class Allowed(unittest.TestCase):
         "psql mytangerine -c 'select count(*) from orders'",
         "git log --oneline -5 | head",
         "git commit -F - <<'EOF'\nfix: x\n\ngit push origin main\nEOF",
+        # 회귀: PR #193 Codex P2 — 따옴표 안의 연산자·명령은 데이터다
+        "git commit -m 'fix: block; git push origin main; regression'",
+        "git commit -m \"docs: gh pr merge 는 사용자 && prisma migrate reset 금지\"",
+        "echo 'cat .env | head'",
+        "git push",
+        "git push origin HEAD",
+        "git push -f",
     ]
 
     def test_allowed(self):
