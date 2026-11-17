@@ -49,6 +49,8 @@ const envSchema = z.object({
   },
   {
     message: 'GOOGLE_CREDENTIALS_PATH, GOOGLE_CREDENTIALS_FILE, GOOGLE_CREDENTIALS_JSON 중 최소 하나는 필수입니다',
+    // 경로가 비면 "누락된 변수" 목록에 빈 칸이 들어간다 — 대표 키로 지정한다
+    path: ['GOOGLE_CREDENTIALS_FILE'],
   }
 );
 

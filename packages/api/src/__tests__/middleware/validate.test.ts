@@ -175,10 +175,13 @@ describe('Validate Middleware', () => {
       expect(payload).toHaveProperty('timestamp');
       expect(payload).toHaveProperty('details');
 
+      // zod 4: ZodError.issues 와 path.map(String).join('.') 매핑을 실제로 검증한다(#91)
       expect(Array.isArray(payload.details)).toBe(true);
-      if (payload.details.length > 0) {
-        expect(payload.details[0]).toHaveProperty('path');
-        expect(payload.details[0]).toHaveProperty('message');
+      expect(payload.details.length).toBeGreaterThan(0);
+      const paths = payload.details.map((d: { path: string }) => d.path);
+      expect(paths).toEqual(expect.arrayContaining(['name', 'age']));
+      for (const d of payload.details) {
+        expect(typeof d.message).toBe('string');
       }
     });
   });
