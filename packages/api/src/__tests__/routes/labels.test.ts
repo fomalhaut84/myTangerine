@@ -5,7 +5,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
 import { createTestServer } from '../helpers/test-server.js';
-import { MockSheetService, createMockSheetRows } from '../helpers/mock-sheet-service.js';
+import { MockSheetService, createMockSheetRows, createMockSheetRow } from '../helpers/mock-sheet-service.js';
 
 describe('Labels API', () => {
   let server: FastifyInstance;
@@ -93,6 +93,25 @@ describe('Labels API', () => {
       // 상품 정보 포함 확인
       expect(labels).toMatch(/5kg|10kg/);
       expect(labels).toContain('박스');
+    });
+  });
+
+  describe('GET /api/labels/grouped idType (#199)', () => {
+    // 회귀: #199 — 시트에 있는 claim 은 rowNumber, DB 전용 claim 은 dbId 로 내려가야 라벨 페이지 일괄 배송완료가 가드를 통과한다
+    it('returns rowNumber for a sheet claim and dbId for a DB-only claim', async () => {
+      mockSheetService.setMockAllOrders([
+        createMockSheetRow({ _rowNumber: 391, '비고': '입금확인', '주문유형': '배송사고', _dbId: 1487 }),
+        createMockSheetRow({ _rowNumber: undefined, '비고': '입금확인', '주문유형': '배송사고', _dbId: 1500 }),
+      ]);
+
+      const response = await server.inject({ method: 'GET', url: '/api/labels/grouped?status=all' });
+
+      expect(response.statusCode).toBe(200);
+      const { data } = JSON.parse(response.payload);
+      const orders = data.flatMap((group: { orders: Array<{ dbId: number; idType: string }> }) => group.orders);
+      const byDbId = Object.fromEntries(orders.map((o: { dbId: number; idType: string }) => [o.dbId, o.idType]));
+      expect(byDbId[1487]).toBe('rowNumber');
+      expect(byDbId[1500]).toBe('dbId');
     });
   });
 });

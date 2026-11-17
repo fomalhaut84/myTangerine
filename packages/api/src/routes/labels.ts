@@ -5,6 +5,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { sheetRowToOrder, type Order } from '@mytangerine/core';
 import { calculateOrderAmount } from '../utils/stats.js';
+import { resolveOrderIdType } from '../utils/order-id-type.js';
 
 /**
  * 상태별 빈 주문 메시지
@@ -209,15 +210,12 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // SheetRow를 Order로 변환 후 idType 추가
-      // Issue #168: claim 주문은 rowNumber=0이므로 dbId를 기본 식별자로 사용
+      // Issue #168 · #199: 시트 행이 없는 DB 전용 claim 만 dbId, 그 외(시트에 있는 claim 포함)는 rowNumber
       const orders = sheetRows.map((row) => {
         const order = sheetRowToOrder(row, config);
-        const isClaim = order.orderType === 'claim';
-        const hasDbId = order.dbId !== undefined && order.dbId !== null;
-        const useDbId = isClaim && hasDbId;
         return {
           ...order,
-          idType: useDbId ? 'dbId' as const : 'rowNumber' as const,
+          idType: resolveOrderIdType(order),
         };
       });
 
