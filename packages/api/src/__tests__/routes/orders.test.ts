@@ -420,6 +420,111 @@ describe('Orders API', () => {
     });
   });
 
+  describe('idType in responses (#199)', () => {
+    const sheetClaim = () =>
+      createMockSheetRow({ _rowNumber: 391, '비고': '', '주문유형': '배송사고', _dbId: 1487 });
+    const dbOnlyClaim = () =>
+      createMockSheetRow({ _rowNumber: undefined, '비고': '입금확인', '주문유형': '배송사고', _dbId: 1500 });
+
+    // 회귀: #199 — 시트 행이 있는 claim 은 rowNumber 로 식별해야 배송완료 가드(dbId 는 시트 행 없는 claim 만)를 통과한다
+    it('GET /api/orders/:rowNumber returns rowNumber idType for a claim with a sheet row', async () => {
+      mockSheetService.setMockAllOrders([sheetClaim()]);
+
+      const response = await server.inject({ method: 'GET', url: '/api/orders/391' });
+
+      expect(response.statusCode).toBe(200);
+      const { order } = JSON.parse(response.payload);
+      expect(order.orderType).toBe('claim');
+      expect(order.dbId).toBe(1487);
+      expect(order.idType).toBe('rowNumber');
+    });
+
+    it('GET /api/orders lists sheet claims as rowNumber and DB-only claims as dbId', async () => {
+      mockSheetService.setMockAllOrders([sheetClaim(), dbOnlyClaim()]);
+
+      const response = await server.inject({ method: 'GET', url: '/api/orders?status=all' });
+
+      expect(response.statusCode).toBe(200);
+      const { orders } = JSON.parse(response.payload);
+      const byDbId = Object.fromEntries(orders.map((o: { dbId: number; idType: string }) => [o.dbId, o.idType]));
+      expect(byDbId[1487]).toBe('rowNumber');
+      expect(byDbId[1500]).toBe('dbId');
+    });
+  });
+
+  describe('POST /api/orders/:orderId/mark-delivered', () => {
+    // 테스트 서버의 dataService 는 MockSheetService — 시트 모드처럼 `_orderType` 이 없는 행을 돌려준다
+    const markDelivered = (rowNumber: number) =>
+      server.inject({
+        method: 'POST',
+        url: `/api/orders/${rowNumber}/mark-delivered`,
+        payload: {},
+      });
+
+    // 회귀: #194 — 시트 모드에서 claim 판정이 `_orderType` 에만 의존해 신규주문 claim 이 400 이 났다
+    it('allows a sheet-sourced claim order in 신규주문 to be marked as delivered', async () => {
+      mockSheetService.setMockNewOrders([
+        createMockSheetRow({ _rowNumber: 391, '비고': '', '주문유형': '배송사고' }),
+      ]);
+
+      const response = await markDelivered(391);
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload).success).toBe(true);
+      expect(mockSheetService.getDeliveredCalls()).toEqual([{ rowNumbers: [391], trackingNumber: undefined }]);
+    });
+
+    // 회귀: #199 — 시트 claim 이 DB 에도 있을 때(hybrid · _dbId 있음) 응답 idType(rowNumber) 그대로 배송완료가 통과한다
+    it('marks a sheet claim that also has a dbId via rowNumber', async () => {
+      mockSheetService.setMockAllOrders([
+        createMockSheetRow({ _rowNumber: 391, '비고': '', '주문유형': '배송사고', _dbId: 1487 }),
+      ]);
+
+      const detail = JSON.parse((await server.inject({ method: 'GET', url: '/api/orders/391' })).payload);
+      expect(detail.order.idType).toBe('rowNumber');
+
+      const response = await markDelivered(detail.order.rowNumber);
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSheetService.getDeliveredCalls()).toEqual([{ rowNumbers: [391], trackingNumber: undefined }]);
+    });
+
+    it('still rejects a regular order in 신규주문', async () => {
+      mockSheetService.setMockNewOrders([
+        createMockSheetRow({ _rowNumber: 392, '비고': '', '주문유형': '판매' }),
+      ]);
+
+      const response = await markDelivered(392);
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.payload).error).toContain('Only "입금확인" orders');
+      expect(mockSheetService.getDeliveredCalls()).toEqual([]);
+    });
+
+    it('allows a regular order in 입금확인', async () => {
+      mockSheetService.setMockAllOrders([
+        createMockSheetRow({ _rowNumber: 393, '비고': '입금확인' }),
+      ]);
+
+      const response = await markDelivered(393);
+
+      expect(response.statusCode).toBe(200);
+      expect(mockSheetService.getDeliveredCalls()).toEqual([{ rowNumbers: [393], trackingNumber: undefined }]);
+    });
+
+    it('rejects a sheet-sourced claim order that is already 배송완료', async () => {
+      mockSheetService.setMockCompletedOrders([
+        createMockSheetRow({ _rowNumber: 394, '비고': '배송완료', '주문유형': '배송사고' }),
+      ]);
+
+      const response = await markDelivered(394);
+
+      expect(response.statusCode).toBe(400);
+      expect(JSON.parse(response.payload).error).toContain('Claim orders allow');
+      expect(mockSheetService.getDeliveredCalls()).toEqual([]);
+    });
+  });
+
   describe('GET /api/orders/stats', () => {
     it('should return stats with default parameters (scope=completed, range=12m)', async () => {
       // Mock: 완료된 주문 설정

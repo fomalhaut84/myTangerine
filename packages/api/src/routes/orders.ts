@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, ChangeLogService } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, parseOrderType, ChangeLogService } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -17,6 +17,7 @@ import {
   type OrderTypeFilter,
 } from '../utils/stats.js';
 import { InMemoryCache } from '../utils/cache.js';
+import { resolveOrderIdType } from '../utils/order-id-type.js';
 import { generatePdfBuffer } from '../utils/pdf-generator.js';
 import { generateExcelBuffer } from '../utils/excel-generator.js';
 
@@ -244,11 +245,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       success: true,
       count: orders.length,
       orders: orders.map((order) => {
-        // Issue #165: claim 주문은 rowNumber가 0이므로 dbId를 기본 식별자로 사용
-        // P2 리뷰 반영: dbId가 없는 경우(Sheets-only 모드 등)에는 rowNumber로 fallback
-        const isClaim = order.orderType === 'claim';
-        const hasDbId = order.dbId !== undefined && order.dbId !== null;
-        const useDbId = isClaim && hasDbId;
+        // Issue #165 · #199: 시트 행이 없는 DB 전용 claim 만 dbId, 그 외(시트에 있는 claim 포함)는 rowNumber
+        const idType = resolveOrderIdType(order);
         return {
           timestamp: order.timestamp.toISOString(),
           timestampRaw: order.timestampRaw,
@@ -268,9 +266,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           // Issue #165: claim 주문 식별용 DB ID와 원본 주문 참조
           dbId: order.dbId,
           originalRowNumber: order.originalRowNumber,
-          // Issue #165: 프론트엔드에서 어떤 ID를 사용해야 하는지 명시
-          // claim 주문이고 dbId가 있을 때만 'dbId', 그 외에는 'rowNumber'
-          idType: useDbId ? 'dbId' : 'rowNumber',
+          // Issue #165 · #199: 프론트엔드에서 어떤 ID를 사용해야 하는지 명시
+          // 시트 행이 없는 DB 전용 claim 만 'dbId', 그 외(시트에 있는 claim 포함)는 'rowNumber'
+          idType,
         };
       }),
     };
@@ -1090,10 +1088,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       // SheetRow를 Order로 변환
       const order = sheetRowToOrder(sheetRow, config);
 
-      // Issue #168: claim 주문은 rowNumber가 0이므로 dbId를 기본 식별자로 사용
-      const isClaim = order.orderType === 'claim';
-      const hasDbId = order.dbId !== undefined && order.dbId !== null;
-      const useDbId = isClaim && hasDbId;
+      // Issue #168 · #199: 시트 행이 없는 DB 전용 claim 만 dbId, 그 외(시트에 있는 claim 포함)는 rowNumber
+      const responseIdType = resolveOrderIdType(order);
 
       return {
         success: true,
@@ -1118,7 +1114,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           // Issue #168: claim 주문 식별용 DB ID
           dbId: order.dbId,
           // Issue #168: 프론트엔드에서 어떤 ID를 사용해야 하는지 명시
-          idType: useDbId ? 'dbId' : 'rowNumber',
+          idType: responseIdType,
         },
       };
     }
@@ -1670,7 +1666,10 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       // P2 Fix: 상태 전이 검증 - 입금확인만 배송완료로 변경 가능
       // P2 리뷰 반영: 기존 claim 주문(신규주문 상태)도 배송완료 처리 가능
       const currentStatus = normalizeOrderStatus(order['비고']);
-      const isClaim = order._orderType === 'claim';
+      // #194: `_orderType` 은 DB 에서 읽은 행에만 있다(기본값 'customer' 라 DB 행은 오른쪽으로 넘어가지 않는다).
+      // 시트 모드 행은 '주문유형' 컬럼으로 판정한다 — GET 응답의 orderType 과 같은 parseOrderType 이라
+      // 화면의 배송완료 버튼 노출 조건과 일치한다
+      const isClaim = (order._orderType ?? parseOrderType(order['주문유형'])) === 'claim';
       const allowedStatuses = isClaim ? ['입금확인', '신규주문'] : ['입금확인'];
       if (!allowedStatuses.includes(currentStatus)) {
         return reply.code(400).send({

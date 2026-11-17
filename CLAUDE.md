@@ -8,6 +8,12 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 **All communications in this project should be in Korean.** Even if the session restarts, continue using Korean.
 
+## 현재 상태
+
+세션마다 맨 위에 한 문단을 추가한다(`tangerine-handoff`). 새 세션은 이 절과 최신 인계 노트로 시작한다(`tangerine-resume`).
+
+**2026-11-17 · 하네스 세팅 · 프로젝트 분석 — 코드 변경 0 · 실데이터 영향 없음.** pleiades 를 참고해 `.claude/` 하네스 구성(규칙 `workflow.md`·`data-safety.md` · 훅 `safety_guard.py` · 스킬 6 · 에이전트 3) · **리뷰를 pleiades 방식으로 전환**(사전 `code-reviewer` 에이전트 → GitHub Codex bot · codex-cli 미사용 · 사용자 결정) · CLAUDE.md 개요를 TS 모노레포로 교체 · 프로젝트 분석(로컬 전용 `docs/research/project-analysis.md` · 미추적 — 테스트 통과 · 타입체크·lint 전 패키지 실패 · Prisma 마이그레이션 루트 7/core 6 이원화 · 보안 항목은 문서에만). `.claude/` 추적 시작(`settings.local.json` 만 제외 · 이슈 #192). 인계 `docs/handoff/2026-11-17-harness-setup-analysis.md`. 다음 = **#192 PR 머지(사용자)** · 분석 문서 3절 보안 항목 착수 · 실제 DB `_prisma_migrations` 확인(사용자) · 검증 체계 복구.
+
 ## Development Workflow
 
 ### 브랜치 전략
@@ -130,204 +136,88 @@ gh release create v1.0.0 --title "v1.0.0" --notes "## 주요 변경사항
 ```
 
 ### 이슈 및 PR 관리
-- **모든 작업은 GitHub 이슈로 먼저 생성**
+- **모든 작업은 GitHub 이슈로 먼저 생성** — 이슈와 PR 은 1:1 (예외: 릴리즈 PR · 핫픽스 dev 동기화)
 - 진행사항은 이슈에서 트래킹 및 관리
 - **피쳐 머지는 반드시 PR을 통해서만 진행**
-- ⚠️ **PR 머지는 사용자가 직접 수행** - Claude Code는 PR 생성까지만 담당
-- ⚠️ **이슈/PR 본문은 반드시 codex-cli가 작성** - Claude Code가 직접 작성하지 않음
-  - 이슈 생성 시: codex-cli에게 본문 작성 요청 → 결과를 `gh issue create`로 등록
-  - PR 생성 시: codex-cli에게 본문 작성 요청 → 결과를 `gh pr create`로 등록
-- **GitHub 이슈/PR/코멘트에서 codex-cli 언급 시**:
-  - ⚠️ `@` 기호를 **사용하지 말 것** (GitHub에서 멘션으로 인식됨)
-  - ✅ 올바른 표기: "codex-cli 코드 리뷰 통과"
-  - ❌ 잘못된 표기: "@codex-cli 코드 리뷰 통과"
+- ⚠️ **PR 머지는 사용자가 직접 수행** — Claude Code는 PR 생성까지만 담당 (훅이 `gh pr merge` 를 막는다)
+- 이슈·PR 본문은 Claude Code 가 작성한다 (형식: `.claude/rules/workflow.md` 2·7-2절)
 
-### 역할 분담
-- **Claude Code**: 프로젝트 개발 담당 (코드 작성, 버그 수정, 기능 구현)
-- **codex-cli**: 문서화, 코드 분석, 코드 리뷰 담당
-  - ⚠️ **codex-cli는 코드를 직접 수정하면 안됨**
-  - ⚠️ **codex-cli는 읽기 전용 환경**에서 실행되므로 일부 작업 제한:
-    - GitHub API 직접 접근 불가
-    - 파일 시스템 직접 읽기 불가
-    - 테스트/빌드/명령어 실행 불가
+### 코드 리뷰 프로세스 (pleiades 방식 · 2026-11-17 사용자 결정)
 
-### 문서화 작업 워크플로우
+리뷰는 **PR 오픈을 사이에 두고 두 단계**다. 상세 절차는 `.claude/rules/workflow.md` 7절이 정본이다.
 
-codex-cli가 읽기 전용 환경이므로, 다음 워크플로우를 따릅니다:
+1. **사전 리뷰 (PR 오픈 전)** — `pr-review-toolkit:code-reviewer` 에이전트. 척도는 **단어**(critical / major / info).
+   critical·major 는 반드시 수정 → 검증 재통과 후 PR 오픈. 문서·하네스·소규모 config 는 self-review 경로.
+2. **GitHub Codex bot (PR 오픈 후)** — 자동 실행. 척도는 **`P0` 가 최고**. P0·P1 반드시 수정 → 재검증 →
+   `@codex review` 1회. P2 이하는 후속 이슈. 대응 절차는 `codex-loop` 스킬.
+3. **codex-cli MCP 는 원칙적으로 쓰지 않는다** — GitHub Codex bot 과 같은 쿼터를 쓴다. 사용자가 요청할 때만.
+4. **테스트·빌드는 Claude Code 가 실행**하고(검증 표: workflow 6절) 결과를 PR 본문 `## 코드 리뷰 결과` 에 기록한다
+   — 리뷰 방식 · 라운드별 지적과 처리 · 미반영 사유 · 회귀 테스트.
 
-1. **Claude Code가 데이터 수집**
-   - GitHub 이슈/PR/코멘트 읽기 (`gh` CLI 또는 WebFetch)
-   - 코드 파일 읽기 (Read 도구)
-   - 필요한 모든 정보를 수집
+> 이전 방식(codex-cli 가 이슈·PR 본문 작성과 리뷰를 맡던 역할 분담)은 위로 대체됐다. 과거 PR 의
+> "codex-cli N차 리뷰" 기록은 이력으로 남는다.
 
-2. **Claude Code가 codex-cli에게 정보 전달**
-   - 수집한 정보를 codex-cli에게 명확히 전달
-   - 분석 또는 문서 작성 요청
+### 하네스 (`.claude/`)
 
-3. **codex-cli가 분석 및 문서 작성**
-   - 받은 정보를 바탕으로 분석 수행
-   - 이슈 본문, PR 본문, 코멘트 내용 등을 작성
-   - 결과를 Claude Code에게 반환
+| 종류 | 이름 | 용도 |
+|---|---|---|
+| 규칙 | `rules/workflow.md` · `rules/data-safety.md` | 개발 단계·검증 표·리뷰 게이트 · 실데이터(시트·DB·비밀) 보호 |
+| 훅 | `hooks/safety_guard.py` | Bash 사전 차단 — main 직접 커밋/push · force push · `--tags` · `gh pr merge` · prisma reset · 시트 변경 스크립트 · 비밀 출력 |
+| 스킬 | `tangerine-orchestrator` · `tangerine-resume` · `tangerine-handoff` · `codex-loop` · `orphan-check` · `release` | 기능 파이프라인 · 세션 재개/인계 · 봇 리뷰 대응 · squash 후 orphan · 릴리즈/핫픽스 |
+| 에이전트 | `codebase-surveyor` · `verifier` · `data-safety-auditor` | 실측(읽기 전용) · 검증 실행 · 데이터 손실 반증 |
 
-4. **Claude Code가 결과 등록**
-   - codex-cli가 작성한 내용을 GitHub에 등록 (이슈 생성, PR 생성, 코멘트 작성 등)
-   - 출처 표시: "codex-cli 분석 기반으로 작성됨" (@ 기호 없이!)
-
-**예시:**
-```
-사용자: "GitHub 이슈 #13 확인해서 Phase 3.1 이슈 만들어줘"
-
-1. Claude Code: gh issue view 13 --comments 실행하여 내용 읽기
-2. Claude Code: codex-cli에게 이슈 내용 전달 및 Phase 3.1 이슈 본문 작성 요청
-3. codex-cli: 분석 후 이슈 본문 작성하여 반환
-4. Claude Code: gh issue create로 이슈 생성 (본문에 "codex-cli 분석 기반으로 작성됨" 표시)
-```
-
-### 코드 리뷰 프로세스
-
-Claude Code는 다음 프로세스를 자동으로 수행합니다:
-
-1. **리뷰 요청**
-   - 작업이 마무리되면 Claude Code가 스스로 codex-cli에게 코드 리뷰를 요청
-   - 리뷰 요청 시 작업 내용과 맥락을 명확히 전달
-   - ⚠️ **codex-cli 호출 방법**: `mcp__codex-cli__codex` (prompt) 사용
-     - ✅ 올바른 방법: `mcp__codex-cli__codex` with prompt 파라미터
-     - ❌ 잘못된 방법: `mcp__codex-cli__review` (동작하지 않음)
-
-2. **리뷰 반영**
-   - codex-cli의 리뷰가 나오면 Claude Code가 스스로 피드백을 분석
-   - 지적된 사항들을 코드에 반영하여 수정
-   - 수정 완료 후 다시 codex-cli에게 리뷰 요청
-
-3. **테스트 및 빌드 실행**
-   - codex-cli는 읽기 전용 환경이라 테스트, 빌드 등을 직접 실행할 수 없음
-   - Claude Code가 대신 다음 작업을 수행하고 결과를 codex-cli에게 공유:
-     - 의존성 설치 (`pnpm install`, `npm install` 등)
-     - 빌드 실행 (`pnpm build`, `npm run build` 등)
-     - 테스트 실행 (`pnpm test`, `npm test` 등)
-     - 린트 체크 (`pnpm lint` 등)
-   - 실행 결과(성공/실패, 에러 메시지, 경고 등)를 codex-cli에게 명확히 전달
-   - 빌드/테스트 에러 발생 시 수정 후 다시 실행하여 결과 공유
-
-4. **리뷰 내역 문서화**
-   - PR 생성 또는 커밋 시 다음 내용을 포함:
-     - 받은 리뷰 사항 요약
-     - 각 리뷰 사항에 대한 해결 방법
-     - 반영하지 않은 사항이 있다면 그 이유
-   - PR 본문이나 커밋 메시지에 리뷰 이력을 명확히 기록
-
-**예시:**
-```markdown
-## 코드 리뷰 반영 내역
-
-### codex-cli 1차 리뷰
-- [P1] REQUIRED_COLUMNS 오류: '수량' 대신 '5kg 수량', '10kg 수량' 사용 → 수정 완료
-- [P2] 로깅 부족 → 중앙 집중식 로거 추가
-
-### codex-cli 2차 리뷰
-- 추가 이슈 없음 ✅
-```
+**세션 경계:** 시작 = `/tangerine-resume`(인계 상태 복원 → 브리핑) · 종료 = `/tangerine-handoff`(인계 노트 `docs/handoff/` + 위 "현재 상태" 문단 + 커밋).
 
 ## 프로젝트 개요
 
-myTangerine은 구글 스프레드시트의 감귤 주문을 처리하는 Python 기반 주문 관리 시스템입니다. 새로운 주문을 가져와서 배송 라벨을 포맷팅하고, 주문 요약을 계산하며, 처리된 주문을 확인 상태로 표시합니다.
+myTangerine 은 구글 폼으로 들어오는 감귤 주문(스프레드시트 "감귤 주문서(응답)")을 PostgreSQL 로 동기화하고,
+주문 상태 관리·배송 라벨·PDF/Excel 보고서·통계·배송사고(claim) 처리를 제공하는 **pnpm TypeScript 모노레포**입니다.
+분석 기준선과 위험 목록은 `docs/research/project-analysis.md` (2026-11-17 · **로컬 전용 — 공개 저장소라 gitignore**. 보안 위험의 위치·재현 방법을 이슈·PR·커밋에 적지 않는다).
 
-## 애플리케이션 실행
+## 패키지 구조
 
-```bash
-# 메인 주문 처리 스크립트 실행
-python3 src/main.py
+| 패키지 | 역할 |
+|---|---|
+| `packages/core` (`@mytangerine/core`) | 도메인 타입 · `SheetService` · `DatabaseService` · `HybridDataService` · `SyncEngine` · 분산 락 · 변경 이력 · 포매터. tsup 으로 빌드되어 다른 패키지가 dist 를 소비 |
+| `packages/api` (`@mytangerine/api`) | Fastify REST API (`/api/orders/*` · `/api/labels/*` · `/api/sync/*` · `/docs`) |
+| `packages/web` (`@mytangerine/web`) | Next.js 16 관리 화면 (dashboard · orders · labels · stats) |
+| `packages/sync-service` | node-cron 으로 Sheets → DB 증분 동기화 |
+| `prisma/` · `packages/core/prisma/` | Prisma 스키마·마이그레이션 — **두 벌로 갈라져 있음**(`.claude/rules/data-safety.md` 필독) |
+
+`src/*.py` · `getLabel.py` 는 초기 Python 버전으로, 현재 코드에서 참조하지 않는 레거시입니다.
+
+## 데이터 흐름
+
+```
+구글 폼 → 시트 "감귤 주문서(응답)"
+          │  sync-service (cron, 기본 1분) / POST /api/sync[/full]
+          ▼
+     SyncEngine: 시트 행 → DB upsert (키 sheetRowNumber) → 시트에 DB_SYNC_STATUS/AT/ID 기록
+          ▼
+     PostgreSQL ←── HybridDataService (DATA_SOURCE = sheets | database | hybrid)
+          ▲              hybrid: DB 우선 읽기, 쓰기는 DB → 시트 순차
+     api (Fastify) ←── web (Next.js, TanStack Query)
 ```
 
-스크립트 실행 시 수행되는 작업:
-1. 구글 스프레드시트에서 미확인 주문 가져오기
-2. 날짜와 보내는 사람별로 그룹화된 배송 라벨 포맷팅 및 출력
-3. 총 수량과 가격이 포함된 주문 요약 출력
-4. 처리된 주문을 스프레드시트에 "확인"으로 표시
+주문 상태: `신규주문` → `입금확인` → `배송완료` (시트 `비고` 컬럼). 배송사고(claim) 주문은 DB 전용(`sheetRowNumber` 없음, `originalRowNumber` 로 원본 참조).
+
+## 실행·검증
+
+```bash
+pnpm install                                  # postinstall 이 prisma generate
+pnpm --filter @mytangerine/api dev            # API (PORT)
+pnpm --filter @mytangerine/web dev            # 웹
+pnpm --filter @mytangerine/sync-service dev   # 동기화 — 실제 시트에 쓴다 (data-safety S-2)
+```
+패키지별 lint·타입·테스트·빌드 명령은 `.claude/rules/workflow.md` 6절 표를 쓴다.
 
 ## 초기 설정
 
-1. `.env.example`을 `.env`로 복사하고 기본 발송인 정보를 입력:
-   ```bash
-   cp .env.example .env
-   ```
+1. `cp .env.example .env` 후 값 입력 (`DATABASE_URL` · `SPREADSHEET_ID` · `GOOGLE_CREDENTIALS_FILE` · `DATA_SOURCE` · `API_SECRET_KEY` · `DEFAULT_SENDER_*` · `NEXT_PUBLIC_API_BASE_URL`)
+2. 서비스 계정 JSON 키를 프로젝트 루트 `credentials.json` 으로 저장 (`credentials.json.example` 참고) — 시트에 접근 권한 부여
+3. DB: `docs/DATABASE_SETUP_QUICKSTART.md` (마이그레이션 위치는 data-safety 주의 참고)
 
-2. Google Sheets API 인증 정보를 가져와 프로젝트 루트에 `credentials.json`으로 저장:
-   - 인증 파일은 서비스 계정 JSON 키여야 함
-   - `credentials.json.example`을 구조 참고용으로 사용
+## 한국어 컬럼명 (시트 계약 — 바꾸지 않는다 · data-safety S-7)
 
-3. 서비스 계정에 "감귤 주문서(응답)" 이름의 구글 스프레드시트 접근 권한 부여
-
-## 아키텍처
-
-### 모듈 구조
-
-코드베이스는 `src/` 아래 4개의 주요 패키지로 구성됩니다:
-
-- **config/** - 환경 변수를 사용한 설정 관리
-- **handlers/** - 데이터 조회 및 처리 로직
-- **formatters/** - 배송 라벨 포맷팅
-- **exceptions/** - 커스텀 예외 계층 구조
-
-### 데이터 흐름
-
-```
-src/main.py (OrderManagementSystem)
-    ↓
-GoogleSheetHandler.get_new_orders()
-    → 비고 != "확인"인 행들을 가져옴
-    → 한국어 타임스탬프 파싱 (오전/오후)
-    → 새 주문의 DataFrame 반환
-    ↓
-LabelFormatter.format_labels()
-    → 날짜별, 보내는 사람별로 그룹화
-    → 수취인 라벨을 주소/전화번호와 함께 포맷팅
-    → 5kg, 10kg 수량 추적
-    → 주문 요약 생성
-    ↓
-GoogleSheetHandler.mark_orders_as_confirmed()
-    → 비고 컬럼을 "확인"으로 업데이트
-```
-
-### 주요 클래스
-
-- **Config** (`src/config/config.py`): 환경 변수를 로드하고 상품 가격을 정의. 초기화 시 DEFAULT_SENDER 설정을 검증함.
-
-- **GoogleSheetHandler** (`src/handlers/sheet_handler.py`): Google Sheets API 상호작용을 관리. OAuth2 서비스 계정 인증 정보로 인증함.
-
-- **OrderProcessor** (`src/handlers/order_processor.py`): 전화번호 포맷팅과 수량 추출 유틸리티. 포매터들에서 사용하는 정적 메서드들.
-
-- **LabelFormatter** (`src/formatters/label_formatter.py`): 포맷팅된 배송 라벨을 생성. 발송인 정보가 누락되거나 유효하지 않을 때 DEFAULT_SENDER로 대체함.
-
-- **OrderManagementSystem** (`src/main.py`): 전체 주문 처리 워크플로우를 조율함.
-
-### 설정 시스템
-
-환경 변수는 프로젝트 루트의 `.env`에서 로드됩니다 (`src/` 내부가 아님). Config 클래스는:
-- `ROOT_DIR`을 사용하여 프로젝트 루트의 `credentials.json` 위치 파악
-- 환경 변수에서 DEFAULT_SENDER 로드
-- 필수 환경 변수가 없으면 ValueError 발생
-
-### 레거시 코드
-
-프로젝트 루트의 `getLabel.py`는 이전 버전의 모노리식 애플리케이션입니다. `src/` 아래의 현재 아키텍처는 리팩토링된 모듈화 버전입니다.
-
-## 한국어 컬럼명
-
-구글 스프레드시트와 코드에서 사용하는 한국어 컬럼명:
-- 타임스탬프 = Timestamp
-- 비고 = Remarks/Notes
-- 보내는분 = Sender
-- 받으실분 = Recipient
-- 상품 선택 = Product Selection
-- 수량 = Quantity
-
-타임스탬프는 한국어 오전/오후 표기를 사용하며, 이는 파싱되어 datetime 객체로 변환됩니다.
-
-## 의존성
-
-사용하는 주요 Python 패키지:
-- `gspread` - Google Sheets API 클라이언트
-- `oauth2client` - Google OAuth2 인증
-- `pandas` - 데이터 조작 및 분석
-- `python-dotenv` - 환경 변수 관리
+타임스탬프 · 비고(상태) · 보내는분 · 받으실분 · 상품 선택 · 5kg 수량 · 10kg 수량 · 송장번호 · 삭제됨 · 주문유형(선물/판매/배송사고) · DB_SYNC_STATUS/AT/ID.
+타임스탬프는 한국어 오전/오후 표기이며 `parseKoreanTimestamp` 로 파싱합니다.

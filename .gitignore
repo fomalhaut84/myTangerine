@@ -170,5 +170,9 @@ node_modules
 logs/
 
 # IDE & Editor settings
-.claude/
+# Claude Code 하네스(.claude/)는 추적한다 — 개인 권한 목록만 제외 (#192)
+.claude/settings.local.json
+
+# 보안 위험 목록이 든 분석 문서 — 저장소가 공개라 로컬에만 둔다 (#192 · API 보안 조치 뒤 재검토)
+docs/research/project-analysis.md
 .vscode/
