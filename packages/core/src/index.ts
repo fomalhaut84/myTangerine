@@ -17,6 +17,11 @@ export { findProjectRoot } from './utils/find-root.js';
 export { SheetService } from './services/sheet-service.js';
 export { DatabaseService } from './services/database-service.js';
 export {
+  createPrismaClient,
+  DB_CONNECT_TIMEOUT_MS,
+  type CreatePrismaClientOptions,
+} from './services/prisma-client-factory.js';
+export {
   HybridDataService,
   type DataSourceMode,
   type HybridDataServiceOptions,

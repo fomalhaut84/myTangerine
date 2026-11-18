@@ -9,9 +9,9 @@ generator client {
   provider = "prisma-client-js"
 }
 
+// 접속 주소는 루트 prisma.config.ts 에 있다 (Prisma 7 · #241)
 datasource db {
   provider = "postgresql"
-  url      = env("DATABASE_URL")
 }
 
 // 주문 테이블 (SheetRow와 1:1 매핑)

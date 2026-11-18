@@ -170,6 +170,37 @@ prerelease 를 나중에 정식으로 바꿔도 배포는 돌지 않는다(`rele
 > 런타임은 #208 이 pnpm 저장소 안에 만든 client 를 계속 먼저 읽는다. 두 스키마의 모델이 같은 동안은 무해하다.
 > 스키마가 바뀐 뒤 #208 이전으로 되돌리게 되면 `node_modules/.pnpm/@prisma+client@*/node_modules/.prisma` 를 지우고 install 을 다시 한다.
 
+## Prisma 7 전환 배포 점검 (#241 · 1회 · `--prerelease`)
+
+Prisma 7 client 는 `.env` 를 **스스로 읽지 않는다.** 각 서비스가 client 를 만들기 전에 저장소 루트 `.env` 를 읽어야 하고
+(api `config.ts` · sync-service `new Config()` — 실행 위치에서 위로 올라가며 `pnpm-workspace.yaml` 을 찾는다),
+못 읽으면 `DATABASE_URL is not set` 으로 기동 직후 멈춘다(엉뚱한 DB 에 붙지 않게 일부러 막았다). 위 *수동 마이그레이션* 절차에 아래를 끼운다.
+
+**A. 재시작 전 (빌드 뒤) — 실행 위치와 DB 주소 확인 (값은 출력하지 않는다)**
+```bash
+pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const p of JSON.parse(s))if(/^myTangerine/.test(p.name))console.log(p.name, p.pm2_env.pm_cwd)})'
+# → 세 앱의 cwd 가 모두 저장소(~/myTangerine) 안이어야 한다
+for app in myTangerineApi myTangerineSync; do
+  cwd=$(pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const p=JSON.parse(s).find(x=>x.name===process.argv[1]);console.log(p?p.pm2_env.pm_cwd:"")})' "$app")
+  root=$(cd "$cwd" && node -e 'console.log(require(process.argv[1]).findProjectRoot())' "$HOME/myTangerine/packages/core/dist/index.js" 2>/dev/null | tail -1)
+  echo "$app  cwd=$cwd  root=$root  DATABASE_URL 줄 수=$(grep -c '^DATABASE_URL=.' "$root/.env" 2>/dev/null || echo 0)"
+done
+# → 둘 다 root=~/myTangerine · "DATABASE_URL 줄 수=1". 서비스가 쓰는 것과 같은 방식(실행 위치 → 루트 .env)으로 찾는다 · 값은 출력하지 않는다
+#   0 이면 재시작하지 않는다(서비스는 아직 이전 코드로 돌고 있다). 단 pm2 설정의 env 로 DATABASE_URL 을 주고 있다면 0 이어도 된다
+```
+
+**B. 재시작 뒤 — 기동 실패 · 접속 실패 로그가 없는지**
+```bash
+sleep 15
+pm2 logs myTangerineApi myTangerineSync --lines 80 --nostream 2>&1 | grep -E "DATABASE_URL is not set|P1001|P1010|P2024|PrismaClientInitializationError" || echo "Prisma 오류 없음"
+pm2 describe myTangerineSync | grep -E "status|restarts"     # online · 재시작 횟수가 늘지 않아야 한다
+```
+- `--confirm-manual` 의 헬스 확인도 10초 동안 재시작이 없어야 통과한다(크래시 루프는 여기서도 걸린다)
+- sync 는 1분 주기다 — 1~2분 뒤 `pm2 logs myTangerineSync --lines 20 --nostream` 에 동기화 완료 로그가 찍히는지 본다
+- 웹에서 주문 1건 수정 → 저장 · 경고 없음 확인(DB 쓰기 · 트랜잭션 경로)
+
+**실패하면** 직전 태그로 손으로 되돌린다(위 *수동 마이그레이션* 의 되돌리기 문단). DB 스키마 변경이 없으므로 DB 는 그대로 둔다.
+
 ## 되돌리기 (이 자동화 자체)
 
 **#201 이전 태그(v1.1.1 이하)로 되돌리면 `deploy/` 가 체크아웃에서 사라진다** — forced command 가 없어 이후 자동 배포가 rc 127 로 실패한다. 그 경우 다음 릴리즈는 7단계(부트스트랩)처럼 손으로 한다.

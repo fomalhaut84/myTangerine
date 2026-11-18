@@ -9,13 +9,13 @@
  * DB 에 접속하지 않는다(생성자만 호출 · $connect 없음 — S-4).
  */
 import { describe, it, expect } from 'vitest';
-import { Prisma, PrismaClient } from '@prisma/client';
+import { Prisma } from '@prisma/client';
+import { createPrismaClient } from '../services/prisma-client-factory.js';
 
 describe('generated Prisma client (#208)', () => {
   it('is the generated client, not the uninitialized stub', () => {
-    const client = new PrismaClient({
-      datasources: { db: { url: 'postgresql://user:password@localhost:5432/never-connected' } },
-    });
+    // Prisma 7: 실제 드라이버 어댑터로 만든다(#241) — 생성자만, 접속하지 않는다
+    const client = createPrismaClient({ databaseUrl: 'postgresql://user:password@localhost:5432/never-connected' });
     expect(typeof client.order.findMany).toBe('function');
   });
 

@@ -3,7 +3,7 @@
  * 여러 프로세스/서버 간 동시 실행 방지
  */
 
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
 
 export interface DistributedLockOptions {
   ttlMs?: number; // Time To Live in milliseconds (기본: 20분)
