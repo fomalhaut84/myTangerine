@@ -17,6 +17,7 @@ import {
   type OrderTypeFilter,
 } from '../utils/stats.js';
 import { InMemoryCache } from '../utils/cache.js';
+import { WARNINGS_SCHEMA, warningsField } from '../utils/write-outcome.js';
 import { resolveOrderIdType } from '../utils/order-id-type.js';
 import { generatePdfBuffer } from '../utils/pdf-generator.js';
 import { generateExcelBuffer } from '../utils/excel-generator.js';
@@ -359,6 +360,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'message', 'confirmedCount'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
+              warnings: WARNINGS_SCHEMA,
               message: { type: 'string', description: '확인 메시지', example: '5개의 주문이 확인되었습니다.' },
               confirmedCount: {
                 type: 'integer',
@@ -392,7 +394,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       .filter((n): n is number => n !== undefined && n > 0);
 
     // 주문을 확인 상태로 표시 (명시적으로 행 번호 전달)
-    await dataService.markAsConfirmed(rowNumbers);
+    const outcome = await dataService.markAsConfirmed(rowNumbers);
 
     // 통계 캐시 무효화 (새 주문이 완료됨으로 변경되었으므로)
     statsCache.invalidate(/^stats:/);
@@ -401,6 +403,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       success: true,
       message: `${newOrders.length}개의 주문이 확인되었습니다.`,
       confirmedCount: newOrders.length,
+      ...warningsField(outcome),
     };
   });
 
@@ -1241,6 +1244,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'message', 'order'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
+              warnings: WARNINGS_SCHEMA,
               message: { type: 'string', example: '주문이 수정되었습니다.' },
               order: { $ref: 'Order#' },
             },
@@ -1362,7 +1366,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 주문 업데이트 실행
-      await dataService.updateOrder(rowNumber, updates);
+      const outcome = await dataService.updateOrder(rowNumber, updates);
 
       // 통계 캐시 무효화
       statsCache.invalidate(/^stats:/);
@@ -1391,6 +1395,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           ordererName: order.ordererName,
           ordererEmail: order.ordererEmail,
         },
+        ...warningsField(outcome),
       };
     }
   );
@@ -1425,6 +1430,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'message'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
+              warnings: WARNINGS_SCHEMA,
               message: {
                 type: 'string',
                 description: '확인 메시지',
@@ -1474,7 +1480,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 특정 주문을 확인 상태로 표시
-      await dataService.markSingleAsConfirmed(rowNumber);
+      const outcome = await dataService.markSingleAsConfirmed(rowNumber);
 
       // 통계 캐시 무효화 (주문이 완료됨으로 변경되었으므로)
       statsCache.invalidate(/^stats:/);
@@ -1482,6 +1488,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         message: '주문이 확인되었습니다.',
+        ...warningsField(outcome),
       };
     }
   );
@@ -1516,6 +1523,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'message'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
+              warnings: WARNINGS_SCHEMA,
               message: {
                 type: 'string',
                 description: '처리 결과 메시지',
@@ -1576,7 +1584,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 입금확인 처리
-      await dataService.markPaymentConfirmed([rowNumber]);
+      const outcome = await dataService.markPaymentConfirmed([rowNumber]);
 
       // 통계 캐시 무효화
       statsCache.invalidate(/^stats:/);
@@ -1584,6 +1592,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         message: '입금이 확인되었습니다.',
+        ...warningsField(outcome),
       };
     }
   );
@@ -1642,6 +1651,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'message'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
+              warnings: WARNINGS_SCHEMA,
               message: {
                 type: 'string',
                 description: '처리 결과 메시지',
@@ -1674,6 +1684,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       let order;
       let isDbIdMode = false;
 
+      // hybrid 쓰기 결과 (#197) — claim(dbId) 경로는 DB 전용이라 경고가 없다
+      let outcome: { warnings?: string[] } | void = undefined;
       if (idType === 'dbId') {
         // DB ID로 조회 (claim 주문용)
         order = await dataService.getOrderById(orderId);
@@ -1745,7 +1757,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         await dataService.markDeliveredById(orderId, trackingNumber);
       } else {
         // 기본: sheetRowNumber 기반 처리
-        await dataService.markDelivered([orderId], trackingNumber);
+        outcome = await dataService.markDelivered([orderId], trackingNumber);
       }
 
       // 통계 캐시 무효화
@@ -1756,6 +1768,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         message: trackingNumber
           ? `배송이 완료되었습니다. (송장번호: ${trackingNumber})`
           : '배송이 완료되었습니다.',
+        ...warningsField(outcome),
       };
     }
   );
@@ -1790,6 +1803,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'message'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
+              warnings: WARNINGS_SCHEMA,
               message: {
                 type: 'string',
                 description: '처리 결과 메시지',
@@ -1837,7 +1851,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // Soft Delete 처리
-      await dataService.softDelete([rowNumber]);
+      const outcome = await dataService.softDelete([rowNumber]);
 
       // 통계 캐시 무효화
       statsCache.invalidate(/^stats:/);
@@ -1845,6 +1859,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         message: '주문이 삭제되었습니다.',
+        ...warningsField(outcome),
       };
     }
   );
@@ -1879,6 +1894,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'message'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
+              warnings: WARNINGS_SCHEMA,
               message: {
                 type: 'string',
                 description: '처리 결과 메시지',
@@ -1918,7 +1934,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 복원 처리
-      await dataService.restore([rowNumber]);
+      const outcome = await dataService.restore([rowNumber]);
 
       // 통계 캐시 무효화
       statsCache.invalidate(/^stats:/);
@@ -1926,6 +1942,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       return {
         success: true,
         message: '주문이 복원되었습니다.',
+        ...warningsField(outcome),
       };
     }
   );
