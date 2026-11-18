@@ -120,7 +120,7 @@ forced command 가 가리키는 `deploy/ssh-deploy.sh` 는 **이 기능이 들�
    - `API_INTERNAL_URL=http://127.0.0.1:<API PORT>`
    - `SESSION_SECRET` = `openssl rand -hex 32`
    - `ADMIN_PASSWORD_HASH` = `pnpm --filter @mytangerine/web hash-password` 출력 줄(비밀번호는 표준 입력 · 화면에 안 보임)
-   - `WEB_HOST=127.0.0.1`
+   - `WEB_HOST=127.0.0.1` — 로그인 시도 제한(IP별)이 리버스 프록시가 붙인 `X-Forwarded-For` 를 믿는 전제다. 이 전제가 안 되면 `LOGIN_GLOBAL_MAX_FAILURES` 를 켠다(대가: 관리자 잠금 공격 가능)
    - HTTPS 가 아니면 `SESSION_COOKIE_SECURE=false`
    - `NEXT_PUBLIC_API_BASE_URL` 은 더 쓰지 않는다(지워도 된다)
 3. **리버스 프록시** — `/api` 를 API 로 보내는 분기를 지우고 **전부 웹으로** 보낸다. `X-Forwarded-For` 를 덧붙이는지 확인(로그인 시도 제한이 마지막 값을 쓴다)
