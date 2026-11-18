@@ -184,7 +184,7 @@ myTangerine 은 구글 폼으로 들어오는 감귤 주문(스프레드시트 "
 | `packages/api` (`@mytangerine/api`) | Fastify REST API (`/api/orders/*` · `/api/labels/*` · `/api/sync/*` · `/docs`) |
 | `packages/web` (`@mytangerine/web`) | Next.js 16 관리 화면 (dashboard · orders · labels · stats) |
 | `packages/sync-service` | node-cron 으로 Sheets → DB 증분 동기화 |
-| `prisma/` | Prisma 스키마·마이그레이션 **정본(하나)** — 운영 DB 이력과 일치 · generator `output` 미지정 (#208 · `.claude/rules/data-safety.md`) |
+| `prisma/` · `prisma.config.ts` | Prisma 스키마·마이그레이션 **정본(하나)** — 운영 DB 이력과 일치 · generator `output` 미지정 (#208). Prisma 7: 접속 주소는 `prisma.config.ts` · client 는 core `createPrismaClient`(드라이버 어댑터) 로만 만든다 (#241 · `.claude/rules/data-safety.md`) |
 
 `src/*.py` · `getLabel.py` 는 초기 Python 버전으로, 현재 코드에서 참조하지 않는 레거시입니다.
 

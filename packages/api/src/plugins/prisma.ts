@@ -5,7 +5,8 @@
  * Issue #68 Phase 2.1
  */
 
-import { PrismaClient } from '@prisma/client';
+import type { PrismaClient } from '@prisma/client';
+import { createPrismaClient } from '@mytangerine/core';
 import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
 
@@ -14,8 +15,10 @@ import type { FastifyInstance } from 'fastify';
  * FastifyInstance에 prisma 데코레이터 추가
  */
 const prismaPlugin = fp(async (fastify: FastifyInstance) => {
-  const prisma = new PrismaClient({
+  // Prisma 7: 드라이버 어댑터로 만든다 (#241 · core createPrismaClient)
+  const prisma = createPrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    onError: (message: string) => fastify.log.error(message),
   });
 
   // PrismaClient를 Fastify 인스턴스에 등록

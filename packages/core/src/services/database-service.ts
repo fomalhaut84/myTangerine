@@ -7,7 +7,8 @@
  * Issue #68 Phase 2.1: Google Sheets → PostgreSQL 하이브리드 시스템
  */
 
-import { PrismaClient, type Prisma } from '@prisma/client';
+import type { PrismaClient, Prisma } from '@prisma/client';
+import { createPrismaClient } from './prisma-client-factory.js';
 import type { SheetRow, OrderStatus } from '../types/order.js';
 import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normalizeOrderStatus, parseOrderType } from '../types/order.js';
 import type { Config } from '../config/config.js';
@@ -52,7 +53,7 @@ export class DatabaseService {
       this._prisma = prisma;
       this.ownsPrisma = false;
     } else {
-      this._prisma = new PrismaClient();
+      this._prisma = createPrismaClient();
       this.ownsPrisma = true;
     }
   }

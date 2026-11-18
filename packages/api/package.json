@@ -28,7 +28,7 @@
     "@fastify/swagger-ui": "^6.1.4",
     "@fontsource/noto-sans-kr": "^5.3.1",
     "@mytangerine/core": "workspace:*",
-    "@prisma/client": "^6.19.3",
+    "@prisma/client": "^7.10.1",
     "dotenv": "^17.4.2",
     "exceljs": "^4.4.0",
     "fastify": "^5.12.8",
