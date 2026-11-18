@@ -112,11 +112,15 @@ describe('HybridDataService hybrid writes', () => {
     });
   });
 
-  it('does not record per-row failure for markAsConfirmed() without rows (all orders)', async () => {
-    f.sheet.markAsConfirmed.mockRejectedValue(new Error('x'));
-    const outcome = await hybrid(f).markAsConfirmed();
-    expect(outcome.partial).toBe(true);
-    expect(f.db.markSheetSyncFailed).not.toHaveBeenCalled();
+  // 회귀(#234): 행 번호 없는 일괄 확인은 DB 에서 "배송완료가 아닌 주문 전부"(입금확인 포함)를 바꿨다 — 시트와 함께 아무것도 하지 않는다
+  it.each([
+    ['without rows', undefined],
+    ['with an empty row list', [] as number[]],
+  ])('markAsConfirmed %s writes nothing to DB or Sheets', async (_label, rows) => {
+    const outcome = await hybrid(f).markAsConfirmed(rows);
+    expect(outcome).toEqual({ partial: false, warnings: [] });
+    expect(f.db.markAsConfirmed).not.toHaveBeenCalled();
+    expect(f.sheet.markAsConfirmed).not.toHaveBeenCalled();
   });
 });
 

@@ -285,6 +285,24 @@ describe('Orders API', () => {
       expect(payload.confirmedCount).toBe(3);
     });
 
+    // 회귀(#234): 행 번호를 하나도 못 뽑으면 빈 목록으로 일괄 확인을 부르지 않고, 확인 개수를 부풀리지 않는다
+    it('does not call markAsConfirmed and reports 0 when no new order has a sheet row', async () => {
+      const mockOrders = createMockSheetRows(2).map((row) => ({ ...row, _rowNumber: undefined }));
+      mockSheetService.setMockNewOrders(mockOrders);
+      const spy = vi.spyOn(mockSheetService, 'markAsConfirmed');
+
+      const response = await server.inject({
+        headers: AUTH_HEADERS,
+        method: 'POST',
+        url: '/api/orders/confirm',
+      });
+
+      expect(response.statusCode).toBe(200);
+      const payload = JSON.parse(response.payload);
+      expect(payload.confirmedCount).toBe(0);
+      expect(spy).not.toHaveBeenCalled();
+    });
+
     it('should clear orders after confirmation', async () => {
       // Mock: 5개의 주문
       const mockOrders = createMockSheetRows(5);
