@@ -23,6 +23,15 @@ const WRITE_TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const;
 /** syncErrorMessage 최대 길이 */
 const MAX_SYNC_ERROR_LENGTH = 1000;
 
+/**
+ * 시트 행이 있는 주문인가 (#234). 배송사고(claim) 주문은 sheetRowNumber 가 null 이고,
+ * order_change_logs.sheet_row_number 는 NOT NULL 이라 그 주문의 이력은 남기지 않는다(markDeliveredById 와 같은 관례).
+ * 행 번호로 조회하는 경로(sheetRowNumber in rowNumbers)에서는 실제로 null 이 오지 않는다 — 타입 좁히기 · 방어용.
+ */
+function hasSheetRow<T extends { sheetRowNumber: number | null }>(order: T): order is T & { sheetRowNumber: number } {
+  return order.sheetRowNumber !== null;
+}
+
 // Prisma Order 타입 정의 (runtime에서 자동 추론됨)
 type PrismaOrder = Awaited<ReturnType<PrismaClient['order']['findUnique']>> & object;
 
@@ -322,48 +331,33 @@ export class DatabaseService {
   /**
    * 주문 배송완료 처리
    * Phase 3: '확인' → '배송완료'로 변경 (하위 호환성 유지)
-   * @param rowNumbers - 처리할 행 번호 배열 (선택). 미제공 시 모든 신규 주문 처리
+   * @param rowNumbers - 처리할 행 번호 배열. **비었거나 없으면 아무것도 하지 않는다** (#234 — 예전에는
+   *   "배송완료가 아닌 주문 전부"(입금확인 포함)를 바꿨다. 시트 쪽은 같은 입력에서 아무것도 하지 않는다)
    * @param changedBy - 변경 주체
    */
   async markAsConfirmed(rowNumbers?: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
+    if (!rowNumbers || rowNumbers.length === 0) return;
     try {
       return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
         // 변경 전 주문 조회 (이력 기록용)
-        const whereClause = rowNumbers && rowNumbers.length > 0
-          ? { sheetRowNumber: { in: rowNumbers }, deletedAt: null }
-          : { status: { notIn: ['배송완료', '확인'] }, deletedAt: null };
+        const beforeOrders = await db.order.findMany({
+          where: { sheetRowNumber: { in: rowNumbers }, deletedAt: null },
+        });
 
-        const beforeOrders = await db.order.findMany({ where: whereClause });
-
-        if (rowNumbers && rowNumbers.length > 0) {
-          // 특정 행만 배송완료 처리
-          await db.order.updateMany({
-            where: {
-              sheetRowNumber: { in: rowNumbers },
-              deletedAt: null, // Soft Delete된 주문 제외
-            },
-            data: {
-              status: '배송완료',
-              updatedAt: new Date(),
-            },
-          });
-        } else {
-          // 모든 미완료 주문 배송완료 처리 (하위 호환성)
-          await db.order.updateMany({
-            where: {
-              status: { notIn: ['배송완료', '확인'] },
-              deletedAt: null,
-            },
-            data: {
-              status: '배송완료',
-              updatedAt: new Date(),
-            },
-          });
-        }
+        await db.order.updateMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: null, // Soft Delete된 주문 제외
+          },
+          data: {
+            status: '배송완료',
+            updatedAt: new Date(),
+          },
+        });
 
         // 각 주문에 대해 이력 기록
         for (const order of beforeOrders) {
-          if (order.status !== '배송완료') {
+          if (order.status !== '배송완료' && hasSheetRow(order)) {
             await this.changeLogService.logChange({
               orderId: order.id,
               sheetRowNumber: order.sheetRowNumber,
@@ -379,7 +373,7 @@ export class DatabaseService {
       }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
-      const context = rowNumbers ? `rows ${rowNumbers.join(', ')}` : 'all incomplete orders';
+      const context = `rows ${rowNumbers.join(', ')}`;
       throw new Error(`Failed to mark as delivered (${context}): ${message}`);
     }
   }
@@ -503,7 +497,7 @@ export class DatabaseService {
 
         // 각 주문에 대해 이력 기록
         for (const order of beforeOrders) {
-          if (order.status !== '입금확인') {
+          if (order.status !== '입금확인' && hasSheetRow(order)) {
             await this.changeLogService.logChange({
               orderId: order.id,
               sheetRowNumber: order.sheetRowNumber,
@@ -563,7 +557,7 @@ export class DatabaseService {
             fieldChanges.trackingNumber = { old: order.trackingNumber, new: trackingNumber };
           }
 
-          if (Object.keys(fieldChanges).length > 0) {
+          if (Object.keys(fieldChanges).length > 0 && hasSheetRow(order)) {
             await this.changeLogService.logChange({
               orderId: order.id,
               sheetRowNumber: order.sheetRowNumber,
@@ -674,6 +668,7 @@ export class DatabaseService {
 
         // 각 주문에 대해 이력 기록
         for (const order of beforeOrders) {
+          if (!hasSheetRow(order)) continue;
           await this.changeLogService.logChange({
             orderId: order.id,
             sheetRowNumber: order.sheetRowNumber,
@@ -721,6 +716,7 @@ export class DatabaseService {
 
         // 각 주문에 대해 이력 기록
         for (const order of beforeOrders) {
+          if (!hasSheetRow(order)) continue;
           await this.changeLogService.logChange({
             orderId: order.id,
             sheetRowNumber: order.sheetRowNumber,
