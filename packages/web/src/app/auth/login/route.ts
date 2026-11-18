@@ -6,16 +6,29 @@
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { createSessionToken } from '@/lib/auth/session';
+import { createSessionToken, sessionKey } from '@/lib/auth/session';
 import { verifyPassword } from '@/lib/auth/password';
 import { sessionCookie } from '@/lib/auth/cookie';
-import { clientIpFrom, loginThrottle } from '@/lib/auth/login-throttle';
+import {
+  GLOBAL_CLIENT,
+  LOGIN_MAX_CONCURRENT,
+  clientIpFrom,
+  globalLoginThrottle,
+  loginThrottle,
+} from '@/lib/auth/login-throttle';
 
 const MAX_PASSWORD_LENGTH = 256;
 
+let inFlight = 0;
+
 function fail(status: number, message: string) {
-  return NextResponse.json({ success: false, message }, { status });
+  return NextResponse.json(
+    { success: false, message },
+    { status, headers: { 'Cache-Control': 'no-store' } }
+  );
 }
+
+const TOO_MANY = '로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.';
 
 async function readPassword(request: NextRequest): Promise<string | null> {
   try {
@@ -32,16 +45,11 @@ async function readPassword(request: NextRequest): Promise<string | null> {
 }
 
 export async function POST(request: NextRequest) {
-  const secret = process.env.SESSION_SECRET;
   const passwordHash = process.env.ADMIN_PASSWORD_HASH;
-  if (!secret || !passwordHash) {
-    console.error('[auth] SESSION_SECRET 또는 ADMIN_PASSWORD_HASH 가 설정되지 않았습니다');
+  const key = sessionKey(process.env.SESSION_SECRET, passwordHash);
+  if (!key || !passwordHash) {
+    console.error('[auth] SESSION_SECRET(32자 이상) 또는 ADMIN_PASSWORD_HASH 가 설정되지 않았습니다');
     return fail(503, '로그인을 사용할 수 없습니다. 서버 설정을 확인하세요.');
-  }
-
-  const client = clientIpFrom(request.headers);
-  if (loginThrottle.isBlocked(client)) {
-    return fail(429, '로그인 시도가 너무 많습니다. 잠시 후 다시 시도하세요.');
   }
 
   const password = await readPassword(request);
@@ -49,14 +57,36 @@ export async function POST(request: NextRequest) {
     return fail(400, '비밀번호를 입력하세요.');
   }
 
-  if (!(await verifyPassword(password, passwordHash))) {
-    loginThrottle.recordFailure(client);
+  // 여기부터 검증 시작까지 await 가 없다 — 검사·기록 사이에 다른 요청이 끼어들지 못한다
+  const client = clientIpFrom(request.headers);
+  if (
+    loginThrottle.isBlocked(client) ||
+    globalLoginThrottle.isBlocked(GLOBAL_CLIENT) ||
+    inFlight >= LOGIN_MAX_CONCURRENT
+  ) {
+    return fail(429, TOO_MANY);
+  }
+
+  // 검증 전에 시도를 먼저 센다 — 검증(scrypt)을 기다리는 동안 들어온 동시 요청도 다음 검사에 걸린다.
+  // 성공하면 그 클라이언트의 기록을 지운다(전역 기록은 지우지 않는다 — 성공도 창당 상한에 든다)
+  loginThrottle.recordFailure(client);
+  globalLoginThrottle.recordFailure(GLOBAL_CLIENT);
+
+  inFlight += 1;
+  let valid: boolean;
+  try {
+    valid = await verifyPassword(password, passwordHash);
+  } finally {
+    inFlight -= 1;
+  }
+
+  if (!valid) {
     console.warn('[auth] 로그인 실패', { client });
     return fail(401, '비밀번호가 올바르지 않습니다.');
   }
 
   loginThrottle.recordSuccess(client);
-  const response = NextResponse.json({ success: true });
-  response.cookies.set(sessionCookie(createSessionToken(secret)));
+  const response = NextResponse.json({ success: true }, { headers: { 'Cache-Control': 'no-store' } });
+  response.cookies.set(sessionCookie(createSessionToken(key)));
   return response;
 }

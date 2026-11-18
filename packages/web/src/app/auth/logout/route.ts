@@ -8,7 +8,7 @@ import { NextResponse } from 'next/server';
 import { clearedSessionCookie } from '@/lib/auth/cookie';
 
 export async function POST() {
-  const response = NextResponse.json({ success: true });
+  const response = NextResponse.json({ success: true }, { headers: { 'Cache-Control': 'no-store' } });
   response.cookies.set(clearedSessionCookie());
   return response;
 }

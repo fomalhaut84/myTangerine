@@ -22,7 +22,7 @@ describe('password hash', () => {
     expect(await hashPassword('same')).not.toBe(await hashPassword('same'));
   });
 
-  it.each([undefined, '', 'plain-text', 'scrypt:1:2', 'bcrypt:a:b:c:d:e', 'scrypt:x:8:1:AAAA:AAAA', 'scrypt:3:8:1:AAAA:AAAA'])(
+  it.each([undefined, '', 'plain-text', 'scrypt:1:2', 'bcrypt:a:b:c:d:e', 'scrypt:x:8:1:AAAA:AAAA', 'scrypt:3:8:1:AAAA:AAAA', `scrypt:16384:8:999:AAAA:${'A'.repeat(88)}`, `scrypt:16384:999:1:AAAA:${'A'.repeat(88)}`, 'scrypt:16384:8:1:AAAA:AAAA'])(
     'rejects when the stored hash is missing or malformed (%s)',
     async (stored) => {
       expect(await verifyPassword('anything', stored)).toBe(false);

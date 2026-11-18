@@ -84,9 +84,23 @@ export function clientIpFrom(headers: Headers): string {
 
 export const LOGIN_MAX_FAILURES = 5;
 export const LOGIN_WINDOW_MS = 10 * 60 * 1000;
+/**
+ * IP 와 무관한 전역 상한 — X-Forwarded-For 를 위조할 수 있는 배치(웹 포트 직접 노출 ·
+ * 헤더를 덮어쓰지 않는 프록시)에서도 시도 속도를 묶는다. 대가로 공격자가 관리자를 창 동안 잠글 수 있다.
+ */
+export const LOGIN_GLOBAL_MAX_FAILURES = 30;
+export const GLOBAL_CLIENT = '*';
+/** 동시에 진행하는 비밀번호 검증(scrypt) 상한 — 검사와 기록 사이 경쟁 · 스레드풀 점유 방지 */
+export const LOGIN_MAX_CONCURRENT = 2;
 
 /** 웹 프로세스 전체가 공유하는 인스턴스 */
 export const loginThrottle = new LoginThrottle({
   maxFailures: LOGIN_MAX_FAILURES,
   windowMs: LOGIN_WINDOW_MS,
+});
+
+export const globalLoginThrottle = new LoginThrottle({
+  maxFailures: LOGIN_GLOBAL_MAX_FAILURES,
+  windowMs: LOGIN_WINDOW_MS,
+  maxClients: 1,
 });

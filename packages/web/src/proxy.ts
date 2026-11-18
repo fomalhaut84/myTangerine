@@ -3,11 +3,11 @@
  *
  * 세션이 없으면 페이지는 /login 으로 보내고, 웹 API 라우트(/api/* · /auth/*)는 401 을 준다.
  * 열려 있는 것: 로그인 화면·로그인 처리 · 정적 자원(matcher 에서 제외).
- * SESSION_SECRET 이 없으면 모든 세션을 무효로 본다(fail-closed).
+ * SESSION_SECRET(32자 이상)·ADMIN_PASSWORD_HASH 가 없으면 모든 세션을 무효로 본다(fail-closed).
  */
 
 import { NextResponse, type NextRequest } from 'next/server';
-import { SESSION_COOKIE, verifySessionToken } from './lib/auth/session';
+import { SESSION_COOKIE, sessionKey, verifySessionToken } from './lib/auth/session';
 
 const PUBLIC_PATHS: ReadonlySet<string> = new Set(['/login', '/auth/login']);
 
@@ -20,7 +20,7 @@ export function proxy(request: NextRequest): NextResponse {
   if (PUBLIC_PATHS.has(pathname)) return NextResponse.next();
 
   const token = request.cookies.get(SESSION_COOKIE)?.value;
-  if (verifySessionToken(token, process.env.SESSION_SECRET)) return NextResponse.next();
+  if (verifySessionToken(token, sessionKey())) return NextResponse.next();
 
   if (isApiPath(pathname)) {
     return NextResponse.json(

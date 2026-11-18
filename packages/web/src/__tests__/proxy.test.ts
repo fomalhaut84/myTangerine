@@ -6,10 +6,12 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { NextRequest } from 'next/server';
 import { proxy } from '../proxy';
-import { createSessionToken, SESSION_COOKIE } from '../lib/auth/session';
+import { createSessionToken, sessionKey, SESSION_COOKIE } from '../lib/auth/session';
 
 const SECRET = 's'.repeat(48);
-const saved = process.env.SESSION_SECRET;
+const HASH = 'scrypt:16384:8:1:c2FsdA==:a2V5';
+const saved = { secret: process.env.SESSION_SECRET, hash: process.env.ADMIN_PASSWORD_HASH };
+const validToken = () => createSessionToken(sessionKey(SECRET, HASH) as string, Date.now());
 
 function req(path: string, cookie?: string): NextRequest {
   const headers = new Headers();
@@ -20,10 +22,16 @@ function req(path: string, cookie?: string): NextRequest {
 describe('proxy', () => {
   beforeEach(() => {
     process.env.SESSION_SECRET = SECRET;
+    process.env.ADMIN_PASSWORD_HASH = HASH;
   });
   afterEach(() => {
-    if (saved === undefined) delete process.env.SESSION_SECRET;
-    else process.env.SESSION_SECRET = saved;
+    for (const [key, value] of [
+      ['SESSION_SECRET', saved.secret],
+      ['ADMIN_PASSWORD_HASH', saved.hash],
+    ] as const) {
+      if (value === undefined) delete process.env[key];
+      else process.env[key] = value;
+    }
   });
 
   it('redirects a page request without a session to /login with next', () => {
@@ -41,7 +49,7 @@ describe('proxy', () => {
   });
 
   it('passes through with a valid session', () => {
-    const res = proxy(req('/orders', createSessionToken(SECRET, Date.now())));
+    const res = proxy(req('/orders', validToken()));
     expect(res.headers.get('x-middleware-next')).toBe('1');
   });
 
@@ -60,8 +68,19 @@ describe('proxy', () => {
   });
 
   it('fails closed when SESSION_SECRET is missing', () => {
+    const token = validToken();
     delete process.env.SESSION_SECRET;
+    expect(proxy(req('/orders', token)).status).toBe(307);
+  });
+
+  it('rejects a token signed with the bare secret (key must include the password hash)', () => {
     const res = proxy(req('/orders', createSessionToken(SECRET, Date.now())));
     expect(res.status).toBe(307);
+  });
+
+  it('invalidates sessions when the password hash changes', () => {
+    const token = validToken();
+    process.env.ADMIN_PASSWORD_HASH = `${HASH}x`;
+    expect(proxy(req('/orders', token)).status).toBe(307);
   });
 });

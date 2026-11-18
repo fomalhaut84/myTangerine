@@ -8,11 +8,16 @@
 
 import { randomBytes, scrypt as scryptCb, timingSafeEqual, type ScryptOptions } from 'node:crypto';
 
+// scripts/hash-password.mjs 와 같은 값 — 형식 일치는 hash-script.test.ts 가 확인한다
 const PARAMS = { N: 16384, r: 8, p: 1 } as const;
 const KEY_LENGTH = 64;
 const SALT_BYTES = 16;
-// 저장된 해시의 N 이 지나치게 크면 메모리를 다 쓴다 — 상한을 둔다
+// 저장된 해시 파라미터가 지나치게 크면 검증마다 메모리·스레드풀을 오래 쓴다 — 상한을 둔다
 const MAX_N = 2 ** 20;
+const MAX_R = 32;
+const MAX_P = 16;
+const MIN_KEY_BYTES = 32;
+const MAX_KEY_BYTES = 128;
 
 function scrypt(password: string, salt: Buffer, keylen: number, options: ScryptOptions): Promise<Buffer> {
   return new Promise((resolve, reject) => {
@@ -41,10 +46,11 @@ function parseHash(stored: string): ParsedHash | null {
   if (parts.length !== 6 || parts[0] !== 'scrypt') return null;
   const [, nRaw, rRaw, pRaw, saltRaw, keyRaw] = parts;
   const [N, r, p] = [nRaw, rRaw, pRaw].map((v) => (/^\d+$/.test(v) ? Number(v) : NaN));
-  if (![N, r, p].every((v) => Number.isInteger(v) && v > 0) || N > MAX_N) return null;
+  if (![N, r, p].every((v) => Number.isInteger(v) && v > 0)) return null;
+  if (N > MAX_N || r > MAX_R || p > MAX_P) return null;
   const salt = Buffer.from(saltRaw, 'base64');
   const key = Buffer.from(keyRaw, 'base64');
-  if (salt.length === 0 || key.length === 0) return null;
+  if (salt.length === 0 || key.length < MIN_KEY_BYTES || key.length > MAX_KEY_BYTES) return null;
   return { N, r, p, salt, key };
 }
 

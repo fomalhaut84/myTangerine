@@ -14,7 +14,23 @@ describe('safeNextPath', () => {
     expect(safeNextPath(input)).toBe(expected);
   });
 
-  it.each([null, undefined, '', 'orders', '//evil.example.com', '/\\evil.example.com', 'https://evil.example.com', '/login', '/login?next=/x'])(
+  it.each([
+    null,
+    undefined,
+    '',
+    'orders',
+    '//evil.example.com',
+    '/\\evil.example.com',
+    'https://evil.example.com',
+    '/login',
+    '/login?next=/x',
+    // 회귀(사전 리뷰 critical): URL 파서가 탭·개행을 지워 `//evil.com` 이 된다
+    '/\t/evil.example.com',
+    '/\n/evil.example.com',
+    '/\r\n/evil.example.com',
+    '/\n\\evil.example.com',
+    decodeURIComponent('/%09/evil.example.com'),
+  ])(
     'falls back to /dashboard for %s',
     (input) => {
       expect(safeNextPath(input)).toBe('/dashboard');
