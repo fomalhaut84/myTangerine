@@ -27,6 +27,7 @@ function client() {
       findUnique: vi.fn().mockResolvedValue(ORDER),
       updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       update: vi.fn().mockResolvedValue(ORDER),
+      create: vi.fn().mockResolvedValue({ ...ORDER, id: 99 }),
     },
     orderChangeLog: {
       create: vi.fn().mockResolvedValue({ id: 10 }),
@@ -52,6 +53,8 @@ const WRITES: Array<[string, (s: DatabaseService) => Promise<unknown>]> = [
   ['markDeliveredById', (s) => s.markDeliveredById(1, 'T-1', 'web')],
   ['softDelete', (s) => s.softDelete([2], 'web')],
   ['restore', (s) => s.restore([2], 'web')],
+  ['updateOrder', (s) => s.updateOrder(2, { quantity: 2, recipient: { name: '새이름' } }, 'web')],
+  ['updateCell', (s) => s.updateCell(2, '비고', '입금확인')],
 ];
 
 describe('DatabaseService write transactions', () => {
@@ -67,6 +70,7 @@ describe('DatabaseService write transactions', () => {
 
     expect(ctx.root.$transaction).toHaveBeenCalledTimes(1);
     const rootCalls =
+      ctx.root.order.create.mock.calls.length +
       ctx.root.order.findMany.mock.calls.length +
       ctx.root.order.findFirst.mock.calls.length +
       ctx.root.order.findUnique.mock.calls.length +
@@ -74,6 +78,14 @@ describe('DatabaseService write transactions', () => {
       ctx.root.order.update.mock.calls.length +
       ctx.root.orderChangeLog.create.mock.calls.length;
     expect(rootCalls).toBe(0);
+  });
+
+  it('createClaimOrder returns the new id from inside the transaction', async () => {
+    ctx.tx.order.findFirst.mockResolvedValue({ ...ORDER, status: '배송완료', quantity: 1, productType: '5kg' });
+    const id = await ctx.service.createClaimOrder(2);
+    expect(id).toBe(99);
+    expect(ctx.tx.order.create).toHaveBeenCalledTimes(1);
+    expect(ctx.root.order.create).not.toHaveBeenCalled();
   });
 
   it('writes the change log through the transaction client', async () => {
@@ -87,6 +99,17 @@ describe('DatabaseService write transactions', () => {
   it('fails the whole write when the change log insert fails (so Prisma rolls back)', async () => {
     ctx.tx.orderChangeLog.create.mockRejectedValue(new Error('log insert failed'));
     await expect(ctx.service.updateOrderStatus(2, '입금확인', 'web')).rejects.toThrow('log insert failed');
+  });
+});
+
+describe('DatabaseService.clearSheetSyncFailure', () => {
+  it('resets only rows currently marked failed', async () => {
+    const { root, service } = setup();
+    await service.clearSheetSyncFailure([2]);
+    expect(root.order.updateMany).toHaveBeenCalledWith({
+      where: { sheetRowNumber: { in: [2] }, syncStatus: 'failed' },
+      data: { syncStatus: 'success', syncErrorMessage: null },
+    });
   });
 });
 

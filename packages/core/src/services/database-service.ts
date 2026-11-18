@@ -15,9 +15,10 @@ import { ChangeLogService, type FieldChange } from './change-log-service.js';
 
 /**
  * 쓰기 트랜잭션 옵션 (#197) — 변경 전 조회 · 업데이트 · 변경 이력을 한 트랜잭션으로.
- * 전체 확인 처리처럼 이력이 많은 쓰기를 위해 기본(5초)보다 넉넉히 둔다.
+ * 이력이 많은 쓰기를 위해 기본(5초)보다 넉넉히 두되, 대기+실행(25초)이 웹 서버·클라이언트
+ * 타임아웃(30초)보다 짧아야 한다 — 클라이언트는 타임아웃인데 서버는 커밋하는 경우를 피한다.
  */
-const WRITE_TX_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+const WRITE_TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const;
 
 /** syncErrorMessage 최대 길이 */
 const MAX_SYNC_ERROR_LENGTH = 1000;
@@ -392,6 +393,18 @@ export class DatabaseService {
     await this._prisma.order.updateMany({
       where: { sheetRowNumber: { in: rowNumbers } },
       data: { syncStatus: 'failed', syncErrorMessage: reason.slice(0, MAX_SYNC_ERROR_LENGTH) },
+    });
+  }
+
+  /**
+   * 시트 반영 실패 표시 해제 (#197) — 같은 행의 다음 hybrid 쓰기가 시트까지 성공했을 때.
+   * 'failed' 인 행만 바꾼다(동기화가 남긴 다른 상태는 건드리지 않는다).
+   */
+  async clearSheetSyncFailure(rowNumbers: number[]): Promise<void> {
+    if (rowNumbers.length === 0) return;
+    await this._prisma.order.updateMany({
+      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: 'failed' },
+      data: { syncStatus: 'success', syncErrorMessage: null },
     });
   }
 

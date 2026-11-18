@@ -436,7 +436,7 @@ export class HybridDataService {
    *
    * 1. DB(트랜잭션) 실패 → 시트에 쓰지 않고 HybridWriteError(503). 아무것도 바뀌지 않는다
    *    (시트만 반영된 상태는 증분 동기화가 `DB_SYNC_STATUS=success` 행을 건너뛰어 DB 로 회복되지 않는다)
-   * 2. DB 성공 · 시트 실패 → Order.syncStatus='failed' 기록 + partial 결과.
+   * 2. DB 성공 · 시트 실패 → Order.syncStatus='failed' 기록 + partial 결과. 둘 다 성공하면 그 표시를 지운다.
    *    DB 가 앞선 상태는 동기화가 충돌로 분류해 DB 값을 유지하므로 안정적이다
    */
   private async hybridWrite(
@@ -456,13 +456,30 @@ export class HybridDataService {
 
     try {
       await sheetWrite();
-      this.logger?.info(`[hybrid] ${operation} DB+Sheets success (${target})`);
-      return writeOk();
     } catch (sheetsError) {
       const reason = `Sheets ${operation}: ${describeError(sheetsError)}`;
       this.logger?.error(`[hybrid-partial] ${operation} Sheets failed after DB success (${target}): ${reason}`);
       await this.recordSheetSyncFailure(rowNumbers, reason);
       return sheetPartial();
+    }
+
+    this.logger?.info(`[hybrid] ${operation} DB+Sheets success (${target})`);
+    await this.clearSheetSyncFailure(rowNumbers);
+    return writeOk();
+  }
+
+  /**
+   * 이전 쓰기가 남긴 시트 반영 실패 표시를 지운다 — 이번에 시트까지 맞췄으므로.
+   * 실패해도 응답은 성공이다(표시가 남을 뿐 데이터는 맞다).
+   */
+  private async clearSheetSyncFailure(rowNumbers: number[] | undefined): Promise<void> {
+    if (!rowNumbers || rowNumbers.length === 0) return;
+    try {
+      await this.databaseService.clearSheetSyncFailure(rowNumbers);
+    } catch (clearError) {
+      this.logger?.warn(
+        `[hybrid] failed to clear sheet sync failure mark (rows ${rowNumbers.join(', ')}): ${describeError(clearError)}`
+      );
     }
   }
 

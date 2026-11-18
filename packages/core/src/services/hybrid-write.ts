@@ -20,7 +20,10 @@ export function writeOk(): WriteOutcome {
 }
 
 export const SHEET_SYNC_WARNING =
-  'DB 에는 저장됐지만 구글 시트 반영에 실패했습니다. 시트를 직접 확인해 주세요.';
+  '부분 저장 — DB 에는 저장됐지만 구글 시트 반영에 실패했습니다. 시트를 직접 확인해 주세요.';
+
+/** DB 쓰기 실패 시 사용자에게 보여 줄 문구 — 아무것도 바뀌지 않았음을 분명히 한다 */
+export const DB_WRITE_FAILED_MESSAGE = '저장하지 못했습니다. 변경된 내용은 없습니다. 잠시 후 다시 시도해 주세요.';
 
 export function sheetPartial(): WriteOutcome {
   return { partial: true, warnings: [SHEET_SYNC_WARNING] };
@@ -30,11 +33,13 @@ export type FailedStore = 'database';
 
 /**
  * hybrid 쓰기에서 DB 가 실패해 아무것도 바꾸지 않았다.
- * statusCode 는 Fastify 오류 처리기가 그대로 응답 코드로 쓴다(5xx 는 일반 문구로 바뀐다).
+ * statusCode 는 Fastify 오류 처리기가 그대로 응답 코드로 쓴다. 5xx 는 일반 문구로 바뀌지만
+ * publicMessage 가 있으면 그것을 쓴다(내부 원인은 로그에만 남는다).
  */
 export class HybridWriteError extends Error {
   readonly statusCode = 503;
   readonly failedStore: FailedStore = 'database';
+  readonly publicMessage = DB_WRITE_FAILED_MESSAGE;
 
   constructor(
     readonly operation: string,

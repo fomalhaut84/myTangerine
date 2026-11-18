@@ -48,7 +48,8 @@ function fakes() {
   const db = {
     ...Object.fromEntries(WRITE_METHODS.map((m) => [m, vi.fn().mockResolvedValue(undefined)])),
     markSheetSyncFailed: vi.fn().mockResolvedValue(undefined),
-  } as Record<WriteMethod | 'markSheetSyncFailed', Fn>;
+    clearSheetSyncFailure: vi.fn().mockResolvedValue(undefined),
+  } as Record<WriteMethod | 'markSheetSyncFailed' | 'clearSheetSyncFailure', Fn>;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   return { sheet, db, logger };
 }
@@ -77,6 +78,13 @@ describe('HybridDataService hybrid writes', () => {
       expect(f.sheet[method]).toHaveBeenCalledTimes(1);
       expect(f.db[method].mock.invocationCallOrder[0]).toBeLessThan(f.sheet[method].mock.invocationCallOrder[0]);
       expect(f.db.markSheetSyncFailed).not.toHaveBeenCalled();
+      // 회귀(사전 리뷰 major): 이전 쓰기가 남긴 시트 실패 표시를 지운다
+      if (rows) expect(f.db.clearSheetSyncFailure).toHaveBeenCalledWith(rows);
+    });
+
+    it('still succeeds when clearing the old failure mark fails', async () => {
+      f.db.clearSheetSyncFailure.mockRejectedValue(new Error('db flaky'));
+      expect(await call(hybrid(f))).toEqual({ partial: false, warnings: [] });
     });
 
     it('does not touch Sheets when the DB write fails and throws HybridWriteError (503)', async () => {
@@ -85,6 +93,8 @@ describe('HybridDataService hybrid writes', () => {
       expect(error).toBeInstanceOf(HybridWriteError);
       expect((error as HybridWriteError).statusCode).toBe(503);
       expect((error as HybridWriteError).failedStore).toBe('database');
+      expect((error as HybridWriteError).publicMessage).toContain('변경된 내용은 없습니다');
+      expect(f.db.clearSheetSyncFailure).not.toHaveBeenCalled();
       expect(f.sheet[method]).not.toHaveBeenCalled();
     });
 
@@ -96,6 +106,7 @@ describe('HybridDataService hybrid writes', () => {
         expect(f.db.markSheetSyncFailed).toHaveBeenCalledWith(rows, expect.stringContaining('quota exceeded'));
       }
       expect(f.logger.error).toHaveBeenCalledWith(expect.stringContaining('[hybrid-partial]'));
+      expect(f.db.clearSheetSyncFailure).not.toHaveBeenCalled();
     });
 
     it('still returns the partial outcome when recording the sheet failure also fails', async () => {

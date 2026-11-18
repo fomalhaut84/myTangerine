@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, parseOrderType, ChangeLogService } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, parseOrderType, ChangeLogService, type WriteOutcome } from '@mytangerine/core';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -1685,7 +1685,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       let isDbIdMode = false;
 
       // hybrid 쓰기 결과 (#197) — claim(dbId) 경로는 DB 전용이라 경고가 없다
-      let outcome: { warnings?: string[] } | void = undefined;
+      let outcome: WriteOutcome | undefined;
       if (idType === 'dbId') {
         // DB ID로 조회 (claim 주문용)
         order = await dataService.getOrderById(orderId);
