@@ -4,54 +4,27 @@
  */
 
 import { FastifyRequest, FastifyReply } from 'fastify';
+import { API_KEY_HEADER, apiKeyFailure, verifyApiKey } from '../security/api-key.js';
 
 /**
  * API 키 검증 미들웨어
- * 환경 변수 API_SECRET_KEY와 요청 헤더의 x-api-key를 비교
+ * 환경 변수 API_SECRET_KEY와 요청 헤더의 x-api-key를 비교 (상수시간 · #218).
+ * 전역 훅(plugins/api-key-auth.ts)이 이미 검사한다 — sync 라우트의 이중 방어로 남겨 둔다
  */
 export async function requireApiKey(
   request: FastifyRequest,
   reply: FastifyReply
 ): Promise<void> {
-  const apiKey = request.headers['x-api-key'];
-  const expectedKey = process.env.API_SECRET_KEY;
-
-  // API_SECRET_KEY가 설정되지 않은 경우 - fail closed
-  if (!expectedKey) {
+  const result = verifyApiKey(request.headers[API_KEY_HEADER], process.env.API_SECRET_KEY);
+  if (result === 'ok') {
+    request.log.debug('API key authentication successful');
+    return;
+  }
+  if (result === 'unconfigured') {
     request.log.error('API_SECRET_KEY not configured');
-    return reply.code(503).send({
-      success: false,
-      error: 'Service Unavailable',
-      message: 'API authentication is not configured',
-      statusCode: 503,
-      timestamp: new Date().toISOString(),
-    });
   }
-
-  // API 키가 없는 경우
-  if (!apiKey) {
-    return reply.code(401).send({
-      success: false,
-      error: 'Unauthorized',
-      message: 'API key is required',
-      statusCode: 401,
-      timestamp: new Date().toISOString(),
-    });
-  }
-
-  // API 키가 일치하지 않는 경우
-  if (apiKey !== expectedKey) {
-    return reply.code(403).send({
-      success: false,
-      error: 'Forbidden',
-      message: 'Invalid API key',
-      statusCode: 403,
-      timestamp: new Date().toISOString(),
-    });
-  }
-
-  // 인증 성공
-  request.log.debug('API key authentication successful');
+  const { statusCode, body } = apiKeyFailure(result);
+  return reply.code(statusCode).send(body);
 }
 
 /**
@@ -79,7 +52,7 @@ export function requireAppClient(allowedClients: string[]) {
       return reply.code(403).send({
         success: false,
         error: 'Forbidden',
-        message: `Client '${appClient}' is not allowed to access this endpoint`,
+        message: 'Client is not allowed to access this endpoint',
         statusCode: 403,
         timestamp: new Date().toISOString(),
       });

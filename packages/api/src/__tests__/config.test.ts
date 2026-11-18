@@ -5,7 +5,16 @@
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { loadEnv } from '../config.js';
 
-const KEYS = ['PORT', 'HOST', 'NODE_ENV', 'LOG_LEVEL', 'CORS_ORIGIN', 'DATA_SOURCE'] as const;
+const KEYS = [
+  'PORT',
+  'HOST',
+  'NODE_ENV',
+  'LOG_LEVEL',
+  'CORS_ORIGIN',
+  'DATA_SOURCE',
+  'API_SECRET_KEY',
+  'RATE_LIMIT_MAX',
+] as const;
 const saved = Object.fromEntries(KEYS.map((k) => [k, process.env[k]]));
 
 afterEach(() => {
@@ -40,5 +49,60 @@ describe('loadEnv', () => {
     vi.spyOn(console, 'error').mockImplementation(() => {});
     expect(() => loadEnv()).toThrow('exit');
     expect(exit).toHaveBeenCalledWith(1);
+  });
+
+  // #218 — 운영 보안 설정
+  describe('security settings', () => {
+    const exitSpy = () => {
+      vi.spyOn(console, 'error').mockImplementation(() => {});
+      return vi.spyOn(process, 'exit').mockImplementation((() => {
+        throw new Error('exit');
+      }) as never);
+    };
+
+    it('defaults CORS_ORIGIN to empty (cross-origin disabled) and RATE_LIMIT_MAX to 600', () => {
+      for (const k of KEYS) delete process.env[k];
+      const env = loadEnv();
+      expect(env.CORS_ORIGIN).toBe('');
+      expect(env.RATE_LIMIT_MAX).toBe(600);
+    });
+
+    it('requires API_SECRET_KEY in production', () => {
+      for (const k of KEYS) delete process.env[k];
+      process.env.NODE_ENV = 'production';
+      const exit = exitSpy();
+      expect(() => loadEnv()).toThrow('exit');
+      expect(exit).toHaveBeenCalledWith(1);
+    });
+
+    it('rejects the CORS wildcard in production', () => {
+      for (const k of KEYS) delete process.env[k];
+      process.env.NODE_ENV = 'production';
+      process.env.API_SECRET_KEY = 'x'.repeat(40);
+      process.env.CORS_ORIGIN = '*';
+      exitSpy();
+      expect(() => loadEnv()).toThrow('exit');
+    });
+
+    it('rejects the .env.example placeholder key in production', () => {
+      for (const k of KEYS) delete process.env[k];
+      process.env.NODE_ENV = 'production';
+      process.env.API_SECRET_KEY = 'your_secret_key_here';
+      exitSpy();
+      expect(() => loadEnv()).toThrow('exit');
+    });
+
+    it('accepts a production config with a key and no CORS origin', () => {
+      for (const k of KEYS) delete process.env[k];
+      process.env.NODE_ENV = 'production';
+      process.env.API_SECRET_KEY = 'x'.repeat(40);
+      const env = loadEnv();
+      expect(env.API_SECRET_KEY).toBe('x'.repeat(40));
+    });
+
+    it('allows a missing key outside production (routes then fail closed with 503)', () => {
+      for (const k of KEYS) delete process.env[k];
+      expect(loadEnv().API_SECRET_KEY).toBeUndefined();
+    });
   });
 });

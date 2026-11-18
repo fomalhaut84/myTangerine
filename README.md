@@ -394,7 +394,8 @@ Google Forms → Google Sheets (원본 보관)
 
 ### 4. 보안 및 동시 실행 제어
 - Next.js API Route Proxy(`packages/web/src/app/api/sync/route.ts`)가 sync 호출을 서버 사이드에서 서명하고 브라우저에는 `API_SECRET_KEY`를 노출하지 않습니다.
-- `requireApiKey` 미들웨어는 fail-closed 동작으로 잘못된 키에 즉시 401을 반환하며, `API_SECRET_KEY`는 `.env`에서 서버 전용으로 관리됩니다.
+- API 는 `/health` 외 모든 요청에 `x-api-key` 를 요구합니다(전역 훅 `packages/api/src/plugins/api-key-auth.ts` · 상수시간 비교). 키가 없으면 401 · 틀리면 403 · 서버에 `API_SECRET_KEY` 가 없으면 503(fail-closed)이며, 운영에서는 키 없이 기동하지 않습니다.
+- 요청 빈도 상한(`RATE_LIMIT_MAX`, 분당)과 CORS 허용 목록(`CORS_ORIGIN`, 비우면 교차 오리진 차단)을 둡니다. Swagger UI(`/docs`)는 운영에서 등록하지 않습니다.
 - `DistributedLockService`가 Prisma `DistributedLock` 모델을 사용해 Sync Service, API, 수동 트리거 간 단일 실행을 보장합니다. TTL과 Next.js proxy timeout은 20분으로 통일해 장시간 작업도 안전하게 처리합니다.
 - PollingScheduler가 진행 중 promise를 추적해 수동 싱크와 예약 싱크 모두 graceful shutdown 범위에 포함하고, 락은 작업이 완료될 때 해제됩니다.
 

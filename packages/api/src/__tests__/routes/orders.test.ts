@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
-import { createTestServer } from '../helpers/test-server.js';
+import { createTestServer, AUTH_HEADERS } from '../helpers/test-server.js';
 import { MockSheetService, createMockSheetRows, createMockSheetRow } from '../helpers/mock-sheet-service.js';
 import { clearStatsCache } from '../../routes/orders.js';
 
@@ -34,6 +34,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders([]);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders',
       });
@@ -51,6 +52,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders',
       });
@@ -69,6 +71,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders',
       });
@@ -109,6 +112,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders',
       });
@@ -148,6 +152,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders',
       });
@@ -175,6 +180,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders([]);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/summary',
       });
@@ -198,6 +204,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/summary',
       });
@@ -227,6 +234,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/summary',
       });
@@ -246,6 +254,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders([]);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'POST',
         url: '/api/orders/confirm',
       });
@@ -263,6 +272,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'POST',
         url: '/api/orders/confirm',
       });
@@ -281,6 +291,7 @@ describe('Orders API', () => {
 
       // 첫 번째 확인
       const response1 = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'POST',
         url: '/api/orders/confirm',
       });
@@ -288,6 +299,7 @@ describe('Orders API', () => {
 
       // 두 번째 확인 (주문이 이미 처리됨)
       const response2 = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'POST',
         url: '/api/orders/confirm',
       });
@@ -300,6 +312,7 @@ describe('Orders API', () => {
   describe('GET /api/orders/:rowNumber', () => {
     it('should return 400 error for invalid order ID', async () => {
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/invalid',
       });
@@ -313,6 +326,7 @@ describe('Orders API', () => {
     it('should return 400 error for order ID less than 1', async () => {
       // Issue #155: orderId >= 1 유효, orderId < 1 (0, 음수)는 무효
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/0',
       });
@@ -326,6 +340,7 @@ describe('Orders API', () => {
     it('should return 400 error for order ID with non-numeric suffix', async () => {
       // "2foo"는 parseInt로는 2가 되지만 엄격한 검증에서는 거부되어야 함
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/2foo',
       });
@@ -341,6 +356,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders([]);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/999',
       });
@@ -357,6 +373,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/10',
       });
@@ -386,6 +403,7 @@ describe('Orders API', () => {
 
       // rowNumber 12에 해당하는 주문 조회 (3번째 주문, 인덱스 2)
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/12',
       });
@@ -407,6 +425,7 @@ describe('Orders API', () => {
 
       // rowNumber 11에 해당하는 주문 조회
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/11',
       });
@@ -430,7 +449,8 @@ describe('Orders API', () => {
     it('GET /api/orders/:rowNumber returns rowNumber idType for a claim with a sheet row', async () => {
       mockSheetService.setMockAllOrders([sheetClaim()]);
 
-      const response = await server.inject({ method: 'GET', url: '/api/orders/391' });
+      const response = await server.inject({
+        headers: AUTH_HEADERS, method: 'GET', url: '/api/orders/391' });
 
       expect(response.statusCode).toBe(200);
       const { order } = JSON.parse(response.payload);
@@ -442,7 +462,8 @@ describe('Orders API', () => {
     it('GET /api/orders lists sheet claims as rowNumber and DB-only claims as dbId', async () => {
       mockSheetService.setMockAllOrders([sheetClaim(), dbOnlyClaim()]);
 
-      const response = await server.inject({ method: 'GET', url: '/api/orders?status=all' });
+      const response = await server.inject({
+        headers: AUTH_HEADERS, method: 'GET', url: '/api/orders?status=all' });
 
       expect(response.statusCode).toBe(200);
       const { orders } = JSON.parse(response.payload);
@@ -456,6 +477,7 @@ describe('Orders API', () => {
     // 테스트 서버의 dataService 는 MockSheetService — 시트 모드처럼 `_orderType` 이 없는 행을 돌려준다
     const markDelivered = (rowNumber: number) =>
       server.inject({
+        headers: AUTH_HEADERS,
         method: 'POST',
         url: `/api/orders/${rowNumber}/mark-delivered`,
         payload: {},
@@ -480,7 +502,8 @@ describe('Orders API', () => {
         createMockSheetRow({ _rowNumber: 391, '비고': '', '주문유형': '배송사고', _dbId: 1487 }),
       ]);
 
-      const detail = JSON.parse((await server.inject({ method: 'GET', url: '/api/orders/391' })).payload);
+      const detail = JSON.parse((await server.inject({
+        headers: AUTH_HEADERS, method: 'GET', url: '/api/orders/391' })).payload);
       expect(detail.order.idType).toBe('rowNumber');
 
       const response = await markDelivered(detail.order.rowNumber);
@@ -528,6 +551,7 @@ describe('Orders API', () => {
   describe('Fastify 5 regressions', () => {
     // 회귀: @fastify/cors 11 의 기본 methods 는 GET,HEAD,POST — 웹의 주문 수정(PATCH)이 preflight 에서 막혔다
     it.each(['PATCH', 'POST', 'DELETE'])('allows %s in CORS preflight', async (method) => {
+      // preflight 는 키 없이 통과해야 한다(#218) — 브라우저는 preflight 에 커스텀 헤더를 붙이지 않는다
       const response = await server.inject({
         method: 'OPTIONS',
         url: '/api/orders/10',
@@ -543,7 +567,8 @@ describe('Orders API', () => {
 
     // 회귀: 400 응답 스키마가 setErrorHandler 의 검증 오류 필드를 잘라냈다
     it('keeps the full error shape for validation errors on report routes', async () => {
-      const response = await server.inject({ method: 'GET', url: '/api/orders/report?limit=5000' });
+      const response = await server.inject({
+        headers: AUTH_HEADERS, method: 'GET', url: '/api/orders/report?limit=5000' });
 
       expect(response.statusCode).toBe(400);
       const payload = JSON.parse(response.payload);
@@ -564,6 +589,7 @@ describe('Orders API', () => {
       mockSheetService.setMockCompletedOrders(completedOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats',
       });
@@ -599,6 +625,7 @@ describe('Orders API', () => {
       mockSheetService.setMockNewOrders(newOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats?scope=new',
       });
@@ -616,6 +643,7 @@ describe('Orders API', () => {
       mockSheetService.setMockAllOrders(allOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats?scope=all',
       });
@@ -636,6 +664,7 @@ describe('Orders API', () => {
       mockSheetService.setMockCompletedOrders(completedOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats?range=6m',
       });
@@ -649,6 +678,7 @@ describe('Orders API', () => {
 
     it('should return 400 error when range=custom but start/end not provided', async () => {
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats?range=custom',
       });
@@ -662,6 +692,7 @@ describe('Orders API', () => {
 
     it('should return 400 error when date format is invalid', async () => {
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats?range=custom&start=invalid&end=2025-12-31',
       });
@@ -676,6 +707,7 @@ describe('Orders API', () => {
 
     it('should return 400 error when start date is after end date', async () => {
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats?range=custom&start=2025-12-31&end=2025-01-01',
       });
@@ -696,6 +728,7 @@ describe('Orders API', () => {
       mockSheetService.setMockCompletedOrders(completedOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats?range=custom&start=2025-01-01&end=2025-12-31',
       });
@@ -717,6 +750,7 @@ describe('Orders API', () => {
       mockSheetService.setMockCompletedOrders(completedOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats',
       });
@@ -749,6 +783,7 @@ describe('Orders API', () => {
       mockSheetService.setMockCompletedOrders(completedOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats',
       });
@@ -780,6 +815,7 @@ describe('Orders API', () => {
       mockSheetService.setMockCompletedOrders(completedOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats',
       });
@@ -806,6 +842,7 @@ describe('Orders API', () => {
       mockSheetService.setMockCompletedOrders([]);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/orders/stats',
       });
