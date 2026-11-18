@@ -61,7 +61,7 @@ gh pr list --state open --json number,title,author -q '.[] | select(.author.logi
 
 - **실데이터 영향**과 남은 로컬 프로세스·로컬 DB 상태
 - **열린 PR 의 남은 게이트** — 봇 미반영 P0/P1 · 봇 미게시 컷오프 시각 · 사용자 머지 대기
-- **미적용·미확인 마이그레이션** — 어느 스키마(루트/core)에 넣었는지(`data-safety.md` 스키마 두 벌)
+- **미적용·미확인 마이그레이션** — 운영 `migrate status` 확인 여부(정본 루트 `prisma/` · `data-safety.md`)
 - **이번 세션에서 정정된 기록** — 옛 문서·이전 노트를 그대로 믿으면 안 되는 지점
 - stale 한 것으로 확인된 표기(README · ROADMAP · 이슈 상태 등)
 - 사용자에게 넘긴 수동 작업(시트 컬럼 추가 · 서버 `.env` · 배포)과 그 결과를 아직 못 들었는지

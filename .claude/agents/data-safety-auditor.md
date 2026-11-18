@@ -17,7 +17,7 @@ model: opus
 | 2 | hybrid 에서 DB 성공 · 시트 실패(또는 반대) 시 무엇이 남는가 | 에러 처리 · 재시도 · 롤백 유무. 조용히 삼키는 catch 는 high |
 | 3 | 시트 행 번호(`rowNumber`)와 DB id 를 혼동하는 경로가 있는가 | claim 주문(`sheetRowNumber` null · `originalRowNumber`) 경로 포함 |
 | 4 | 상태 전이가 단방향 규칙을 지키는가 · 시트 `비고` 값과 DB status 가 일치하는가 | 상태 상수 · 매핑 함수 |
-| 5 | 마이그레이션 — 기존 데이터에 NOT NULL·기본값·인덱스가 안전한가 · **어느 스키마(루트/core)에 들어가는가** | `data-safety.md` 스키마 두 벌 · SQL 파일 직접 읽기 |
+| 5 | 마이그레이션 — 기존 데이터에 NOT NULL·기본값·인덱스가 안전한가 · **정본 루트 `prisma/migrations` 에 추가만 하는가** | `data-safety.md` *Prisma 스키마 — 정본 하나* · SQL 파일 직접 읽기 |
 | 6 | 동기화 — 중복 삽입 · 삭제 전파 · 분산 락 TTL · 증분 기준 컬럼 | sync-engine · distributed lock |
 | 7 | 테스트가 실제 시트·DB 를 부르지 않는가 | mock 여부(S-4) |
 | 8 | 비밀·개인정보(이름·주소·전화)가 로그·에러 응답·내보내기에 새는가 | logger 호출 · 에러 핸들러 |

@@ -3,7 +3,10 @@
  * Issue #136 Phase 2: 변경 이력 로그 + 충돌 감지
  */
 
-import type { PrismaClient, OrderChangeLog } from '@prisma/client';
+import type { Prisma, PrismaClient, OrderChangeLog } from '@prisma/client';
+
+/** 루트 클라이언트 또는 `$transaction` 안의 트랜잭션 클라이언트 (#197) */
+export type PrismaWriter = PrismaClient | Prisma.TransactionClient;
 
 /**
  * 필드 변경 정보
@@ -53,9 +56,10 @@ export class ChangeLogService {
   /**
    * 변경 이력 기록
    * @param params - 변경 로그 파라미터
+   * @param client - 트랜잭션 안에서 부를 때 넘긴다 — 데이터 변경과 이력이 함께 커밋·롤백된다 (#197)
    * @note conflict_detected 액션은 version을 증가시키지 않음 (데이터 변경 없음)
    */
-  async logChange(params: LogChangeParams): Promise<OrderChangeLog> {
+  async logChange(params: LogChangeParams, client: PrismaWriter = this.prisma): Promise<OrderChangeLog> {
     const {
       orderId,
       sheetRowNumber,
@@ -72,7 +76,7 @@ export class ChangeLogService {
     const newVersion = isConflictLog ? previousVersion : previousVersion + 1;
 
     // 변경 로그 생성
-    const changeLog = await this.prisma.orderChangeLog.create({
+    const changeLog = await client.orderChangeLog.create({
       data: {
         orderId,
         sheetRowNumber,
@@ -89,7 +93,7 @@ export class ChangeLogService {
 
     // 충돌 감지 로그가 아닌 경우에만 Order 메타데이터 업데이트
     if (!isConflictLog) {
-      await this.prisma.order.update({
+      await client.order.update({
         where: { id: orderId },
         data: {
           version: newVersion,

@@ -47,7 +47,7 @@ git checkout dev && git pull && git checkout -b feature/issue-<N>-<설명>
 
 ### 5. 개발
 - 패키지 경계: `core`(도메인·서비스·Prisma) ← `api`(Fastify) ← `web`(Next.js) · `sync-service`(cron). 역방향 import 금지
-- 스키마 변경은 `data-safety.md` *스키마 두 벌* 을 먼저 따른다
+- 스키마 변경은 `data-safety.md` *Prisma 스키마 — 정본 하나* 를 먼저 따른다
 
 ### 6. 검증 — 명령을 추측하지 말고 이 표를 쓴다
 

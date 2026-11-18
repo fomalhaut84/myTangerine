@@ -184,7 +184,7 @@ myTangerine 은 구글 폼으로 들어오는 감귤 주문(스프레드시트 "
 | `packages/api` (`@mytangerine/api`) | Fastify REST API (`/api/orders/*` · `/api/labels/*` · `/api/sync/*` · `/docs`) |
 | `packages/web` (`@mytangerine/web`) | Next.js 16 관리 화면 (dashboard · orders · labels · stats) |
 | `packages/sync-service` | node-cron 으로 Sheets → DB 증분 동기화 |
-| `prisma/` · `packages/core/prisma/` | Prisma 스키마·마이그레이션 — **두 벌로 갈라져 있음**(`.claude/rules/data-safety.md` 필독) |
+| `prisma/` | Prisma 스키마·마이그레이션 **정본(하나)** — 운영 DB 이력과 일치 · generator `output` 미지정 (#208 · `.claude/rules/data-safety.md`) |
 
 `src/*.py` · `getLabel.py` 는 초기 Python 버전으로, 현재 코드에서 참조하지 않는 레거시입니다.
 
@@ -221,7 +221,7 @@ pnpm --filter @mytangerine/sync-service dev   # 동기화 — 실제 시트에 �
 
 1. `cp .env.example .env` 후 값 입력 (`DATABASE_URL` · `SPREADSHEET_ID` · `GOOGLE_CREDENTIALS_FILE` · `DATA_SOURCE` · `API_SECRET_KEY` · `DEFAULT_SENDER_*` · `NEXT_PUBLIC_API_BASE_URL`)
 2. 서비스 계정 JSON 키를 프로젝트 루트 `credentials.json` 으로 저장 (`credentials.json.example` 참고) — 시트에 접근 권한 부여
-3. DB: `docs/DATABASE_SETUP_QUICKSTART.md` (마이그레이션 위치는 data-safety 주의 참고)
+3. DB: `docs/DATABASE_SETUP_QUICKSTART.md` (마이그레이션은 루트 `prisma/` 하나 — data-safety 참고)
 
 ## 한국어 컬럼명 (시트 계약 — 바꾸지 않는다 · data-safety S-7)
 

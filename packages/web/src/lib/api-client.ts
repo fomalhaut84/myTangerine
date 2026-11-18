@@ -4,6 +4,7 @@
  */
 
 import ky from 'ky';
+import { toast } from 'sonner';
 import type {
   OrdersResponse,
   OrderResponse,
@@ -29,6 +30,26 @@ export function redirectToLogin(): void {
   window.location.assign(`/login?next=${encodeURIComponent(next)}`);
 }
 
+/**
+ * 쓰기 응답의 경고를 보여 준다 (#197) — hybrid 모드에서 DB 에는 저장됐지만 시트 반영이 실패한 경우.
+ * 성공 토스트와 별개로 경고 토스트를 띄운다. 본문을 읽을 수 없으면 조용히 넘어간다(응답 자체는 정상).
+ */
+export async function notifyWriteWarnings(method: string, response: Response): Promise<void> {
+  if (method === 'GET' || method === 'HEAD' || !response.ok) return;
+  if (!(response.headers.get('content-type') ?? '').includes('application/json')) return;
+  try {
+    const body: unknown = await response.clone().json();
+    const warnings = (body as { warnings?: unknown } | null)?.warnings;
+    if (Array.isArray(warnings)) {
+      for (const warning of warnings) {
+        if (typeof warning === 'string' && warning) toast.warning(warning, { duration: 10_000 });
+      }
+    }
+  } catch {
+    // 본문이 JSON 이 아니면 경고도 없다
+  }
+}
+
 /** fetch 응답 공통 처리 — 401 이면 로그인 화면으로 보낸다 */
 export function handleUnauthorized(response: Response): void {
   if (response.status === 401) redirectToLogin();
@@ -47,8 +68,9 @@ export const api = ky.create({
   },
   hooks: {
     afterResponse: [
-      (_request, _options, response) => {
+      async (request, _options, response) => {
         handleUnauthorized(response);
+        await notifyWriteWarnings(request.method, response);
       },
     ],
   },
