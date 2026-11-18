@@ -42,8 +42,8 @@ describe('proxy', () => {
     expect(location.searchParams.get('next')).toBe('/orders?status=new');
   });
 
-  it('returns 401 JSON for a web API route without a session', async () => {
-    const res = proxy(req('/api/sync'));
+  it.each(['/api/sync', '/bff/api/orders'])('returns 401 JSON for web API route %s without a session', async (path) => {
+    const res = proxy(req(path));
     expect(res.status).toBe(401);
     expect(await res.json()).toMatchObject({ success: false });
   });
