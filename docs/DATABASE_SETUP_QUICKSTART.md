@@ -97,7 +97,7 @@ DATABASE_URL=postgresql://mytangerine:mytangerine_dev_2025@localhost:5432/mytang
 # 프로젝트 루트에서
 pnpm install
 
-# Prisma Client 생성 및 마이그레이션 적용
+# Prisma Client 생성 및 마이그레이션 적용 — 정본 스키마는 루트 prisma/ 하나 (#208)
 pnpm prisma:generate
 pnpm prisma:migrate
 ```

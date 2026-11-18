@@ -16,7 +16,8 @@
 TAG_RE='^v[0-9]+\.[0-9]+\.[0-9]+$'
 PM2_APPS_DEFAULT='myTangerineApi myTangerineSync myTangerineWeb'
 BUILD_PACKAGES=(core api sync-service web)
-# Prisma 스키마가 두 벌이다(.claude/rules/data-safety.md) — 어느 쪽이 바뀌어도 자동 배포하지 않는다
+# 스키마·마이그레이션이 바뀐 릴리즈는 자동 배포하지 않는다. 정본은 prisma/ 하나(#208) — packages/core/prisma 는
+# #208 에서 지웠지만, 그 삭제가 든 릴리즈도 수동 절차를 타도록 목록에 남긴다
 MIGRATION_PATHS=(prisma packages/core/prisma)
 
 usage() { sed -n '4,10p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//' >&2; exit 2; }

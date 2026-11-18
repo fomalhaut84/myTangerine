@@ -154,13 +154,21 @@ prerelease 를 나중에 정식으로 바꿔도 배포는 돌지 않는다(`rele
 
 ## 수동 마이그레이션 (prerelease 릴리즈)
 
-`.claude/rules/data-safety.md` 의 *Prisma 스키마 두 벌* 을 먼저 읽는다 — 운영 DB 가 어느 이력을 따르는지 확인 없이 `migrate deploy` 하지 않는다.
+`.claude/rules/data-safety.md` 의 *Prisma 스키마 — 정본 하나* 를 먼저 읽는다 — 정본은 루트 `prisma/` 하나다(#208). `migrate status` 확인 없이 `migrate deploy` 하지 않는다.
 
 1. sync-service 정지: `pm2 stop myTangerineSync`
 2. 백업: `sudo -u postgres pg_dump -Fc mytangerine > ~/mytangerine-$(date +%Y%m%d-%H%M).dump`
-3. `git fetch --tags && git checkout vX.Y.Z` → `npx prisma migrate status` (정본 스키마 위치에서) → 적용 → 빌드 → `pm2 restart …`
+3. `git fetch --tags && git checkout vX.Y.Z` → `CI=true pnpm install --frozen-lockfile` → `pnpm prisma:generate`(DB 접속 없음 · install 이 건너뛰어도 client 를 만든다) → `pnpm exec prisma migrate status`(저장소 루트) → **up to date 가 아닐 때만** `pnpm prisma:deploy` → 4개 패키지 빌드 → `pm2 restart …`
 4. `deploy/release-inplace.sh vX.Y.Z --yes --confirm-manual` — 헬스 확인 뒤 이 태그를 성공으로 기록한다(`손 배포 확인`). 이걸 하지 않으면 다음 자동 배포 · 재실행이 "성공으로 끝나지 않았다"(rc 4)로 멈춘다
 5. sync-service 재개: `pm2 start myTangerineSync`
+
+**스키마가 바뀐 릴리즈의 되돌리기는 손으로 한다** — `release-inplace.sh <직전> --allow-downgrade` 도 두 태그 사이 스키마 차이를 보고 rc 1 로 멈춘다.
+`git checkout <직전태그>` → `CI=true pnpm install --frozen-lockfile` → 4개 패키지 빌드 → `pm2 restart …` → `deploy/release-inplace.sh <직전태그> --yes --confirm-manual`.
+마이그레이션을 적용했다면 되돌리기 전에 그 SQL 이 직전 코드와 호환되는지 먼저 본다(DB 는 되돌리지 않는다 — 필요하면 2단계 백업으로 복원, 사용자 판단).
+
+> **#208 이전 태그로 되돌릴 때.** #208 이전 스키마는 client 를 루트 `node_modules/.prisma` 에 생성하지만,
+> 런타임은 #208 이 pnpm 저장소 안에 만든 client 를 계속 먼저 읽는다. 두 스키마의 모델이 같은 동안은 무해하다.
+> 스키마가 바뀐 뒤 #208 이전으로 되돌리게 되면 `node_modules/.pnpm/@prisma+client@*/node_modules/.prisma` 를 지우고 install 을 다시 한다.
 
 ## 되돌리기 (이 자동화 자체)
 

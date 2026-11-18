@@ -11,7 +11,7 @@ model: sonnet
 
 1. 변경 패키지 판별: `git diff --name-only dev...HEAD` + `git status --short` → `packages/<pkg>/` 접두로 묶는다
    - `packages/core` 가 바뀌었으면 api · web · sync-service 의 **빌드**도 대상(core dist 소비자)
-   - `prisma/**` · `packages/core/prisma/**` 가 바뀌었으면 core 전체 + `npx prisma validate` (두 스키마 각각)
+   - `prisma/**` 가 바뀌었으면 core 전체 + `npx prisma validate` (정본 루트 스키마 하나 · #208)
    - `.claude/hooks/**` 면 `python3 -m unittest discover -s .claude/hooks`
 2. `.claude/rules/workflow.md` 6절 표의 명령을 **그대로** 실행한다 — 명령을 지어내지 않는다. core·api 테스트는 `exec vitest run`
 3. 순서: core build → (lint · type-check · test) → 소비자 build. core dist 가 없으면 소비자 타입체크가 실패한다
