@@ -43,9 +43,11 @@ export async function errorHandler(
   // 클라이언트용 에러 메시지 (보안을 위해 일반화)
   let clientMessage: string;
 
+  const publicMessage = (error as { publicMessage?: unknown }).publicMessage;
+
   if (statusCode >= 500) {
-    // 5xx 에러: 내부 에러 상세는 숨김
-    clientMessage = '서버 내부 오류가 발생했습니다.';
+    // 5xx 에러: 내부 에러 상세는 숨김. 사용자용 문구를 따로 정한 오류(#197 HybridWriteError)만 그 문구를 쓴다
+    clientMessage = typeof publicMessage === 'string' && publicMessage ? publicMessage : '서버 내부 오류가 발생했습니다.';
   } else if (statusCode === 404) {
     clientMessage = '요청한 리소스를 찾을 수 없습니다.';
   } else if (statusCode === 400) {

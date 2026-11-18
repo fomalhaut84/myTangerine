@@ -21,6 +21,11 @@ export {
   type DataSourceMode,
   type HybridDataServiceOptions,
 } from './services/hybrid-data-service.js';
+export {
+  HybridWriteError,
+  SHEET_SYNC_WARNING,
+  type WriteOutcome,
+} from './services/hybrid-write.js';
 export { SyncEngine, type SyncResult, type Logger } from './services/sync-engine.js';
 export {
   DistributedLockService,

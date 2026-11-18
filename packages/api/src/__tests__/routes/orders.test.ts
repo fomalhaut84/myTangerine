@@ -2,7 +2,8 @@
  * 주문 API 통합 테스트
  */
 
-import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
+import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
+import { HybridWriteError, SHEET_SYNC_WARNING } from '@mytangerine/core';
 import { FastifyInstance } from 'fastify';
 import { createTestServer, AUTH_HEADERS } from '../helpers/test-server.js';
 import { MockSheetService, createMockSheetRows, createMockSheetRow } from '../helpers/mock-sheet-service.js';
@@ -545,6 +546,96 @@ describe('Orders API', () => {
       expect(response.statusCode).toBe(400);
       expect(JSON.parse(response.payload).error).toContain('Claim orders allow');
       expect(mockSheetService.getDeliveredCalls()).toEqual([]);
+    });
+  });
+
+  // #197 — hybrid 쓰기 부분 실패를 응답에 싣는다 (응답 스키마가 선언되지 않은 필드를 잘라내므로 회귀 테스트)
+  describe('hybrid write outcome (#197)', () => {
+    const WARNING = SHEET_SYNC_WARNING;
+    const partial = { partial: true, warnings: [WARNING] };
+
+    it('returns warnings from mark-delivered when the sheet write failed', async () => {
+      mockSheetService.setMockNewOrders([createMockSheetRow({ _rowNumber: 30, '비고': '입금확인' })]);
+      vi.spyOn(mockSheetService, 'markDelivered').mockResolvedValueOnce(partial as never);
+
+      const response = await server.inject({
+        headers: AUTH_HEADERS,
+        method: 'POST',
+        url: '/api/orders/30/mark-delivered',
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(200);
+      expect(JSON.parse(response.payload)).toMatchObject({ success: true, warnings: [WARNING] });
+    });
+
+    // 회귀: 응답 스키마에 warnings 가 빠지면 직렬화에서 잘린다 — 쓰기 라우트마다 확인
+    type Stubbed = Record<string, unknown>;
+    const ROUTES: Array<{ name: string; method: string; url: string; fn: string; deleted?: boolean; status?: string }> = [
+      { name: 'single confirm', method: 'POST', url: '/api/orders/40/confirm', fn: 'markSingleAsConfirmed' },
+      { name: 'confirm-payment', method: 'POST', url: '/api/orders/40/confirm-payment', fn: 'markPaymentConfirmed' },
+      { name: 'mark-delivered', method: 'POST', url: '/api/orders/40/mark-delivered', fn: 'markDelivered', status: '입금확인' },
+      { name: 'delete', method: 'POST', url: '/api/orders/40/delete', fn: 'softDelete' },
+      { name: 'restore', method: 'POST', url: '/api/orders/40/restore', fn: 'restore', deleted: true },
+    ];
+
+    it.each(ROUTES)('$name carries warnings through the response schema', async ({ method, url, fn, deleted, status }) => {
+      const row = createMockSheetRow({ _rowNumber: 40, '비고': status ?? '신규주문' });
+      mockSheetService.setMockNewOrders([row]);
+      const stubbed = mockSheetService as unknown as Stubbed;
+      const original = stubbed[fn];
+      const originalDeleted = stubbed.getDeletedOrders;
+      stubbed[fn] = vi.fn().mockResolvedValue(partial);
+      if (deleted) stubbed.getDeletedOrders = vi.fn().mockResolvedValue([{ ...row, _isDeleted: true }]);
+      try {
+        const response = await server.inject({ headers: AUTH_HEADERS, method, url, payload: {} });
+        expect(response.statusCode).toBe(200);
+        expect(JSON.parse(response.payload).warnings).toEqual([WARNING]);
+      } finally {
+        stubbed[fn] = original;
+        stubbed.getDeletedOrders = originalDeleted;
+      }
+    });
+
+    it('returns warnings from bulk confirm', async () => {
+      mockSheetService.setMockNewOrders(createMockSheetRows(2));
+      vi.spyOn(mockSheetService, 'markAsConfirmed').mockResolvedValueOnce(partial as never);
+
+      const response = await server.inject({ headers: AUTH_HEADERS, method: 'POST', url: '/api/orders/confirm' });
+
+      expect(JSON.parse(response.payload)).toMatchObject({ confirmedCount: 2, warnings: [WARNING] });
+    });
+
+    it('omits warnings when the write fully succeeded', async () => {
+      mockSheetService.setMockNewOrders([createMockSheetRow({ _rowNumber: 31, '비고': '입금확인' })]);
+
+      const response = await server.inject({
+        headers: AUTH_HEADERS,
+        method: 'POST',
+        url: '/api/orders/31/mark-delivered',
+        payload: {},
+      });
+
+      expect(JSON.parse(response.payload).warnings).toBeUndefined();
+    });
+
+    it('answers 503 without leaking details when the DB write failed (nothing written)', async () => {
+      mockSheetService.setMockNewOrders([createMockSheetRow({ _rowNumber: 32, '비고': '입금확인' })]);
+      vi.spyOn(mockSheetService, 'markDelivered').mockRejectedValueOnce(
+        new HybridWriteError('markDelivered', new Error('password authentication failed'))
+      );
+
+      const response = await server.inject({
+        headers: AUTH_HEADERS,
+        method: 'POST',
+        url: '/api/orders/32/mark-delivered',
+        payload: {},
+      });
+
+      expect(response.statusCode).toBe(503);
+      expect(response.payload).not.toContain('password authentication failed');
+      // 사용자에게 "아무것도 바뀌지 않았다"를 알린다
+      expect(JSON.parse(response.payload).error).toContain('변경된 내용은 없습니다');
     });
   });
 

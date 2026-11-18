@@ -7,11 +7,21 @@
  * Issue #68 Phase 2.1: Google Sheets → PostgreSQL 하이브리드 시스템
  */
 
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, type Prisma } from '@prisma/client';
 import type { SheetRow, OrderStatus } from '../types/order.js';
 import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normalizeOrderStatus, parseOrderType } from '../types/order.js';
 import type { Config } from '../config/config.js';
 import { ChangeLogService, type FieldChange } from './change-log-service.js';
+
+/**
+ * 쓰기 트랜잭션 옵션 (#197) — 변경 전 조회 · 업데이트 · 변경 이력을 한 트랜잭션으로.
+ * 이력이 많은 쓰기를 위해 기본(5초)보다 넉넉히 두되, 대기+실행(25초)이 웹 서버·클라이언트
+ * 타임아웃(30초)보다 짧아야 한다 — 클라이언트는 타임아웃인데 서버는 커밋하는 경우를 피한다.
+ */
+const WRITE_TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const;
+
+/** syncErrorMessage 최대 길이 */
+const MAX_SYNC_ERROR_LENGTH = 1000;
 
 // Prisma Order 타입 정의 (runtime에서 자동 추론됨)
 type PrismaOrder = Awaited<ReturnType<PrismaClient['order']['findUnique']>> & object;
@@ -317,59 +327,86 @@ export class DatabaseService {
    */
   async markAsConfirmed(rowNumbers?: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
-      // 변경 전 주문 조회 (이력 기록용)
-      const whereClause = rowNumbers && rowNumbers.length > 0
-        ? { sheetRowNumber: { in: rowNumbers }, deletedAt: null }
-        : { status: { notIn: ['배송완료', '확인'] }, deletedAt: null };
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 변경 전 주문 조회 (이력 기록용)
+        const whereClause = rowNumbers && rowNumbers.length > 0
+          ? { sheetRowNumber: { in: rowNumbers }, deletedAt: null }
+          : { status: { notIn: ['배송완료', '확인'] }, deletedAt: null };
 
-      const beforeOrders = await this._prisma.order.findMany({ where: whereClause });
+        const beforeOrders = await db.order.findMany({ where: whereClause });
 
-      if (rowNumbers && rowNumbers.length > 0) {
-        // 특정 행만 배송완료 처리
-        await this._prisma.order.updateMany({
-          where: {
-            sheetRowNumber: { in: rowNumbers },
-            deletedAt: null, // Soft Delete된 주문 제외
-          },
-          data: {
-            status: '배송완료',
-            updatedAt: new Date(),
-          },
-        });
-      } else {
-        // 모든 미완료 주문 배송완료 처리 (하위 호환성)
-        await this._prisma.order.updateMany({
-          where: {
-            status: { notIn: ['배송완료', '확인'] },
-            deletedAt: null,
-          },
-          data: {
-            status: '배송완료',
-            updatedAt: new Date(),
-          },
-        });
-      }
-
-      // 각 주문에 대해 이력 기록
-      for (const order of beforeOrders) {
-        if (order.status !== '배송완료') {
-          await this.changeLogService.logChange({
-            orderId: order.id,
-            sheetRowNumber: order.sheetRowNumber,
-            changedBy,
-            action: 'status_change',
-            fieldChanges: {
-              status: { old: order.status, new: '배송완료' },
+        if (rowNumbers && rowNumbers.length > 0) {
+          // 특정 행만 배송완료 처리
+          await db.order.updateMany({
+            where: {
+              sheetRowNumber: { in: rowNumbers },
+              deletedAt: null, // Soft Delete된 주문 제외
             },
-            previousVersion: order.version ?? 1,
+            data: {
+              status: '배송완료',
+              updatedAt: new Date(),
+            },
+          });
+        } else {
+          // 모든 미완료 주문 배송완료 처리 (하위 호환성)
+          await db.order.updateMany({
+            where: {
+              status: { notIn: ['배송완료', '확인'] },
+              deletedAt: null,
+            },
+            data: {
+              status: '배송완료',
+              updatedAt: new Date(),
+            },
           });
         }
-      }
+
+        // 각 주문에 대해 이력 기록
+        for (const order of beforeOrders) {
+          if (order.status !== '배송완료') {
+            await this.changeLogService.logChange({
+              orderId: order.id,
+              sheetRowNumber: order.sheetRowNumber,
+              changedBy,
+              action: 'status_change',
+              fieldChanges: {
+                status: { old: order.status, new: '배송완료' },
+              },
+              previousVersion: order.version ?? 1,
+            }, db);
+          }
+        }
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const context = rowNumbers ? `rows ${rowNumbers.join(', ')}` : 'all incomplete orders';
       throw new Error(`Failed to mark as delivered (${context}): ${message}`);
     }
+  }
+
+  /**
+   * 시트 반영 실패 기록 (#197) — hybrid 쓰기에서 DB 는 성공했는데 시트가 실패한 행.
+   * 주문 데이터·version·변경 이력은 건드리지 않는다.
+   */
+  async markSheetSyncFailed(rowNumbers: number[], reason: string): Promise<void> {
+    if (rowNumbers.length === 0) return;
+    await this._prisma.order.updateMany({
+      where: { sheetRowNumber: { in: rowNumbers } },
+      data: { syncStatus: 'failed', syncErrorMessage: reason.slice(0, MAX_SYNC_ERROR_LENGTH) },
+    });
+  }
+
+  /**
+   * 시트 반영 실패 표시 해제 (#197) — 행 전체를 시트에 다시 맞춘 뒤에만 쓴다(#231 재조정).
+   * 일부 필드만 쓰는 일반 hybrid 쓰기의 성공으로는 지우지 않는다(PR #230 Codex P2).
+   * 'failed' 인 행만 바꾼다(동기화가 남긴 다른 상태는 건드리지 않는다).
+   */
+  async clearSheetSyncFailure(rowNumbers: number[]): Promise<void> {
+    if (rowNumbers.length === 0) return;
+    await this._prisma.order.updateMany({
+      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: 'failed' },
+      data: { syncStatus: 'success', syncErrorMessage: null },
+    });
   }
 
   /**
@@ -392,43 +429,45 @@ export class DatabaseService {
     changedBy: 'web' | 'sync' | 'api' = 'api'
   ): Promise<void> {
     try {
-      // 변경 전 주문 조회
-      const beforeOrder = await this._prisma.order.findFirst({
-        where: { sheetRowNumber: rowNumber, deletedAt: null },
-      });
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 변경 전 주문 조회
+        const beforeOrder = await db.order.findFirst({
+          where: { sheetRowNumber: rowNumber, deletedAt: null },
+        });
 
-      if (!beforeOrder) {
-        throw new Error(`Order not found at row ${rowNumber}`);
-      }
+        if (!beforeOrder) {
+          throw new Error(`Order not found at row ${rowNumber}`);
+        }
 
-      // 상태가 동일하면 스킵
-      if (beforeOrder.status === newStatus) {
-        return;
-      }
+        // 상태가 동일하면 스킵
+        if (beforeOrder.status === newStatus) {
+          return;
+        }
 
-      // 상태 업데이트
-      await this._prisma.order.updateMany({
-        where: {
+        // 상태 업데이트
+        await db.order.updateMany({
+          where: {
+            sheetRowNumber: rowNumber,
+            deletedAt: null,
+          },
+          data: {
+            status: newStatus,
+            updatedAt: new Date(),
+          },
+        });
+
+        // 변경 이력 로깅
+        await this.changeLogService.logChange({
+          orderId: beforeOrder.id,
           sheetRowNumber: rowNumber,
-          deletedAt: null,
-        },
-        data: {
-          status: newStatus,
-          updatedAt: new Date(),
-        },
-      });
-
-      // 변경 이력 로깅
-      await this.changeLogService.logChange({
-        orderId: beforeOrder.id,
-        sheetRowNumber: rowNumber,
-        changedBy,
-        action: 'status_change',
-        fieldChanges: {
-          status: { old: beforeOrder.status, new: newStatus },
-        },
-        previousVersion: beforeOrder.version,
-      });
+          changedBy,
+          action: 'status_change',
+          fieldChanges: {
+            status: { old: beforeOrder.status, new: newStatus },
+          },
+          previousVersion: beforeOrder.version,
+        }, db);
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to update order status (row: ${rowNumber}, status: ${newStatus}): ${message}`);
@@ -442,40 +481,42 @@ export class DatabaseService {
    */
   async markPaymentConfirmed(rowNumbers: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
-      // 변경 전 주문 조회 (이력 기록용)
-      const beforeOrders = await this._prisma.order.findMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-          deletedAt: null,
-        },
-      });
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 변경 전 주문 조회 (이력 기록용)
+        const beforeOrders = await db.order.findMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: null,
+          },
+        });
 
-      await this._prisma.order.updateMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-          deletedAt: null,
-        },
-        data: {
-          status: '입금확인',
-          updatedAt: new Date(),
-        },
-      });
+        await db.order.updateMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: null,
+          },
+          data: {
+            status: '입금확인',
+            updatedAt: new Date(),
+          },
+        });
 
-      // 각 주문에 대해 이력 기록
-      for (const order of beforeOrders) {
-        if (order.status !== '입금확인') {
-          await this.changeLogService.logChange({
-            orderId: order.id,
-            sheetRowNumber: order.sheetRowNumber,
-            changedBy,
-            action: 'status_change',
-            fieldChanges: {
-              status: { old: order.status, new: '입금확인' },
-            },
-            previousVersion: order.version ?? 1,
-          });
+        // 각 주문에 대해 이력 기록
+        for (const order of beforeOrders) {
+          if (order.status !== '입금확인') {
+            await this.changeLogService.logChange({
+              orderId: order.id,
+              sheetRowNumber: order.sheetRowNumber,
+              changedBy,
+              action: 'status_change',
+              fieldChanges: {
+                status: { old: order.status, new: '입금확인' },
+              },
+              previousVersion: order.version ?? 1,
+            }, db);
+          }
         }
-      }
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to mark payment confirmed (rows: ${rowNumbers.join(', ')}): ${message}`);
@@ -490,48 +531,50 @@ export class DatabaseService {
    */
   async markDelivered(rowNumbers: number[], trackingNumber?: string, changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
-      // 변경 전 주문 조회 (이력 기록용)
-      const beforeOrders = await this._prisma.order.findMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-          deletedAt: null,
-        },
-      });
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 변경 전 주문 조회 (이력 기록용)
+        const beforeOrders = await db.order.findMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: null,
+          },
+        });
 
-      await this._prisma.order.updateMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-          deletedAt: null,
-        },
-        data: {
-          status: '배송완료',
-          ...(trackingNumber && { trackingNumber }),
-          updatedAt: new Date(),
-        },
-      });
+        await db.order.updateMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: null,
+          },
+          data: {
+            status: '배송완료',
+            ...(trackingNumber && { trackingNumber }),
+            updatedAt: new Date(),
+          },
+        });
 
-      // 각 주문에 대해 이력 기록
-      for (const order of beforeOrders) {
-        const fieldChanges: Record<string, { old: unknown; new: unknown }> = {};
+        // 각 주문에 대해 이력 기록
+        for (const order of beforeOrders) {
+          const fieldChanges: Record<string, { old: unknown; new: unknown }> = {};
 
-        if (order.status !== '배송완료') {
-          fieldChanges.status = { old: order.status, new: '배송완료' };
+          if (order.status !== '배송완료') {
+            fieldChanges.status = { old: order.status, new: '배송완료' };
+          }
+          if (trackingNumber && order.trackingNumber !== trackingNumber) {
+            fieldChanges.trackingNumber = { old: order.trackingNumber, new: trackingNumber };
+          }
+
+          if (Object.keys(fieldChanges).length > 0) {
+            await this.changeLogService.logChange({
+              orderId: order.id,
+              sheetRowNumber: order.sheetRowNumber,
+              changedBy,
+              action: 'status_change',
+              fieldChanges,
+              previousVersion: order.version ?? 1,
+            }, db);
+          }
         }
-        if (trackingNumber && order.trackingNumber !== trackingNumber) {
-          fieldChanges.trackingNumber = { old: order.trackingNumber, new: trackingNumber };
-        }
-
-        if (Object.keys(fieldChanges).length > 0) {
-          await this.changeLogService.logChange({
-            orderId: order.id,
-            sheetRowNumber: order.sheetRowNumber,
-            changedBy,
-            action: 'status_change',
-            fieldChanges,
-            previousVersion: order.version ?? 1,
-          });
-        }
-      }
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to mark as delivered (rows: ${rowNumbers.join(', ')}): ${message}`);
@@ -546,52 +589,54 @@ export class DatabaseService {
    */
   async markDeliveredById(dbId: number, trackingNumber?: string, changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
-      // 변경 전 주문 조회 (이력 기록용)
-      const order = await this._prisma.order.findUnique({
-        where: { id: dbId },
-      });
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 변경 전 주문 조회 (이력 기록용)
+        const order = await db.order.findUnique({
+          where: { id: dbId },
+        });
 
-      if (!order) {
-        throw new Error(`Order not found with id: ${dbId}`);
-      }
-
-      if (order.deletedAt) {
-        throw new Error(`Cannot update deleted order with id: ${dbId}`);
-      }
-
-      await this._prisma.order.update({
-        where: { id: dbId },
-        data: {
-          status: '배송완료',
-          ...(trackingNumber && { trackingNumber }),
-          updatedAt: new Date(),
-        },
-      });
-
-      // 이력 기록 (claim 주문은 sheetRowNumber가 null이므로 change log 스킵)
-      // P2 리뷰 반영: claim 주문은 sheetRowNumber가 null이라 원본 주문의 sheetRowNumber로 기록하면
-      // 원본 주문의 히스토리에 claim 변경사항이 표시되어 혼란을 줌
-      if (order.sheetRowNumber !== null) {
-        const fieldChanges: Record<string, { old: unknown; new: unknown }> = {};
-
-        if (order.status !== '배송완료') {
-          fieldChanges.status = { old: order.status, new: '배송완료' };
-        }
-        if (trackingNumber && order.trackingNumber !== trackingNumber) {
-          fieldChanges.trackingNumber = { old: order.trackingNumber, new: trackingNumber };
+        if (!order) {
+          throw new Error(`Order not found with id: ${dbId}`);
         }
 
-        if (Object.keys(fieldChanges).length > 0) {
-          await this.changeLogService.logChange({
-            orderId: order.id,
-            sheetRowNumber: order.sheetRowNumber,
-            changedBy,
-            action: 'status_change',
-            fieldChanges,
-            previousVersion: order.version ?? 1,
-          });
+        if (order.deletedAt) {
+          throw new Error(`Cannot update deleted order with id: ${dbId}`);
         }
-      }
+
+        await db.order.update({
+          where: { id: dbId },
+          data: {
+            status: '배송완료',
+            ...(trackingNumber && { trackingNumber }),
+            updatedAt: new Date(),
+          },
+        });
+
+        // 이력 기록 (claim 주문은 sheetRowNumber가 null이므로 change log 스킵)
+        // P2 리뷰 반영: claim 주문은 sheetRowNumber가 null이라 원본 주문의 sheetRowNumber로 기록하면
+        // 원본 주문의 히스토리에 claim 변경사항이 표시되어 혼란을 줌
+        if (order.sheetRowNumber !== null) {
+          const fieldChanges: Record<string, { old: unknown; new: unknown }> = {};
+
+          if (order.status !== '배송완료') {
+            fieldChanges.status = { old: order.status, new: '배송완료' };
+          }
+          if (trackingNumber && order.trackingNumber !== trackingNumber) {
+            fieldChanges.trackingNumber = { old: order.trackingNumber, new: trackingNumber };
+          }
+
+          if (Object.keys(fieldChanges).length > 0) {
+            await this.changeLogService.logChange({
+              orderId: order.id,
+              sheetRowNumber: order.sheetRowNumber,
+              changedBy,
+              action: 'status_change',
+              fieldChanges,
+              previousVersion: order.version ?? 1,
+            }, db);
+          }
+        }
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to mark as delivered (id: ${dbId}): ${message}`);
@@ -605,40 +650,42 @@ export class DatabaseService {
    */
   async softDelete(rowNumbers: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
-      // 변경 전 주문 조회 (이력 기록용)
-      const beforeOrders = await this._prisma.order.findMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-          deletedAt: null,
-        },
-      });
-
-      const deletedAt = new Date();
-
-      await this._prisma.order.updateMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-          deletedAt: null, // 이미 삭제된 주문은 건너뜀
-        },
-        data: {
-          deletedAt,
-          updatedAt: new Date(),
-        },
-      });
-
-      // 각 주문에 대해 이력 기록
-      for (const order of beforeOrders) {
-        await this.changeLogService.logChange({
-          orderId: order.id,
-          sheetRowNumber: order.sheetRowNumber,
-          changedBy,
-          action: 'delete',
-          fieldChanges: {
-            deletedAt: { old: null, new: deletedAt.toISOString() },
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 변경 전 주문 조회 (이력 기록용)
+        const beforeOrders = await db.order.findMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: null,
           },
-          previousVersion: order.version ?? 1,
         });
-      }
+
+        const deletedAt = new Date();
+
+        await db.order.updateMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: null, // 이미 삭제된 주문은 건너뜀
+          },
+          data: {
+            deletedAt,
+            updatedAt: new Date(),
+          },
+        });
+
+        // 각 주문에 대해 이력 기록
+        for (const order of beforeOrders) {
+          await this.changeLogService.logChange({
+            orderId: order.id,
+            sheetRowNumber: order.sheetRowNumber,
+            changedBy,
+            action: 'delete',
+            fieldChanges: {
+              deletedAt: { old: null, new: deletedAt.toISOString() },
+            },
+            previousVersion: order.version ?? 1,
+          }, db);
+        }
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to soft delete orders (rows: ${rowNumbers.join(', ')}): ${message}`);
@@ -652,38 +699,40 @@ export class DatabaseService {
    */
   async restore(rowNumbers: number[], changedBy: 'web' | 'sync' | 'api' = 'api'): Promise<void> {
     try {
-      // 변경 전 주문 조회 (이력 기록용)
-      const beforeOrders = await this._prisma.order.findMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-          deletedAt: { not: null },
-        },
-      });
-
-      await this._prisma.order.updateMany({
-        where: {
-          sheetRowNumber: { in: rowNumbers },
-          deletedAt: { not: null }, // 삭제된 주문만
-        },
-        data: {
-          deletedAt: null,
-          updatedAt: new Date(),
-        },
-      });
-
-      // 각 주문에 대해 이력 기록
-      for (const order of beforeOrders) {
-        await this.changeLogService.logChange({
-          orderId: order.id,
-          sheetRowNumber: order.sheetRowNumber,
-          changedBy,
-          action: 'restore',
-          fieldChanges: {
-            deletedAt: { old: order.deletedAt?.toISOString() ?? null, new: null },
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 변경 전 주문 조회 (이력 기록용)
+        const beforeOrders = await db.order.findMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: { not: null },
           },
-          previousVersion: order.version ?? 1,
         });
-      }
+
+        await db.order.updateMany({
+          where: {
+            sheetRowNumber: { in: rowNumbers },
+            deletedAt: { not: null }, // 삭제된 주문만
+          },
+          data: {
+            deletedAt: null,
+            updatedAt: new Date(),
+          },
+        });
+
+        // 각 주문에 대해 이력 기록
+        for (const order of beforeOrders) {
+          await this.changeLogService.logChange({
+            orderId: order.id,
+            sheetRowNumber: order.sheetRowNumber,
+            changedBy,
+            action: 'restore',
+            fieldChanges: {
+              deletedAt: { old: order.deletedAt?.toISOString() ?? null, new: null },
+            },
+            previousVersion: order.version ?? 1,
+          }, db);
+        }
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to restore orders (rows: ${rowNumbers.join(', ')}): ${message}`);
@@ -715,24 +764,26 @@ export class DatabaseService {
    */
   async updateCell(rowNumber: number, columnName: string, value: string): Promise<void> {
     try {
-      // 컬럼명 매핑 (한글 → DB 필드)
-      const columnMap: Record<string, string> = {
-        '비고': 'status',
-        'DB_SYNC_STATUS': 'syncStatus',
-        'DB_SYNC_AT': 'syncedAt',
-        'DB_SYNC_ID': 'id',
-      };
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 컬럼명 매핑 (한글 → DB 필드)
+        const columnMap: Record<string, string> = {
+          '비고': 'status',
+          'DB_SYNC_STATUS': 'syncStatus',
+          'DB_SYNC_AT': 'syncedAt',
+          'DB_SYNC_ID': 'id',
+        };
 
-      const dbField = columnMap[columnName] || columnName;
+        const dbField = columnMap[columnName] || columnName;
 
-      // 동적 업데이트 (타입 안전성 제한적)
-      await this._prisma.order.updateMany({
-        where: { sheetRowNumber: rowNumber },
-        data: {
-          [dbField]: value,
-          updatedAt: new Date(),
-        } as any,
-      });
+        // 동적 업데이트 (타입 안전성 제한적)
+        await db.order.updateMany({
+          where: { sheetRowNumber: rowNumber },
+          data: {
+            [dbField]: value,
+            updatedAt: new Date(),
+          } as any,
+        });
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(
@@ -813,181 +864,183 @@ export class DatabaseService {
     changedBy: 'web' | 'sync' | 'api' = 'api'
   ): Promise<void> {
     try {
-      // 1. 변경 전 주문 조회
-      const beforeOrder = await this._prisma.order.findFirst({
-        where: { sheetRowNumber: rowNumber, deletedAt: null },
-      });
-
-      if (!beforeOrder) {
-        throw new Error(`Order not found at row ${rowNumber}`);
-      }
-
-      // Prisma 업데이트 데이터 구성
-      const data: Record<string, unknown> = {
-        updatedAt: new Date(),
-      };
-
-      // 발송인 정보
-      if (updates.sender) {
-        if (updates.sender.name !== undefined) {
-          data.senderName = updates.sender.name;
-        }
-        if (updates.sender.phone !== undefined) {
-          data.senderPhone = updates.sender.phone;
-        }
-        if (updates.sender.address !== undefined) {
-          data.senderAddress = updates.sender.address;
-        }
-      }
-
-      // 수취인 정보
-      if (updates.recipient) {
-        if (updates.recipient.name !== undefined) {
-          data.recipientName = updates.recipient.name;
-        }
-        if (updates.recipient.phone !== undefined) {
-          data.recipientPhone = updates.recipient.phone;
-        }
-        if (updates.recipient.address !== undefined) {
-          data.recipientAddress = updates.recipient.address;
-        }
-      }
-
-      // 상품 정보
-      if (updates.productType !== undefined) {
-        data.productType = updates.productType;
-      }
-
-      // 수량 (5kg 또는 10kg 수량 필드에 저장)
-      // 8차 리뷰: Prisma 스키마의 String 타입에 맞게 문자열로 저장
-      if (updates.quantity !== undefined) {
-        const productType = updates.productType || beforeOrder.productType;
-        if (productType?.includes('5kg')) {
-          data.quantity5kg = String(updates.quantity);
-          data.quantity10kg = '0';
-        } else if (productType?.includes('10kg')) {
-          data.quantity10kg = String(updates.quantity);
-          data.quantity5kg = '0';
-        }
-        // P2 Fix: derived quantity 필드도 함께 업데이트 (claim 주문 복제 등에서 사용)
-        data.quantity = updates.quantity;
-      }
-
-      // 주문 유형
-      if (updates.orderType !== undefined) {
-        data.orderType = updates.orderType;
-      }
-
-      // 송장번호 (빈 문자열은 null로 변환하여 삭제)
-      if (updates.trackingNumber !== undefined) {
-        data.trackingNumber = updates.trackingNumber === '' ? null : updates.trackingNumber;
-      }
-
-      // 업데이트할 필드가 updatedAt만 있으면 종료
-      if (Object.keys(data).length === 1) {
-        return;
-      }
-
-      // 2. 업데이트 실행
-      await this._prisma.order.updateMany({
-        where: {
-          sheetRowNumber: rowNumber,
-          deletedAt: null,
-        },
-        data,
-      });
-
-      // 3. 변경 이력 계산 및 로깅
-      const fieldChanges: Record<string, FieldChange> = {};
-
-      // 발송인 정보 변경 감지
-      if (updates.sender?.name !== undefined && updates.sender.name !== beforeOrder.senderName) {
-        fieldChanges.senderName = { old: beforeOrder.senderName, new: updates.sender.name };
-      }
-      if (updates.sender?.phone !== undefined && updates.sender.phone !== beforeOrder.senderPhone) {
-        fieldChanges.senderPhone = { old: beforeOrder.senderPhone, new: updates.sender.phone };
-      }
-      if (updates.sender?.address !== undefined && updates.sender.address !== beforeOrder.senderAddress) {
-        fieldChanges.senderAddress = { old: beforeOrder.senderAddress, new: updates.sender.address };
-      }
-
-      // 수취인 정보 변경 감지
-      if (updates.recipient?.name !== undefined && updates.recipient.name !== beforeOrder.recipientName) {
-        fieldChanges.recipientName = { old: beforeOrder.recipientName, new: updates.recipient.name };
-      }
-      if (updates.recipient?.phone !== undefined && updates.recipient.phone !== beforeOrder.recipientPhone) {
-        fieldChanges.recipientPhone = { old: beforeOrder.recipientPhone, new: updates.recipient.phone };
-      }
-      if (updates.recipient?.address !== undefined && updates.recipient.address !== beforeOrder.recipientAddress) {
-        fieldChanges.recipientAddress = { old: beforeOrder.recipientAddress, new: updates.recipient.address };
-      }
-
-      // 주문 유형 변경 감지
-      if (updates.orderType !== undefined && updates.orderType !== beforeOrder.orderType) {
-        fieldChanges.orderType = { old: beforeOrder.orderType, new: updates.orderType };
-      }
-
-      // 송장번호 변경 감지
-      if (updates.trackingNumber !== undefined) {
-        const newTracking = updates.trackingNumber === '' ? null : updates.trackingNumber;
-        if (newTracking !== beforeOrder.trackingNumber) {
-          fieldChanges.trackingNumber = { old: beforeOrder.trackingNumber, new: newTracking };
-        }
-      }
-
-      // 상품 타입 변경 감지 (6차 리뷰)
-      if (updates.productType !== undefined && updates.productType !== beforeOrder.productType) {
-        fieldChanges.productType = { old: beforeOrder.productType, new: updates.productType };
-      }
-
-      // 수량 변경 감지 (6차 + 7차 + 8차 리뷰)
-      // productType 변경 시 반대 수량 필드 리셋도 기록
-      // 8차 리뷰: 로그에도 String 타입으로 일관성 유지
-      if (updates.quantity !== undefined) {
-        const productType = updates.productType || beforeOrder.productType;
-        const isProductTypeChanging = updates.productType !== undefined && updates.productType !== beforeOrder.productType;
-        const newQtyStr = String(updates.quantity);
-
-        if (productType?.includes('5kg')) {
-          // 새 값이 5kg 수량으로 설정됨
-          const old5kg = beforeOrder.quantity5kg ?? '';
-          if (newQtyStr !== old5kg) {
-            fieldChanges.quantity5kg = { old: old5kg, new: newQtyStr };
-          }
-          // productType 변경 시 10kg 수량이 0으로 리셋되는 것도 기록
-          if (isProductTypeChanging) {
-            const old10kg = beforeOrder.quantity10kg ?? '';
-            if (old10kg !== '0' && old10kg !== '') {
-              fieldChanges.quantity10kg = { old: old10kg, new: '0' };
-            }
-          }
-        } else if (productType?.includes('10kg')) {
-          // 새 값이 10kg 수량으로 설정됨
-          const old10kg = beforeOrder.quantity10kg ?? '';
-          if (newQtyStr !== old10kg) {
-            fieldChanges.quantity10kg = { old: old10kg, new: newQtyStr };
-          }
-          // productType 변경 시 5kg 수량이 0으로 리셋되는 것도 기록
-          if (isProductTypeChanging) {
-            const old5kg = beforeOrder.quantity5kg ?? '';
-            if (old5kg !== '0' && old5kg !== '') {
-              fieldChanges.quantity5kg = { old: old5kg, new: '0' };
-            }
-          }
-        }
-      }
-
-      // 변경사항이 있으면 로그 기록
-      if (Object.keys(fieldChanges).length > 0) {
-        await this.changeLogService.logChange({
-          orderId: beforeOrder.id,
-          sheetRowNumber: rowNumber,
-          changedBy,
-          action: 'update',
-          fieldChanges,
-          previousVersion: beforeOrder.version,
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 1. 변경 전 주문 조회
+        const beforeOrder = await db.order.findFirst({
+          where: { sheetRowNumber: rowNumber, deletedAt: null },
         });
-      }
+
+        if (!beforeOrder) {
+          throw new Error(`Order not found at row ${rowNumber}`);
+        }
+
+        // Prisma 업데이트 데이터 구성
+        const data: Record<string, unknown> = {
+          updatedAt: new Date(),
+        };
+
+        // 발송인 정보
+        if (updates.sender) {
+          if (updates.sender.name !== undefined) {
+            data.senderName = updates.sender.name;
+          }
+          if (updates.sender.phone !== undefined) {
+            data.senderPhone = updates.sender.phone;
+          }
+          if (updates.sender.address !== undefined) {
+            data.senderAddress = updates.sender.address;
+          }
+        }
+
+        // 수취인 정보
+        if (updates.recipient) {
+          if (updates.recipient.name !== undefined) {
+            data.recipientName = updates.recipient.name;
+          }
+          if (updates.recipient.phone !== undefined) {
+            data.recipientPhone = updates.recipient.phone;
+          }
+          if (updates.recipient.address !== undefined) {
+            data.recipientAddress = updates.recipient.address;
+          }
+        }
+
+        // 상품 정보
+        if (updates.productType !== undefined) {
+          data.productType = updates.productType;
+        }
+
+        // 수량 (5kg 또는 10kg 수량 필드에 저장)
+        // 8차 리뷰: Prisma 스키마의 String 타입에 맞게 문자열로 저장
+        if (updates.quantity !== undefined) {
+          const productType = updates.productType || beforeOrder.productType;
+          if (productType?.includes('5kg')) {
+            data.quantity5kg = String(updates.quantity);
+            data.quantity10kg = '0';
+          } else if (productType?.includes('10kg')) {
+            data.quantity10kg = String(updates.quantity);
+            data.quantity5kg = '0';
+          }
+          // P2 Fix: derived quantity 필드도 함께 업데이트 (claim 주문 복제 등에서 사용)
+          data.quantity = updates.quantity;
+        }
+
+        // 주문 유형
+        if (updates.orderType !== undefined) {
+          data.orderType = updates.orderType;
+        }
+
+        // 송장번호 (빈 문자열은 null로 변환하여 삭제)
+        if (updates.trackingNumber !== undefined) {
+          data.trackingNumber = updates.trackingNumber === '' ? null : updates.trackingNumber;
+        }
+
+        // 업데이트할 필드가 updatedAt만 있으면 종료
+        if (Object.keys(data).length === 1) {
+          return;
+        }
+
+        // 2. 업데이트 실행
+        await db.order.updateMany({
+          where: {
+            sheetRowNumber: rowNumber,
+            deletedAt: null,
+          },
+          data,
+        });
+
+        // 3. 변경 이력 계산 및 로깅
+        const fieldChanges: Record<string, FieldChange> = {};
+
+        // 발송인 정보 변경 감지
+        if (updates.sender?.name !== undefined && updates.sender.name !== beforeOrder.senderName) {
+          fieldChanges.senderName = { old: beforeOrder.senderName, new: updates.sender.name };
+        }
+        if (updates.sender?.phone !== undefined && updates.sender.phone !== beforeOrder.senderPhone) {
+          fieldChanges.senderPhone = { old: beforeOrder.senderPhone, new: updates.sender.phone };
+        }
+        if (updates.sender?.address !== undefined && updates.sender.address !== beforeOrder.senderAddress) {
+          fieldChanges.senderAddress = { old: beforeOrder.senderAddress, new: updates.sender.address };
+        }
+
+        // 수취인 정보 변경 감지
+        if (updates.recipient?.name !== undefined && updates.recipient.name !== beforeOrder.recipientName) {
+          fieldChanges.recipientName = { old: beforeOrder.recipientName, new: updates.recipient.name };
+        }
+        if (updates.recipient?.phone !== undefined && updates.recipient.phone !== beforeOrder.recipientPhone) {
+          fieldChanges.recipientPhone = { old: beforeOrder.recipientPhone, new: updates.recipient.phone };
+        }
+        if (updates.recipient?.address !== undefined && updates.recipient.address !== beforeOrder.recipientAddress) {
+          fieldChanges.recipientAddress = { old: beforeOrder.recipientAddress, new: updates.recipient.address };
+        }
+
+        // 주문 유형 변경 감지
+        if (updates.orderType !== undefined && updates.orderType !== beforeOrder.orderType) {
+          fieldChanges.orderType = { old: beforeOrder.orderType, new: updates.orderType };
+        }
+
+        // 송장번호 변경 감지
+        if (updates.trackingNumber !== undefined) {
+          const newTracking = updates.trackingNumber === '' ? null : updates.trackingNumber;
+          if (newTracking !== beforeOrder.trackingNumber) {
+            fieldChanges.trackingNumber = { old: beforeOrder.trackingNumber, new: newTracking };
+          }
+        }
+
+        // 상품 타입 변경 감지 (6차 리뷰)
+        if (updates.productType !== undefined && updates.productType !== beforeOrder.productType) {
+          fieldChanges.productType = { old: beforeOrder.productType, new: updates.productType };
+        }
+
+        // 수량 변경 감지 (6차 + 7차 + 8차 리뷰)
+        // productType 변경 시 반대 수량 필드 리셋도 기록
+        // 8차 리뷰: 로그에도 String 타입으로 일관성 유지
+        if (updates.quantity !== undefined) {
+          const productType = updates.productType || beforeOrder.productType;
+          const isProductTypeChanging = updates.productType !== undefined && updates.productType !== beforeOrder.productType;
+          const newQtyStr = String(updates.quantity);
+
+          if (productType?.includes('5kg')) {
+            // 새 값이 5kg 수량으로 설정됨
+            const old5kg = beforeOrder.quantity5kg ?? '';
+            if (newQtyStr !== old5kg) {
+              fieldChanges.quantity5kg = { old: old5kg, new: newQtyStr };
+            }
+            // productType 변경 시 10kg 수량이 0으로 리셋되는 것도 기록
+            if (isProductTypeChanging) {
+              const old10kg = beforeOrder.quantity10kg ?? '';
+              if (old10kg !== '0' && old10kg !== '') {
+                fieldChanges.quantity10kg = { old: old10kg, new: '0' };
+              }
+            }
+          } else if (productType?.includes('10kg')) {
+            // 새 값이 10kg 수량으로 설정됨
+            const old10kg = beforeOrder.quantity10kg ?? '';
+            if (newQtyStr !== old10kg) {
+              fieldChanges.quantity10kg = { old: old10kg, new: newQtyStr };
+            }
+            // productType 변경 시 5kg 수량이 0으로 리셋되는 것도 기록
+            if (isProductTypeChanging) {
+              const old5kg = beforeOrder.quantity5kg ?? '';
+              if (old5kg !== '0' && old5kg !== '') {
+                fieldChanges.quantity5kg = { old: old5kg, new: '0' };
+              }
+            }
+          }
+        }
+
+        // 변경사항이 있으면 로그 기록
+        if (Object.keys(fieldChanges).length > 0) {
+          await this.changeLogService.logChange({
+            orderId: beforeOrder.id,
+            sheetRowNumber: rowNumber,
+            changedBy,
+            action: 'update',
+            fieldChanges,
+            previousVersion: beforeOrder.version,
+          }, db);
+        }
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to update order (row: ${rowNumber}): ${message}`);
@@ -1007,90 +1060,92 @@ export class DatabaseService {
    */
   async createClaimOrder(originalRowNumber: number): Promise<number> {
     try {
-      // 1. 원본 주문 조회
-      const originalOrder = await this._prisma.order.findFirst({
-        where: { sheetRowNumber: originalRowNumber, deletedAt: null },
-      });
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        // 1. 원본 주문 조회
+        const originalOrder = await db.order.findFirst({
+          where: { sheetRowNumber: originalRowNumber, deletedAt: null },
+        });
 
-      if (!originalOrder) {
-        throw new Error(`Order not found at row ${originalRowNumber}`);
-      }
+        if (!originalOrder) {
+          throw new Error(`Order not found at row ${originalRowNumber}`);
+        }
 
-      // 배송완료 상태인지 확인 (레거시 '확인' 상태도 배송완료로 처리)
-      const normalizedStatus = normalizeOrderStatus(originalOrder.status);
-      if (normalizedStatus !== '배송완료') {
-        throw new Error(`Only completed orders can create claim. Current status: ${originalOrder.status}`);
-      }
+        // 배송완료 상태인지 확인 (레거시 '확인' 상태도 배송완료로 처리)
+        const normalizedStatus = normalizeOrderStatus(originalOrder.status);
+        if (normalizedStatus !== '배송완료') {
+          throw new Error(`Only completed orders can create claim. Current status: ${originalOrder.status}`);
+        }
 
-      // 2. 새 주문 생성 (원본 복제 + orderType='claim')
-      // Issue #155: sheetRowNumber는 null, originalRowNumber에 원본 참조 저장
-      const now = new Date();
-      // timestampRaw는 한국어 형식으로 생성 (parseKoreanTimestamp 호환)
-      const timestampRaw = now.toLocaleString('ko-KR', {
-        year: 'numeric',
-        month: 'numeric',
-        day: 'numeric',
-        hour: 'numeric',
-        minute: 'numeric',
-        second: 'numeric',
-        hour12: true,
-      });
+        // 2. 새 주문 생성 (원본 복제 + orderType='claim')
+        // Issue #155: sheetRowNumber는 null, originalRowNumber에 원본 참조 저장
+        const now = new Date();
+        // timestampRaw는 한국어 형식으로 생성 (parseKoreanTimestamp 호환)
+        const timestampRaw = now.toLocaleString('ko-KR', {
+          year: 'numeric',
+          month: 'numeric',
+          day: 'numeric',
+          hour: 'numeric',
+          minute: 'numeric',
+          second: 'numeric',
+          hour12: true,
+        });
 
-      const newOrder = await this._prisma.order.create({
-        data: {
-          // Issue #155: sheetRowNumber는 null (Sheets에 저장 안 함)
-          sheetRowNumber: null,
-          // Issue #155: 원본 주문 참조
-          originalRowNumber: originalRowNumber,
+        const newOrder = await db.order.create({
+          data: {
+            // Issue #155: sheetRowNumber는 null (Sheets에 저장 안 함)
+            sheetRowNumber: null,
+            // Issue #155: 원본 주문 참조
+            originalRowNumber: originalRowNumber,
 
-          timestamp: now,
-          timestampRaw: timestampRaw,
+            timestamp: now,
+            timestampRaw: timestampRaw,
 
-          // 원본에서 복제 - 주문자 정보
-          ordererName: originalOrder.ordererName,
-          ordererEmail: originalOrder.ordererEmail,
+            // 원본에서 복제 - 주문자 정보
+            ordererName: originalOrder.ordererName,
+            ordererEmail: originalOrder.ordererEmail,
 
-          // 원본에서 복제 - 발송인/수취인 정보
-          senderName: originalOrder.senderName,
-          senderPhone: originalOrder.senderPhone,
-          senderAddress: originalOrder.senderAddress,
-          recipientName: originalOrder.recipientName,
-          recipientPhone: originalOrder.recipientPhone,
-          recipientAddress: originalOrder.recipientAddress,
+            // 원본에서 복제 - 발송인/수취인 정보
+            senderName: originalOrder.senderName,
+            senderPhone: originalOrder.senderPhone,
+            senderAddress: originalOrder.senderAddress,
+            recipientName: originalOrder.recipientName,
+            recipientPhone: originalOrder.recipientPhone,
+            recipientAddress: originalOrder.recipientAddress,
 
-          // 원본에서 복제 - 상품 정보
-          productSelection: originalOrder.productSelection,
-          productType: originalOrder.productType,
-          quantity5kg: originalOrder.quantity5kg,
-          quantity10kg: originalOrder.quantity10kg,
-          quantity: originalOrder.quantity,
-          validationError: originalOrder.validationError,
+            // 원본에서 복제 - 상품 정보
+            productSelection: originalOrder.productSelection,
+            productType: originalOrder.productType,
+            quantity5kg: originalOrder.quantity5kg,
+            quantity10kg: originalOrder.quantity10kg,
+            quantity: originalOrder.quantity,
+            validationError: originalOrder.validationError,
 
-          // 배송사고 설정
-          orderType: 'claim',
-          // Issue #168: claim 주문은 결제 없이 발송해야 하므로 '입금확인' 상태로 생성
-          status: '입금확인',
+            // 배송사고 설정
+            orderType: 'claim',
+            // Issue #168: claim 주문은 결제 없이 발송해야 하므로 '입금확인' 상태로 생성
+            status: '입금확인',
 
-          // Issue #165: claim 주문은 DB 전용이므로 syncStatus를 'success'로 설정
-          // (시트에 동기화하지 않으므로 이미 동기화 완료 상태로 간주)
-          syncStatus: 'success',
+            // Issue #165: claim 주문은 DB 전용이므로 syncStatus를 'success'로 설정
+            // (시트에 동기화하지 않으므로 이미 동기화 완료 상태로 간주)
+            syncStatus: 'success',
 
-          // 메타데이터
-          createdAt: now,
-          updatedAt: now,
-          lastModifiedBy: 'web',
-          lastModifiedAt: now,
-          version: 1,
-        },
-      });
+            // 메타데이터
+            createdAt: now,
+            updatedAt: now,
+            lastModifiedBy: 'web',
+            lastModifiedAt: now,
+            version: 1,
+          },
+        });
 
-      // P2 리뷰 반영: claim 주문은 change log 생성 스킵
-      // - claim 주문은 sheetRowNumber가 null이라 원본 주문의 sheetRowNumber로 기록하면
-      //   원본 주문의 히스토리에 claim 변경사항이 표시되어 혼란을 줌
-      // - claim 주문은 UI에서 변경 이력을 표시하지 않으므로 로그 생성 불필요
+        // P2 리뷰 반영: claim 주문은 change log 생성 스킵
+        // - claim 주문은 sheetRowNumber가 null이라 원본 주문의 sheetRowNumber로 기록하면
+        //   원본 주문의 히스토리에 claim 변경사항이 표시되어 혼란을 줌
+        // - claim 주문은 UI에서 변경 이력을 표시하지 않으므로 로그 생성 불필요
 
-      // Issue #155: DB id 반환 (sheetRowNumber가 null이므로)
-      return newOrder.id;
+        // Issue #155: DB id 반환 (sheetRowNumber가 null이므로)
+        return newOrder.id;
+      }, WRITE_TX_OPTIONS);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to create claim order: ${message}`);
