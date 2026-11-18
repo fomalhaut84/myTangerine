@@ -18,6 +18,7 @@ const prismaPlugin = fp(async (fastify: FastifyInstance) => {
   // Prisma 7: 드라이버 어댑터로 만든다 (#241 · core createPrismaClient)
   const prisma = createPrismaClient({
     log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+    onError: (message: string) => fastify.log.error(message),
   });
 
   // PrismaClient를 Fastify 인스턴스에 등록

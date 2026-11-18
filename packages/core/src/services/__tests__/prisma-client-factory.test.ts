@@ -7,10 +7,12 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
 const adapterArgs: unknown[] = [];
+const adapterOptions: Array<Record<string, unknown> & { onPoolError: (e: Error) => void }> = [];
 vi.mock('@prisma/adapter-pg', () => ({
   PrismaPg: class {
-    constructor(config: unknown) {
+    constructor(config: unknown, options: (typeof adapterOptions)[number]) {
       adapterArgs.push(config);
+      adapterOptions.push(options);
     }
   },
 }));
@@ -24,7 +26,7 @@ vi.mock('@prisma/client', () => ({
   },
 }));
 
-import { createPrismaClient, DB_CONNECT_TIMEOUT_MS } from '../prisma-client-factory.js';
+import { createPrismaClient, DB_CONNECT_TIMEOUT_MS, schemaFromUrl } from '../prisma-client-factory.js';
 
 const URL = 'postgresql://user:password@localhost:5432/never-connected';
 
@@ -33,6 +35,7 @@ describe('createPrismaClient (#241)', () => {
 
   beforeEach(() => {
     adapterArgs.length = 0;
+    adapterOptions.length = 0;
     clientArgs.length = 0;
   });
 
@@ -41,11 +44,11 @@ describe('createPrismaClient (#241)', () => {
     else process.env.DATABASE_URL = original;
   });
 
-  it('builds the pg adapter from DATABASE_URL with the v6 connect timeout', () => {
+  it('builds the pg adapter from DATABASE_URL with a bounded wait (v6 pool wait 10s)', () => {
     process.env.DATABASE_URL = URL;
     createPrismaClient();
     expect(adapterArgs).toEqual([{ connectionString: URL, connectionTimeoutMillis: DB_CONNECT_TIMEOUT_MS }]);
-    expect(DB_CONNECT_TIMEOUT_MS).toBe(5_000);
+    expect(DB_CONNECT_TIMEOUT_MS).toBe(10_000);
     expect(clientArgs[0]).toEqual({ adapter: expect.any(Object) });
   });
 
@@ -58,6 +61,27 @@ describe('createPrismaClient (#241)', () => {
     process.env.DATABASE_URL = 'postgresql://other/db';
     createPrismaClient({ databaseUrl: URL });
     expect(adapterArgs[0]).toMatchObject({ connectionString: URL });
+  });
+
+  // node-pg 는 ?schema= 를 읽지 않는다 — 어댑터 옵션으로 넘겨야 v6 와 같은 스키마를 쓴다
+  it('passes ?schema= to the adapter', () => {
+    createPrismaClient({ databaseUrl: `${URL}?schema=orders` });
+    expect(adapterOptions[0]).toMatchObject({ schema: 'orders' });
+  });
+
+  it('leaves schema unset when the URL has none', () => {
+    createPrismaClient({ databaseUrl: URL });
+    expect(adapterOptions[0]).not.toHaveProperty('schema');
+    expect(schemaFromUrl('not a url')).toBeUndefined();
+  });
+
+  // 유휴 연결 끊김 같은 풀 오류가 debug 로그에만 묻히지 않게 — 메시지만(접속 문자열 없이) 보고한다
+  it('reports pool errors with the message only', () => {
+    const onError = vi.fn();
+    createPrismaClient({ databaseUrl: URL, onError });
+    adapterOptions[0].onPoolError(new Error('terminating connection due to administrator command'));
+    expect(onError).toHaveBeenCalledWith('[prisma] pool error: terminating connection due to administrator command');
+    expect(onError.mock.calls[0][0]).not.toContain('password');
   });
 
   // pg 는 접속 문자열이 없으면 PG* 기본값(로컬 · 현재 사용자)으로 붙는다 — 엉뚱한 DB 에 조용히 붙지 않게 막는다

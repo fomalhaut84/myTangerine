@@ -176,28 +176,47 @@ Prisma 7 client 는 `.env` 를 **스스로 읽지 않는다.** 각 서비스가 
 (api `config.ts` · sync-service `new Config()` — 실행 위치에서 위로 올라가며 `pnpm-workspace.yaml` 을 찾는다),
 못 읽으면 `DATABASE_URL is not set` 으로 기동 직후 멈춘다(엉뚱한 DB 에 붙지 않게 일부러 막았다). 위 *수동 마이그레이션* 절차에 아래를 끼운다.
 
-**A. 재시작 전 (빌드 뒤) — 실행 위치와 DB 주소 확인 (값은 출력하지 않는다)**
+**A. 재시작 전 (빌드 뒤) — 실행 위치 · DB 주소 · 접속 옵션 확인 (값은 출력하지 않는다)**
 ```bash
-pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const p of JSON.parse(s))if(/^myTangerine/.test(p.name))console.log(p.name, p.pm2_env.pm_cwd)})'
-# → 세 앱의 cwd 가 모두 저장소(~/myTangerine) 안이어야 한다
+cd ~/myTangerine
+# 1) 세 앱의 실행 위치(cwd) — 모두 ~/myTangerine 안이어야 한다
+pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s.slice(s.indexOf("["),s.lastIndexOf("]")+1));for(const p of a)if(/^myTangerine/.test(p.name))console.log(p.name, p.pm2_env.pm_cwd)})'
+
+# 2) 서비스와 같은 방식(실행 위치 → 위로 올라가 루트 .env)으로 DATABASE_URL 이 잡히는지
 for app in myTangerineApi myTangerineSync; do
-  cwd=$(pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const p=JSON.parse(s).find(x=>x.name===process.argv[1]);console.log(p?p.pm2_env.pm_cwd:"")})' "$app")
+  cwd=$(pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s.slice(s.indexOf("["),s.lastIndexOf("]")+1));const p=a.find(x=>x.name===process.argv[1]);console.log(p?p.pm2_env.pm_cwd:"")})' "$app")
   root=$(cd "$cwd" && node -e 'console.log(require(process.argv[1]).findProjectRoot())' "$HOME/myTangerine/packages/core/dist/index.js" 2>/dev/null | tail -1)
-  echo "$app  cwd=$cwd  root=$root  DATABASE_URL 줄 수=$(grep -c '^DATABASE_URL=.' "$root/.env" 2>/dev/null || echo 0)"
+  n=$(grep -c '^DATABASE_URL=.' "$root/.env" 2>/dev/null; true)
+  extra=$([ "$cwd" != "$root" ] && [ -f "$cwd/.env" ] && echo " · ⚠️ cwd 에도 .env 있음 — sync 는 이 값이 루트보다 먼저 이긴다")
+  echo "$app  cwd=$cwd  root=$root  DATABASE_URL 줄 수=${n:-0}$extra"
 done
-# → 둘 다 root=~/myTangerine · "DATABASE_URL 줄 수=1". 서비스가 쓰는 것과 같은 방식(실행 위치 → 루트 .env)으로 찾는다 · 값은 출력하지 않는다
-#   0 이면 재시작하지 않는다(서비스는 아직 이전 코드로 돌고 있다). 단 pm2 설정의 env 로 DATABASE_URL 을 주고 있다면 0 이어도 된다
+# → 둘 다 root=~/myTangerine · "DATABASE_URL 줄 수=1". 0 이면 재시작하지 않는다(서비스는 아직 이전 코드로 돌고 있다)
+#   (pm2 설정의 env 로 DATABASE_URL 을 주고 있다면 0 이어도 된다)
+
+# 3) 접속 옵션 — node-pg 는 sslmode 의미가 다르다(prefer/require 는 평문으로 물러나지 않고 TLS 를 요구)
+grep -o 'sslmode=[a-z-]*\|uselibpqcompat[^&]*' .env || echo "sslmode 없음 (localhost 평문 — 그대로 OK)"
+# → sslmode=prefer|require 가 나오면 멈추고 알린다(localhost 면 sslmode=disable 로 바꿀지 결정)
+
+# 4) 재시작 직전 — 로그 파일 크기를 기록한다(B 에서 이 뒤에 쓰인 줄만 본다 · 예전 장애 로그와 섞이지 않게)
+pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const a=JSON.parse(s.slice(s.indexOf("["),s.lastIndexOf("]")+1));for(const p of a)if(/^myTangerine(Api|Sync)$/.test(p.name))for(const f of [p.pm2_env.pm_out_log_path,p.pm2_env.pm_err_log_path])console.log(f)})' \
+  | while read -r f; do echo "$f $(stat -c %s "$f" 2>/dev/null || echo 0)"; done > ~/mytangerine-log-offsets
+cat ~/mytangerine-log-offsets    # 파일 4개(api·sync 의 out·err)와 크기
 ```
 
-**B. 재시작 뒤 — 기동 실패 · 접속 실패 로그가 없는지**
+**B. 재시작 뒤 — DB 접속이 실제로 되는지 (pm2 online 만으로는 모른다)**
+
+hybrid 모드의 api 는 DB 가 실패해도 **기동되고 시트로 조용히 폴백한다**(2026-11-17 인증 장애가 이랬다). 그래서 로그에서 폴백·접속 오류를 직접 찾는다.
 ```bash
-sleep 15
-pm2 logs myTangerineApi myTangerineSync --lines 80 --nostream 2>&1 | grep -E "DATABASE_URL is not set|P1001|P1010|P2024|PrismaClientInitializationError" || echo "Prisma 오류 없음"
+sleep 20
+while read -r f off; do tail -c +$((off + 1)) "$f"; done < ~/mytangerine-log-offsets \
+  | grep -E "DATABASE_URL is not set|hybrid-fallback|hybrid-partial|\[prisma\] (pool|connection) error|Authentication failed|Can't reach database|timeout exceeded when trying to connect|P1000|P1001|P1003|P1010|P1011|P2037" \
+  || echo "DB 오류·폴백 로그 없음"
 pm2 describe myTangerineSync | grep -E "status|restarts"     # online · 재시작 횟수가 늘지 않아야 한다
 ```
 - `--confirm-manual` 의 헬스 확인도 10초 동안 재시작이 없어야 통과한다(크래시 루프는 여기서도 걸린다)
 - sync 는 1분 주기다 — 1~2분 뒤 `pm2 logs myTangerineSync --lines 20 --nostream` 에 동기화 완료 로그가 찍히는지 본다
-- 웹에서 주문 1건 수정 → 저장 · 경고 없음 확인(DB 쓰기 · 트랜잭션 경로)
+- 웹에서 **주문 1건 수정**(쓰기 · 트랜잭션) → 저장 · 경고 없음. 그 주문의 **변경 이력** 보기(이력 JSON 읽기)
+- 위 grep 에 `hybrid-fallback` 이 한 줄이라도 나오면 DB 를 못 읽고 있는 것이다 — 되돌린다
 
 **실패하면** 직전 태그로 손으로 되돌린다(위 *수동 마이그레이션* 의 되돌리기 문단). DB 스키마 변경이 없으므로 DB 는 그대로 둔다.
 
