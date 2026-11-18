@@ -17,7 +17,12 @@ export interface ApiKeyAuthOptions {
 
 export const PUBLIC_PATHS: ReadonlySet<string> = new Set(['/health']);
 
-function pathOf(url: string): string {
+export function isPublicPath(url: string): boolean {
+  return PUBLIC_PATHS.has(pathOf(url));
+}
+
+/** 쿼리를 뗀 경로 — 공개 경로 판정은 정확 일치다(정규화 차이는 모두 키 요구 쪽) */
+export function pathOf(url: string): string {
   const q = url.indexOf('?');
   return q === -1 ? url : url.slice(0, q);
 }
@@ -29,7 +34,7 @@ const apiKeyAuth: FastifyPluginAsync<ApiKeyAuthOptions> = async (fastify, opts) 
 
   fastify.addHook('onRequest', async (request, reply) => {
     if (request.method === 'OPTIONS') return;
-    if (PUBLIC_PATHS.has(pathOf(request.url))) return;
+    if (isPublicPath(request.url)) return;
 
     const result = verifyApiKey(request.headers[API_KEY_HEADER], opts.apiKey);
     if (result === 'ok') return;

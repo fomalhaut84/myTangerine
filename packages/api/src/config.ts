@@ -14,6 +14,9 @@ const projectRoot = findProjectRoot();
 const envPath = join(projectRoot, '.env');
 dotenvConfig({ path: envPath });
 
+/** .env.example 의 자리표시 값 — 운영에서 그대로 쓰면 기동을 거부한다 (#218) */
+const PLACEHOLDER_KEYS: ReadonlySet<string> = new Set(['your_secret_key_here']);
+
 /**
  * 환경 변수 스키마 (Zod)
  */
@@ -56,6 +59,13 @@ const EnvSchema = z.object({
       code: 'custom',
       path: ['API_SECRET_KEY'],
       message: '운영(NODE_ENV=production)에서는 API_SECRET_KEY 가 필요합니다',
+    });
+  }
+  if (env.API_SECRET_KEY && PLACEHOLDER_KEYS.has(env.API_SECRET_KEY)) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['API_SECRET_KEY'],
+      message: 'API_SECRET_KEY 가 예시 값입니다 — openssl rand -hex 32 로 만든 값을 쓰세요',
     });
   }
   if (env.CORS_ORIGIN.trim() === '*') {

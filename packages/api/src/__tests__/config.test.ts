@@ -84,6 +84,14 @@ describe('loadEnv', () => {
       expect(() => loadEnv()).toThrow('exit');
     });
 
+    it('rejects the .env.example placeholder key in production', () => {
+      for (const k of KEYS) delete process.env[k];
+      process.env.NODE_ENV = 'production';
+      process.env.API_SECRET_KEY = 'your_secret_key_here';
+      exitSpy();
+      expect(() => loadEnv()).toThrow('exit');
+    });
+
     it('accepts a production config with a key and no CORS origin', () => {
       for (const k of KEYS) delete process.env[k];
       process.env.NODE_ENV = 'production';

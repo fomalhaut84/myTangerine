@@ -54,9 +54,10 @@ export async function createTestServer(): Promise<{
   });
 
   // CORS
-  await server.register(cors, buildCorsOptions('*')); // 운영과 같은 설정
+  // 교차 오리진 preflight 회귀 테스트용으로 `*`(개발 설정) — 운영 기본값은 비움(차단)이다
+  await server.register(cors, buildCorsOptions('*'));
 
-  // 전역 API 키 인증 (#218)
+  // 전역 API 키 인증 (#218) — 요청 상한은 라우트 테스트를 흔들지 않도록 빼고 plugins/security.test.ts 에서 본다
   await server.register(apiKeyAuth, { apiKey: TEST_API_KEY });
 
   // Swagger (스키마 참조를 위해 필요)

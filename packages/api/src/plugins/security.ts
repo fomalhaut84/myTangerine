@@ -11,7 +11,7 @@
 
 import type { FastifyInstance } from 'fastify';
 import rateLimit from '@fastify/rate-limit';
-import apiKeyAuth, { PUBLIC_PATHS } from './api-key-auth.js';
+import apiKeyAuth, { isPublicPath } from './api-key-auth.js';
 
 export interface SecurityOptions {
   apiKey: string | undefined;
@@ -27,7 +27,7 @@ export async function registerSecurity(server: FastifyInstance, opts: SecurityOp
     server.rateLimit({
       max: opts.rateLimitMax,
       timeWindow: RATE_LIMIT_WINDOW,
-      allowList: (request) => PUBLIC_PATHS.has(request.url.split('?')[0]),
+      allowList: (request) => isPublicPath(request.url),
     })
   );
   await server.register(apiKeyAuth, { apiKey: opts.apiKey });
