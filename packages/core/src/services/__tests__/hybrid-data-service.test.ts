@@ -78,13 +78,8 @@ describe('HybridDataService hybrid writes', () => {
       expect(f.sheet[method]).toHaveBeenCalledTimes(1);
       expect(f.db[method].mock.invocationCallOrder[0]).toBeLessThan(f.sheet[method].mock.invocationCallOrder[0]);
       expect(f.db.markSheetSyncFailed).not.toHaveBeenCalled();
-      // 회귀(사전 리뷰 major): 이전 쓰기가 남긴 시트 실패 표시를 지운다
-      if (rows) expect(f.db.clearSheetSyncFailure).toHaveBeenCalledWith(rows);
-    });
-
-    it('still succeeds when clearing the old failure mark fails', async () => {
-      f.db.clearSheetSyncFailure.mockRejectedValue(new Error('db flaky'));
-      expect(await call(hybrid(f))).toEqual({ partial: false, warnings: [] });
+      // 회귀: PR #230 Codex P2 (일부 필드만 쓴 성공으로 이전 시트 실패 표시를 지우지 않는다 — #231 재조정이 지운다)
+      expect(f.db.clearSheetSyncFailure).not.toHaveBeenCalled();
     });
 
     it('does not touch Sheets when the DB write fails and throws HybridWriteError (503)', async () => {

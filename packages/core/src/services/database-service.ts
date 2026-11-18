@@ -397,7 +397,8 @@ export class DatabaseService {
   }
 
   /**
-   * 시트 반영 실패 표시 해제 (#197) — 같은 행의 다음 hybrid 쓰기가 시트까지 성공했을 때.
+   * 시트 반영 실패 표시 해제 (#197) — 행 전체를 시트에 다시 맞춘 뒤에만 쓴다(#231 재조정).
+   * 일부 필드만 쓰는 일반 hybrid 쓰기의 성공으로는 지우지 않는다(PR #230 Codex P2).
    * 'failed' 인 행만 바꾼다(동기화가 남긴 다른 상태는 건드리지 않는다).
    */
   async clearSheetSyncFailure(rowNumbers: number[]): Promise<void> {
