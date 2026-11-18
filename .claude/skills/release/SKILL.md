@@ -22,7 +22,8 @@ gh pr create --base main --head dev --title "Release $V" --body-file "$SCRATCH/r
 ```
 - 본문: 포함 이슈·PR 목록(`Closes` 없음 — 릴리즈 PR 은 1:1 예외) · **배포 시 조치**(마이그레이션 · `.env` 키 · 시트 작업, 없으면 "없음")
 - 봇 리뷰 게이트(workflow 7-3). 지적 수정은 `codex-loop` Step 5 — 릴리즈 PR 에 직접 커밋하지 않는다. 봇 미게시면 **회복까지 보류**
-- 사용자에게: **"Create a merge commit" 으로 머지** (squash 금지 — main↔dev 히스토리가 갈라진다)
+- 사용자에게: **"Create a merge commit" 으로 머지** (squash 금지 — main↔dev 히스토리가 갈라진다).
+  GitHub 는 마지막에 쓴 방식(피쳐 PR 의 squash)을 버튼 기본값으로 기억한다 — **"머지 버튼 옆 ▼ 에서 Create a merge commit 을 직접 고른다"** 고 적어 요청하고, 머지 뒤 부모 2개를 꼭 확인한다(2026-11-18 #244 · #247 이 squash 로 들어감 → #248 로 복구). 이력 복구 PR 도 같다
 
 머지 확인 뒤:
 ```bash
