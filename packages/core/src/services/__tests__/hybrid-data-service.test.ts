@@ -124,6 +124,24 @@ describe('HybridDataService hybrid writes', () => {
   });
 });
 
+describe('HybridDataService.markAsConfirmed without rows by mode (#234)', () => {
+  it.each([undefined, [] as number[]])('database mode writes nothing for %s', async (rows) => {
+    const f = fakes();
+    const service = new HybridDataService(null, f.db as unknown as DatabaseService, { mode: 'database' });
+    expect(await service.markAsConfirmed(rows)).toEqual({ partial: false, warnings: [] });
+    expect(f.db.markAsConfirmed).not.toHaveBeenCalled();
+  });
+
+  it('sheets mode keeps the legacy SheetService behaviour (passes the input through)', async () => {
+    const f = fakes();
+    const service = new HybridDataService(f.sheet as unknown as SheetService, f.db as unknown as DatabaseService, {
+      mode: 'sheets',
+    });
+    await service.markAsConfirmed();
+    expect(f.sheet.markAsConfirmed).toHaveBeenCalledWith(undefined);
+  });
+});
+
 describe('HybridDataService single-store modes', () => {
   it.each(WRITE_METHODS)('sheets mode %s returns a non-partial outcome', async (method) => {
     const f = fakes();

@@ -2,7 +2,8 @@
  * DatabaseService — 시트 행 번호가 없는 주문과 일괄 처리 범위 (#234)
  *
  * - 배송사고(claim) 주문은 sheetRowNumber 가 null 이다. order_change_logs.sheet_row_number 는 NOT NULL 이라
- *   null 로 이력을 쓰면 트랜잭션 전체가 실패한다 → 기존 관례(markDeliveredById)대로 이력을 건너뛴다
+ *   null 로 이력을 쓰면 트랜잭션 전체가 실패한다 → 기존 관례(markDeliveredById)대로 이력을 건너뛴다.
+ *   행 번호로 고르는 경로(SQL IN 은 NULL 과 일치하지 않는다)라 운영에서는 닿지 않는 방어 코드다 — mock 이 null 행을 돌려줘 가드를 확인한다
  * - markAsConfirmed 는 행 번호를 명시해야만 처리한다. 예전에는 빈 배열·인자 없음이
  *   "배송완료가 아닌 주문 전부"(입금확인 포함)를 배송완료로 바꿨다 — 시트 쪽은 같은 입력에서 아무것도 하지 않는다
  *

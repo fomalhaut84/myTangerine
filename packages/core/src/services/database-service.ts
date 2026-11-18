@@ -26,6 +26,7 @@ const MAX_SYNC_ERROR_LENGTH = 1000;
 /**
  * 시트 행이 있는 주문인가 (#234). 배송사고(claim) 주문은 sheetRowNumber 가 null 이고,
  * order_change_logs.sheet_row_number 는 NOT NULL 이라 그 주문의 이력은 남기지 않는다(markDeliveredById 와 같은 관례).
+ * 행 번호로 조회하는 경로(sheetRowNumber in rowNumbers)에서는 실제로 null 이 오지 않는다 — 타입 좁히기 · 방어용.
  */
 function hasSheetRow<T extends { sheetRowNumber: number | null }>(order: T): order is T & { sheetRowNumber: number } {
   return order.sheetRowNumber !== null;
