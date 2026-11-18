@@ -8,6 +8,7 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { LayoutDashboard, BarChart3, Package, Tag } from 'lucide-react';
+import { LogoutButton } from './LogoutButton';
 
 interface NavItem {
   href: string;
@@ -41,8 +42,8 @@ const navItems: NavItem[] = [
 export function GlobalNav() {
   const pathname = usePathname();
 
-  // 홈페이지('/')에서는 GNB를 숨김
-  if (pathname === '/') {
+  // 홈페이지('/')·로그인 화면에서는 GNB를 숨김
+  if (pathname === '/' || pathname === '/login') {
     return null;
   }
 
@@ -85,6 +86,7 @@ export function GlobalNav() {
                 </Link>
               );
             })}
+            <LogoutButton />
           </div>
         </div>
       </div>
