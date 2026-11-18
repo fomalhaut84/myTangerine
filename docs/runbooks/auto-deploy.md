@@ -159,8 +159,8 @@ prerelease 를 나중에 정식으로 바꿔도 배포는 돌지 않는다(`rele
 1. sync-service 정지: `pm2 stop myTangerineSync`
 2. 백업: `sudo -u postgres pg_dump -Fc mytangerine > ~/mytangerine-$(date +%Y%m%d-%H%M).dump`
 3. `git fetch --tags && git checkout vX.Y.Z` → `CI=true pnpm install --frozen-lockfile` → `pnpm prisma:generate`(DB 접속 없음 · install 이 건너뛰어도 client 를 만든다) → `pnpm exec prisma migrate status`(저장소 루트) → **up to date 가 아닐 때만** `pnpm prisma:deploy` → 4개 패키지 빌드 → `pm2 restart …`
-4. `deploy/release-inplace.sh vX.Y.Z --yes --confirm-manual` — 헬스 확인 뒤 이 태그를 성공으로 기록한다(`손 배포 확인`). 이걸 하지 않으면 다음 자동 배포 · 재실행이 "성공으로 끝나지 않았다"(rc 4)로 멈춘다
-5. sync-service 재개: `pm2 start myTangerineSync`
+4. sync-service 재개: `pm2 start myTangerineSync` — 다음 단계의 헬스 확인은 pm2 앱 3개가 **모두 online** 이어야 통과하므로 먼저 켠다
+5. `deploy/release-inplace.sh vX.Y.Z --yes --confirm-manual` — 헬스 확인 뒤 이 태그를 성공으로 기록한다(`손 배포 확인`). 이걸 하지 않으면 다음 자동 배포 · 재실행이 "성공으로 끝나지 않았다"(rc 4)로 멈춘다
 
 **스키마가 바뀐 릴리즈의 되돌리기는 손으로 한다** — `release-inplace.sh <직전> --allow-downgrade` 도 두 태그 사이 스키마 차이를 보고 rc 1 로 멈춘다.
 `git checkout <직전태그>` → `CI=true pnpm install --frozen-lockfile` → 4개 패키지 빌드 → `pm2 restart …` → `deploy/release-inplace.sh <직전태그> --yes --confirm-manual`.
