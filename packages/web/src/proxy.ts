@@ -1,7 +1,7 @@
 /**
  * 관리자 세션 확인 (#219) — Next 16 proxy (구 middleware).
  *
- * 세션이 없으면 페이지는 /login 으로 보내고, 웹 API 라우트(/api/* · /auth/*)는 401 을 준다.
+ * 세션이 없으면 페이지는 /login 으로 보내고, 웹 API 라우트(/api/* · /auth/* · /bff/*)는 401 을 준다.
  * 열려 있는 것: 로그인 화면·로그인 처리 · 정적 자원(matcher 에서 제외).
  * SESSION_SECRET(32자 이상)·ADMIN_PASSWORD_HASH 가 없으면 모든 세션을 무효로 본다(fail-closed).
  */
@@ -12,7 +12,7 @@ import { SESSION_COOKIE, sessionKey, verifySessionToken } from './lib/auth/sessi
 const PUBLIC_PATHS: ReadonlySet<string> = new Set(['/login', '/auth/login']);
 
 function isApiPath(pathname: string): boolean {
-  return pathname.startsWith('/api/') || pathname.startsWith('/auth/');
+  return pathname.startsWith('/api/') || pathname.startsWith('/auth/') || pathname.startsWith('/bff/');
 }
 
 export function proxy(request: NextRequest): NextResponse {

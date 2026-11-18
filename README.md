@@ -101,11 +101,16 @@ cp packages/web/.env.example packages/web/.env.local
 
 `packages/web/.env.local` 파일 내용:
 ```env
-# API 서버 URL (기본값: http://localhost:3001)
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
-
 # 웹 서버 포트 (기본값: 3000)
 PORT=3000
+
+# 웹 서버가 API 로 전달할 주소 (기본값: http://127.0.0.1:3001) · 서버 키(루트 .env 와 같은 값)
+API_INTERNAL_URL=http://127.0.0.1:3001
+API_SECRET_KEY=
+
+# 관리자 로그인 — 키 생성은 packages/web/.env.example 참고
+SESSION_SECRET=
+ADMIN_PASSWORD_HASH=
 ```
 
 #### 2.3 Google Sheets API 인증 설정
@@ -393,7 +398,7 @@ Google Forms → Google Sheets (원본 보관)
 - **PDF 내보내기**: 선택된 항목만 한글 PDF로 생성 (NanumGothicCoding 폰트)
 
 ### 4. 보안 및 동시 실행 제어
-- Next.js API Route Proxy(`packages/web/src/app/api/sync/route.ts`)가 sync 호출을 서버 사이드에서 서명하고 브라우저에는 `API_SECRET_KEY`를 노출하지 않습니다.
+- 웹은 관리자 비밀번호 로그인(`/login`) 뒤에만 열린다. 브라우저는 API 를 직접 부르지 않고 같은 오리진의 `/bff/api/...` 를 부르며, 웹 서버가 세션을 확인한 뒤 `API_SECRET_KEY` 를 붙여 내부 API 로 전달한다(`packages/web/src/app/bff/[...path]/route.ts`).
 - API 는 `/health` 외 모든 요청에 `x-api-key` 를 요구합니다(전역 훅 `packages/api/src/plugins/api-key-auth.ts` · 상수시간 비교). 키가 없으면 401 · 틀리면 403 · 서버에 `API_SECRET_KEY` 가 없으면 503(fail-closed)이며, 운영에서는 키 없이 기동하지 않습니다.
 - 요청 빈도 상한(`RATE_LIMIT_MAX`, 분당)과 CORS 허용 목록(`CORS_ORIGIN`, 비우면 교차 오리진 차단)을 둡니다. Swagger UI(`/docs`)는 운영에서 등록하지 않습니다.
 - `DistributedLockService`가 Prisma `DistributedLock` 모델을 사용해 Sync Service, API, 수동 트리거 간 단일 실행을 보장합니다. TTL과 Next.js proxy timeout은 20분으로 통일해 장시간 작업도 안전하게 처리합니다.

@@ -16,47 +16,41 @@ import type {
 } from '@/types/api';
 
 /**
- * API Base URL 검증
- * - 환경 변수가 있으면 사용
- * - 없으면 localhost:3001 기본값 사용 (빌드 시 및 개발 시)
- * - Production 런타임에서 환경 변수 설정 권장
- * - Trailing slash는 자동으로 제거 (이중 슬래시 방지)
- *
- * Note: API 서버는 3001번 포트를 사용합니다 (Next.js 웹 서버는 3000번)
+ * 브라우저는 API 서버를 직접 부르지 않는다 (#220).
+ * 같은 오리진의 웹 서버 경유 경로(`/bff/api/...`)로 부르고, 웹 서버가 세션을 확인한 뒤
+ * 서버 키를 붙여 내부 API 로 전달한다(`src/app/bff/[...path]/route.ts`).
  */
-function getApiBaseUrl(): string {
-  const url = process.env.NEXT_PUBLIC_API_BASE_URL;
+export const BFF_BASE = '/bff';
 
-  // 환경 변수가 있으면 사용 (trailing slash 제거)
-  if (url) {
-    return url.replace(/\/+$/, '');
-  }
-
-  // 없으면 localhost:3001 기본값 사용 (브라우저에서만 경고)
-  if (typeof window !== 'undefined') {
-    console.warn(
-      '[API Client] NEXT_PUBLIC_API_BASE_URL not set, using http://localhost:3001'
-    );
-  }
-  return 'http://localhost:3001';
+/** 세션이 끝났으면 로그인 화면으로 — 돌아올 경로를 next 로 넘긴다 */
+export function redirectToLogin(): void {
+  if (typeof window === 'undefined') return;
+  const next = `${window.location.pathname}${window.location.search}`;
+  window.location.assign(`/login?next=${encodeURIComponent(next)}`);
 }
 
-const apiBaseUrl = getApiBaseUrl();
-
-// API Base URL을 다른 모듈에서 사용할 수 있도록 export
-export { apiBaseUrl };
+/** fetch 응답 공통 처리 — 401 이면 로그인 화면으로 보낸다 */
+export function handleUnauthorized(response: Response): void {
+  if (response.status === 401) redirectToLogin();
+}
 
 export const api = ky.create({
-  prefixUrl: apiBaseUrl,
+  prefixUrl: BFF_BASE,
   headers: {
     'Content-Type': 'application/json',
-    'x-app-client': 'web',
   },
   timeout: 30000,
   retry: {
     limit: 2,
     methods: ['get'],
     statusCodes: [408, 413, 429, 500, 502, 503, 504],
+  },
+  hooks: {
+    afterResponse: [
+      (_request, _options, response) => {
+        handleUnauthorized(response);
+      },
+    ],
   },
 });
 
@@ -235,7 +229,7 @@ export async function getOrderStats(params?: StatsQueryParams): Promise<StatsRes
 
 /**
  * 수동 데이터 동기화 (Google Sheets → PostgreSQL)
- * Next.js API route를 통해 프록시 (보안을 위해 서버 사이드에서만 API 키 사용)
+ * 웹 서버 경유(BFF) — 서버 키는 웹 서버에서만 붙는다. 타임아웃 20분도 웹 서버가 처리
  */
 export async function syncData(): Promise<{
   success: boolean;
@@ -248,16 +242,15 @@ export async function syncData(): Promise<{
     errors: Array<{ rowNumber: number; error: string }>;
   };
 }> {
-  // Next.js API route를 통해 프록시
-  const response = await fetch('/api/sync', {
+  const response = await fetch(`${BFF_BASE}/api/sync`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({}),
-    // 15분 타임아웃은 서버 사이드에서 처리
   });
 
+  handleUnauthorized(response);
   if (!response.ok) {
     const error = await response.json();
     throw new Error(error.message || 'Sync failed');
