@@ -30,6 +30,10 @@ describe('safeNextPath', () => {
     '/\r\n/evil.example.com',
     '/\n\\evil.example.com',
     decodeURIComponent('/%09/evil.example.com'),
+    // 회귀(Codex P2): 점 세그먼트 정규화 뒤 `//evil` 이 된다
+    '/.//evil.example.com',
+    '/a/..//evil.example.com',
+    '/%2e//evil.example.com',
   ])(
     'falls back to /dashboard for %s',
     (input) => {

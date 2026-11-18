@@ -25,5 +25,8 @@ export function safeNextPath(next: string | null | undefined): string {
   if (url.origin !== PROBE_ORIGIN) return DEFAULT_AFTER_LOGIN;
   if (url.pathname === '/login' || url.pathname.startsWith('/login/')) return DEFAULT_AFTER_LOGIN;
 
-  return `${url.pathname}${url.search}${url.hash}`;
+  // 정규화 결과도 다시 본다 — `/.//evil.com` 은 점 세그먼트가 지워져 `//evil.com` 이 된다 (Codex P2)
+  const normalized = `${url.pathname}${url.search}${url.hash}`;
+  if (normalized.startsWith('//')) return DEFAULT_AFTER_LOGIN;
+  return normalized;
 }
