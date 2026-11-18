@@ -12,6 +12,11 @@ import ordersRoutes from '../../routes/orders.js';
 import labelsRoutes from '../../routes/labels.js';
 import { errorHandler } from '../../middleware/error-handler.js';
 import { buildCorsOptions } from '../../cors-options.js';
+import apiKeyAuth from '../../plugins/api-key-auth.js';
+
+/** 테스트 서버의 API 키 (#218) — 운영과 같이 전역 인증을 건다 */
+export const TEST_API_KEY = 'test-api-key-0123456789abcdef0123456789';
+export const AUTH_HEADERS = { 'x-api-key': TEST_API_KEY } as const;
 
 /**
  * 테스트용 Fastify 서버 생성
@@ -50,6 +55,9 @@ export async function createTestServer(): Promise<{
 
   // CORS
   await server.register(cors, buildCorsOptions('*')); // 운영과 같은 설정
+
+  // 전역 API 키 인증 (#218)
+  await server.register(apiKeyAuth, { apiKey: TEST_API_KEY });
 
   // Swagger (스키마 참조를 위해 필요)
   await server.register(swagger, {

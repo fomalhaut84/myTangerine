@@ -26,7 +26,22 @@ const EnvSchema = z.object({
   HOST: z.string().default('0.0.0.0'),
   NODE_ENV: z.enum(['development', 'production', 'test']).default('development'),
   LOG_LEVEL: z.enum(['fatal', 'error', 'warn', 'info', 'debug', 'trace']).default('info'),
-  CORS_ORIGIN: z.string().default('*'),
+  /**
+   * 교차 오리진 허용 목록 (#218) — 비어 있음(기본)=허용 안 함 · `*`=개발 전용 · 쉼표 목록.
+   * 해석은 cors-options.ts
+   */
+  CORS_ORIGIN: z.string().default(''),
+  /**
+   * 서버 키 (#218) — 헬스체크 외 모든 요청의 x-api-key. 운영에서는 필수.
+   * 개발에서 비워 두면 기동은 되지만 요청이 503 으로 거부된다(fail-closed).
+   */
+  API_SECRET_KEY: z.string().optional(),
+  /** 분당 요청 상한 (#218) — 웹 서버 경유라 사실상 전역 상한 */
+  RATE_LIMIT_MAX: z
+    .string()
+    .default('600')
+    .transform((val) => parseInt(val, 10))
+    .pipe(z.number().int().positive()),
   /**
    * 데이터 소스 모드 (Phase 2.3)
    * - sheets: Google Sheets만 사용 (기본값, 기존 방식)
@@ -34,6 +49,22 @@ const EnvSchema = z.object({
    * - hybrid: DB 우선 읽기, DB+Sheets 동시 쓰기
    */
   DATA_SOURCE: z.enum(['sheets', 'database', 'hybrid']).default('sheets'),
+}).superRefine((env, ctx) => {
+  if (env.NODE_ENV !== 'production') return;
+  if (!env.API_SECRET_KEY) {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['API_SECRET_KEY'],
+      message: '운영(NODE_ENV=production)에서는 API_SECRET_KEY 가 필요합니다',
+    });
+  }
+  if (env.CORS_ORIGIN.trim() === '*') {
+    ctx.addIssue({
+      code: 'custom',
+      path: ['CORS_ORIGIN'],
+      message: "운영에서는 CORS_ORIGIN='*' 를 쓸 수 없습니다 — 비우거나 허용 오리진을 적으세요",
+    });
+  }
 });
 
 /**

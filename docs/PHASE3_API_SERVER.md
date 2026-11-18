@@ -33,7 +33,7 @@ Phase 3에서는 `@mytangerine/core` 모듈 위에 Fastify 4 기반 REST API 서
 | `HOST` | 바인딩 호스트 | 선택 | `0.0.0.0` |
 | `NODE_ENV` | `development`/`production`/`test` | 선택 | `development` |
 | `LOG_LEVEL` | pino 로그 레벨 | 선택 | `info` |
-| `CORS_ORIGIN` | 허용 오리진 (`*` 또는 URL) | 선택 | `*` |
+| `CORS_ORIGIN` | 허용 오리진 (비움=차단 · 쉼표 목록 · `*` 개발 전용) | 선택 | (비움) |
 | `DEFAULT_SENDER_*` | 발송인 기본 정보(이름/주소/전화) | 필수 | 없음 |
 | `GOOGLE_CREDENTIALS_FILE|JSON|PATH` | 서비스 계정 키 지정 방식 중 하나 | 필수 | 없음 |
 | `SPREADSHEET_ID` | 시트 ID (선택) | 선택 | - |
