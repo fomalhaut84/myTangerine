@@ -393,6 +393,15 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       .map((order) => order._rowNumber)
       .filter((n): n is number => n !== undefined && n > 0);
 
+    // #234: 행 번호가 하나도 없으면 일괄 확인을 부르지 않는다(빈 목록은 처리 대상이 아니다)
+    if (rowNumbers.length === 0) {
+      return {
+        success: true,
+        message: '시트 행 번호가 있는 새로운 주문이 없습니다.',
+        confirmedCount: 0,
+      };
+    }
+
     // 주문을 확인 상태로 표시 (명시적으로 행 번호 전달)
     const outcome = await dataService.markAsConfirmed(rowNumbers);
 
@@ -401,8 +410,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
 
     return {
       success: true,
-      message: `${newOrders.length}개의 주문이 확인되었습니다.`,
-      confirmedCount: newOrders.length,
+      message: `${rowNumbers.length}개의 주문이 확인되었습니다.`,
+      confirmedCount: rowNumbers.length,
       ...warningsField(outcome),
     };
   });

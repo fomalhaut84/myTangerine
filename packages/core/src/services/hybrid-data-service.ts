@@ -219,6 +219,11 @@ export class HybridDataService {
    * hybrid 모드: DB 우선 (#197) — `hybridWrite` 참고
    */
   async markAsConfirmed(rowNumbers?: number[]): Promise<WriteOutcome> {
+    // #234: DB 쪽은 행 번호를 명시해야만 처리한다. hybrid 에서 시트만 예전 하위 호환(newOrderRows)으로 쓰면
+    // 두 저장소가 갈라지므로 database·hybrid 모드에서는 둘 다 건너뛴다. sheets 모드는 기존 동작 그대로
+    if (this.mode !== 'sheets' && (!rowNumbers || rowNumbers.length === 0)) {
+      return writeOk();
+    }
     return this.write(
       'markAsConfirmed',
       rowNumbers,

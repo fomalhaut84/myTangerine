@@ -28,6 +28,9 @@ PostgreSQL 은 그 시트에서 동기화된 사본 + DB 전용 데이터(배송
   예전 상대경로 output(`../node_modules/.prisma/client`)은 core 가 낡은 타입이나 "did not initialize yet" 껍데기를 읽게 만들었다.
   회귀 테스트: `packages/core/src/__tests__/prisma-client.test.ts`
 - 스키마 변경 전에 `npx prisma migrate status` 결과를 사용자에게 받아 운영 이력과 맞는지 확인한다 — **추정하지 않는다.**
+- **Prisma 7 (#241):** 접속 주소는 스키마가 아니라 루트 `prisma.config.ts`(dotenv 로 루트 `.env`)에 있다. CLI 는 저장소 루트에서 실행한다.
+  client 는 `new PrismaClient()` 대신 core `createPrismaClient()`(`@prisma/adapter-pg`)로만 만든다 — `.env` 를 스스로 읽지 않으므로
+  서비스가 먼저 루트 `.env` 를 읽어야 하고, `DATABASE_URL` 이 없으면 기동을 멈춘다(엉뚱한 DB 에 붙지 않게)
 
 ## 막혔을 때
 
