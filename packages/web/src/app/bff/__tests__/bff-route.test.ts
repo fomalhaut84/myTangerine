@@ -124,6 +124,18 @@ describe('/bff/[...path]', () => {
     expect(await refused.text()).not.toContain('ECONNREFUSED');
   });
 
+  it('rejects a cross-site write before calling the API (403)', async () => {
+    const request = req('/bff/api/orders/12/delete', { method: 'POST', body: '{}' });
+    request.headers.set('sec-fetch-site', 'cross-site');
+    expect((await POST(request)).status).toBe(403);
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('maps an undici headers timeout (fetch failed) to 504, not 502', async () => {
+    fetchMock.mockRejectedValueOnce(new TypeError('fetch failed', { cause: { code: 'UND_ERR_HEADERS_TIMEOUT' } }));
+    expect((await POST(req('/bff/api/sync', { method: 'POST', body: '{}' }))).status).toBe(504);
+  });
+
   it('defaults the internal URL to 127.0.0.1:3001', async () => {
     delete process.env.API_INTERNAL_URL;
     fetchMock.mockResolvedValue(new Response('{}'));

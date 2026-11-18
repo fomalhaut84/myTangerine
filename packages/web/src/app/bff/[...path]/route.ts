@@ -10,7 +10,9 @@ import { SESSION_COOKIE, sessionKey, verifySessionToken } from '@/lib/auth/sessi
 import {
   MAX_BODY_BYTES,
   apiInternalUrl,
+  isTimeoutError,
   pickResponseHeaders,
+  rejectUnsafeRequest,
   resolveUpstreamPath,
   timeoutFor,
 } from '@/lib/bff/forward';
@@ -59,6 +61,10 @@ async function forward(request: NextRequest): Promise<Response> {
   const body = await readBody(request);
   if (body === 'too-large') return fail(413, '요청이 너무 큽니다.');
 
+  const unsafe = rejectUnsafeRequest(request.method, request.headers, body !== null);
+  if (unsafe === 'cross-site') return fail(403, '허용되지 않은 요청입니다.');
+  if (unsafe === 'content-type') return fail(415, 'JSON 요청만 받습니다.');
+
   const target = `${apiInternalUrl()}${upstreamPath}${request.nextUrl.search}`;
   try {
     const upstream = await fetch(target, {
@@ -74,10 +80,10 @@ async function forward(request: NextRequest): Promise<Response> {
       headers: pickResponseHeaders(upstream.headers),
     });
   } catch (error) {
-    const timedOut = error instanceof Error && (error.name === 'TimeoutError' || error.name === 'AbortError');
+    const timedOut = isTimeoutError(error);
     console.error('[bff] API 호출 실패', { method: request.method, path: upstreamPath, timedOut, error });
     return timedOut
-      ? fail(504, '요청 처리 시간이 초과되었습니다.')
+      ? fail(504, '요청 처리 시간이 초과되었습니다. 동기화라면 서버에서 계속 진행 중일 수 있습니다.')
       : fail(502, 'API 서버에 연결할 수 없습니다.');
   }
 }

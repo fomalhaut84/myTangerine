@@ -14,15 +14,20 @@ const ALLOWED_AREAS: ReadonlySet<string> = new Set(['orders', 'labels', 'sync'])
 export const MAX_BODY_BYTES = 1024 * 1024;
 
 export const DEFAULT_TIMEOUT_MS = 30 * 1000;
-/** 동기화는 분산 락 TTL 과 같은 20분 */
-export const SYNC_TIMEOUT_MS = 20 * 60 * 1000;
+/** PDF·Excel 생성 — 최대 1000건 선택 */
+export const REPORT_TIMEOUT_MS = 2 * 60 * 1000;
+/**
+ * 동기화 — 5분. Node 전역 fetch(undici)의 headersTimeout·bodyTimeout 기본값(300초)이 실제 상한이라
+ * 이보다 길게 잡아도 소용없다. 응답이 끊겨도 API 쪽 동기화는 분산 락(20분 TTL)을 쥔 채 끝까지 돈다.
+ * 더 긴 동기화는 비동기 작업 + 상태 조회로 바꿔야 한다(후속 이슈).
+ */
+export const SYNC_TIMEOUT_MS = 5 * 60 * 1000;
 
 export const DEFAULT_API_INTERNAL_URL = 'http://127.0.0.1:3001';
 
 const FORWARDED_RESPONSE_HEADERS = [
   'content-type',
   'content-disposition',
-  'content-length',
   'x-order-count',
   'x-generated-at',
   'retry-after',
@@ -67,10 +72,40 @@ export function pickResponseHeaders(upstream: Headers): Headers {
   return picked;
 }
 
+function under(path: string, prefix: string): boolean {
+  return path === prefix || path.startsWith(`${prefix}/`);
+}
+
 export function timeoutFor(upstreamPath: string): number {
-  return upstreamPath === '/api/sync' || upstreamPath.startsWith('/api/sync/')
-    ? SYNC_TIMEOUT_MS
-    : DEFAULT_TIMEOUT_MS;
+  if (under(upstreamPath, '/api/sync')) return SYNC_TIMEOUT_MS;
+  if (under(upstreamPath, '/api/orders/report')) return REPORT_TIMEOUT_MS;
+  return DEFAULT_TIMEOUT_MS;
+}
+
+const UNSAFE_METHODS: ReadonlySet<string> = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+
+/**
+ * 상태를 바꾸는 요청의 출처 검사 (심층 방어 · 세션 쿠키 SameSite=Lax 에 더해).
+ * - 브라우저가 보낸 Sec-Fetch-Site 가 same-origin 이 아니면 거부(같은 사이트의 다른 서브도메인 포함)
+ * - 본문이 있으면 application/json 만 — 교차 사이트 폼(text/plain · form-urlencoded)으로는 만들 수 없는 형식
+ */
+export function rejectUnsafeRequest(method: string, headers: Headers, hasBody: boolean): string | null {
+  if (!UNSAFE_METHODS.has(method)) return null;
+  const site = headers.get('sec-fetch-site');
+  if (site !== null && site !== 'same-origin') return 'cross-site';
+  if (hasBody) {
+    const type = (headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    if (type !== 'application/json') return 'content-type';
+  }
+  return null;
+}
+
+/** fetch 실패가 타임아웃인가 — AbortSignal.timeout 과 undici 자체 타임아웃(headers/body) 모두 */
+export function isTimeoutError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  if (error.name === 'TimeoutError' || error.name === 'AbortError') return true;
+  const code = (error.cause as { code?: unknown } | undefined)?.code;
+  return code === 'UND_ERR_HEADERS_TIMEOUT' || code === 'UND_ERR_BODY_TIMEOUT';
 }
 
 export function apiInternalUrl(): string {
