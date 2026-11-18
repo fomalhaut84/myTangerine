@@ -37,9 +37,13 @@ export class LoginThrottle {
     return entry;
   }
 
+  /** 현재 창의 실패(시도) 횟수 */
+  failures(client: string, nowMs: number = Date.now()): number {
+    return this.current(client, nowMs)?.failures ?? 0;
+  }
+
   isBlocked(client: string, nowMs: number = Date.now()): boolean {
-    const entry = this.current(client, nowMs);
-    return entry !== undefined && entry.failures >= this.options.maxFailures;
+    return this.failures(client, nowMs) >= this.options.maxFailures;
   }
 
   recordFailure(client: string, nowMs: number = Date.now()): void {
@@ -85,10 +89,17 @@ export function clientIpFrom(headers: Headers): string {
 export const LOGIN_MAX_FAILURES = 5;
 export const LOGIN_WINDOW_MS = 10 * 60 * 1000;
 /**
- * IP 와 무관한 전역 상한 — X-Forwarded-For 를 위조할 수 있는 배치(웹 포트 직접 노출 ·
- * 헤더를 덮어쓰지 않는 프록시)에서도 시도 속도를 묶는다. 대가로 공격자가 관리자를 창 동안 잠글 수 있다.
+ * IP 와 무관한 전역 상한 — 기본 꺼짐(0). env `LOGIN_GLOBAL_MAX_FAILURES` 로 켠다.
+ *
+ * 켜면 X-Forwarded-For 를 위조할 수 있는 배치(웹 포트 직접 노출 · 헤더를 덮어쓰지 않는 프록시)에서도
+ * 시도 수를 묶지만, 누구나 틀린 비밀번호를 보내 **관리자를 창 동안 잠글 수 있다.**
+ * 기본은 끄고, 대신 웹을 127.0.0.1 에 묶고 리버스 프록시가 X-Forwarded-For 를 덧붙이는 것을 전제로 한다
+ * (런북 · 사용자 결정 2026-11-18). 동시 검증 상한은 이와 별개로 늘 켜져 있다.
  */
-export const LOGIN_GLOBAL_MAX_FAILURES = 30;
+export function globalLoginMaxFailures(raw: string | undefined = process.env.LOGIN_GLOBAL_MAX_FAILURES): number {
+  if (!raw || !/^\d+$/.test(raw.trim())) return 0;
+  return Number(raw.trim());
+}
 export const GLOBAL_CLIENT = '*';
 /** 동시에 진행하는 비밀번호 검증(scrypt) 상한 — 검사와 기록 사이 경쟁 · 스레드풀 점유 방지 */
 export const LOGIN_MAX_CONCURRENT = 2;
@@ -99,8 +110,14 @@ export const loginThrottle = new LoginThrottle({
   windowMs: LOGIN_WINDOW_MS,
 });
 
+/** 전역 시도 수 집계용 — 차단 판정은 isGloballyBlocked 가 env 상한으로 한다 */
 export const globalLoginThrottle = new LoginThrottle({
-  maxFailures: LOGIN_GLOBAL_MAX_FAILURES,
+  maxFailures: Number.MAX_SAFE_INTEGER,
   windowMs: LOGIN_WINDOW_MS,
   maxClients: 1,
 });
+
+export function isGloballyBlocked(nowMs: number = Date.now()): boolean {
+  const max = globalLoginMaxFailures();
+  return max > 0 && globalLoginThrottle.failures(GLOBAL_CLIENT, nowMs) >= max;
+}

@@ -4,7 +4,7 @@
  */
 
 import { describe, it, expect } from 'vitest';
-import { LoginThrottle, clientIpFrom } from '../login-throttle';
+import { LoginThrottle, clientIpFrom, globalLoginMaxFailures } from '../login-throttle';
 
 const WINDOW = 10 * 60 * 1000;
 
@@ -58,5 +58,19 @@ describe('clientIpFrom', () => {
   it('falls back to X-Real-IP, then unknown', () => {
     expect(clientIpFrom(new Headers({ 'x-real-ip': '5.5.5.5' }))).toBe('5.5.5.5');
     expect(clientIpFrom(new Headers())).toBe('unknown');
+  });
+});
+
+describe('globalLoginMaxFailures', () => {
+  it.each([
+    [undefined, 0],
+    ['', 0],
+    ['abc', 0],
+    ['-5', 0],
+    ['0', 0],
+    ['30', 30],
+    [' 50 ', 50],
+  ])('parses %s as %s', (raw, expected) => {
+    expect(globalLoginMaxFailures(raw)).toBe(expected);
   });
 });

@@ -14,6 +14,7 @@ import {
   LOGIN_MAX_CONCURRENT,
   clientIpFrom,
   globalLoginThrottle,
+  isGloballyBlocked,
   loginThrottle,
 } from '@/lib/auth/login-throttle';
 
@@ -61,14 +62,14 @@ export async function POST(request: NextRequest) {
   const client = clientIpFrom(request.headers);
   if (
     loginThrottle.isBlocked(client) ||
-    globalLoginThrottle.isBlocked(GLOBAL_CLIENT) ||
+    isGloballyBlocked() ||
     inFlight >= LOGIN_MAX_CONCURRENT
   ) {
     return fail(429, TOO_MANY);
   }
 
   // 검증 전에 시도를 먼저 센다 — 검증(scrypt)을 기다리는 동안 들어온 동시 요청도 다음 검사에 걸린다.
-  // 성공하면 그 클라이언트의 기록을 지운다(전역 기록은 지우지 않는다 — 성공도 창당 상한에 든다)
+  // 성공하면 그 클라이언트의 기록을 지운다(전역 집계는 지우지 않는다 — 켜져 있으면 성공도 창당 상한에 든다)
   loginThrottle.recordFailure(client);
   globalLoginThrottle.recordFailure(GLOBAL_CLIENT);
 

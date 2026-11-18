@@ -104,11 +104,25 @@ describe('auth routes', () => {
     loginThrottle.recordSuccess(ip);
   });
 
-  it('applies a global cap regardless of client IP', async () => {
+  // 사용자 결정(2026-11-18): 전역 상한은 관리자 잠금 공격을 허용하므로 기본 꺼짐
+  it('has no global cap by default — many failing IPs do not lock out the admin', async () => {
+    delete process.env.LOGIN_GLOBAL_MAX_FAILURES;
     for (let i = 0; i < 40; i += 1) {
-      await login(loginReq({ password: 'nope' }, `10.1.0.${i}`));
+      await login(loginReq({ password: 'nope' }, `10.3.0.${i}`));
     }
-    expect((await login(loginReq({ password: PASSWORD }, '10.2.0.1'))).status).toBe(429);
+    expect((await login(loginReq({ password: PASSWORD }, '10.4.0.1'))).status).toBe(200);
+  });
+
+  it('applies a global cap regardless of client IP when LOGIN_GLOBAL_MAX_FAILURES is set', async () => {
+    process.env.LOGIN_GLOBAL_MAX_FAILURES = '30';
+    try {
+      for (let i = 0; i < 40; i += 1) {
+        await login(loginReq({ password: 'nope' }, `10.1.0.${i}`));
+      }
+      expect((await login(loginReq({ password: PASSWORD }, '10.2.0.1'))).status).toBe(429);
+    } finally {
+      delete process.env.LOGIN_GLOBAL_MAX_FAILURES;
+    }
   });
 
   it('blocks a client after repeated failures, even with the right password', async () => {
