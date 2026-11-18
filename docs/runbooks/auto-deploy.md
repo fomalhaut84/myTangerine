@@ -109,6 +109,25 @@ forced command 가 가리키는 `deploy/ssh-deploy.sh` 는 **이 기능이 들�
 
 되돌리기(직전 태그로)는 서버에서 사람이 한다: `deploy/release-inplace.sh <직전 태그> --yes --allow-downgrade` — 자동 경로(ssh)는 이 플래그를 붙일 수 없다.
 
+## 웹 접근 제어 전환 (#196 · 1회 · `--draft` 릴리즈)
+
+#218(API 키) · #219(웹 로그인) · #220(웹 서버 경유 호출)이 들어간 릴리즈는 **`--draft`** 로 발행하고, 아래를 마친 뒤 GitHub 에서 Publish 한다.
+셋 중 하나만 배포하면 웹이 API 를 부르지 못한다.
+
+1. **루트 `.env`(API)** — `API_SECRET_KEY` 있음 · `CORS_ORIGIN` 없음(또는 `*` 아님) · `HOST=127.0.0.1` 추가(API 를 외부에 열지 않는다 — 요청 상한도 이 전제)
+2. **`packages/web/.env.local`(웹)**
+   - `API_SECRET_KEY` = 루트 `.env` 와 **같은 값**
+   - `API_INTERNAL_URL=http://127.0.0.1:<API PORT>`
+   - `SESSION_SECRET` = `openssl rand -hex 32`
+   - `ADMIN_PASSWORD_HASH` = `pnpm --filter @mytangerine/web hash-password` 출력 줄(비밀번호는 표준 입력 · 화면에 안 보임)
+   - `WEB_HOST=127.0.0.1` — 로그인 시도 제한(IP별)이 리버스 프록시가 붙인 `X-Forwarded-For` 를 믿는 전제다. 이 전제가 안 되면 `LOGIN_GLOBAL_MAX_FAILURES` 를 켠다(대가: 관리자 잠금 공격 가능)
+   - HTTPS 가 아니면 `SESSION_COOKIE_SECURE=false`
+   - `NEXT_PUBLIC_API_BASE_URL` 은 더 쓰지 않는다(지워도 된다)
+3. **리버스 프록시** — `/api` 를 API 로 보내는 분기를 지우고 **전부 웹으로** 보낸다. `X-Forwarded-For` 를 덧붙이는지 확인(로그인 시도 제한이 마지막 값을 쓴다). 읽기 타임아웃(nginx `proxy_read_timeout` 기본 60초)을 `/bff/api/sync` 는 5분 이상 · `/bff/api/orders/report` 는 2분 이상으로
+4. Publish → 자동 배포 → 브라우저에서 `/login` → 로그인 → 주문 목록 · 라벨 PDF 다운로드 · 동기화 버튼 1회씩
+
+**되돌리기:** `deploy/release-inplace.sh v1.2.0 --yes --allow-downgrade` + 리버스 프록시 `/api` 분기 복구 + API `HOST` 원복. 추가한 웹 env 는 남아도 무해.
+
 ## 릴리즈 발행 규칙
 
 | 릴리즈 | 발행 | 배포 |

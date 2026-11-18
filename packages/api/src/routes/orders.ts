@@ -567,7 +567,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.log.error(error, 'PDF 생성 중 오류 발생');
         return reply.status(500).send({
           error: 'PDF_GENERATION_ERROR',
-          message: error instanceof Error ? error.message : 'PDF 생성 실패',
+          message: 'PDF 생성 실패',
         });
       }
     }
@@ -720,7 +720,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.log.error(error, 'PDF 생성 중 오류 발생');
         return reply.status(500).send({
           error: 'PDF_GENERATION_ERROR',
-          message: error instanceof Error ? error.message : 'PDF 생성 실패',
+          message: 'PDF 생성 실패',
         });
       }
     }
@@ -887,7 +887,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.log.error(error, 'Excel 생성 중 오류 발생');
         return reply.status(500).send({
           error: 'EXCEL_GENERATION_ERROR',
-          message: error instanceof Error ? error.message : 'Excel 생성 실패',
+          message: 'Excel 생성 실패',
         });
       }
     }
@@ -1038,7 +1038,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         fastify.log.error(error, 'Excel 생성 중 오류 발생');
         return reply.status(500).send({
           error: 'EXCEL_GENERATION_ERROR',
-          message: error instanceof Error ? error.message : 'Excel 생성 실패',
+          message: 'Excel 생성 실패',
         });
       }
     }

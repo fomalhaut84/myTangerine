@@ -10,6 +10,7 @@ import swaggerUi from '@fastify/swagger-ui';
 import { loadEnv, loadPackageMetadata, type Env } from './config.js';
 import prismaPlugin from './plugins/prisma.js';
 import corePlugin from './plugins/core.js';
+import { registerSecurity } from './plugins/security.js';
 import ordersRoutes from './routes/orders.js';
 import labelsRoutes from './routes/labels.js';
 import syncRoutes from './routes/sync.js';
@@ -45,6 +46,9 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
 
   // CORS 설정 (환경 변수에서 읽기)
   await server.register(cors, buildCorsOptions(env.CORS_ORIGIN));
+
+  // 요청 빈도 상한 + 전역 API 키 인증 (#218) — /health · preflight 외 전부
+  await registerSecurity(server, { apiKey: env.API_SECRET_KEY, rateLimitMax: env.RATE_LIMIT_MAX });
 
   // Package metadata 로드 (Swagger 설정에 필요)
   const packageMetadata = await loadPackageMetadata();
@@ -193,15 +197,17 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
     },
   });
 
-  // Swagger UI 등록
-  await server.register(swaggerUi, {
-    routePrefix: '/docs',
-    uiConfig: {
-      docExpansion: 'list',
-      deepLinking: true,
-    },
-    staticCSP: true,
-  });
+  // Swagger UI 등록 — 운영에서는 등록하지 않는다 (#218)
+  if (env.NODE_ENV !== 'production') {
+    await server.register(swaggerUi, {
+      routePrefix: '/docs',
+      uiConfig: {
+        docExpansion: 'list',
+        deepLinking: true,
+      },
+      staticCSP: true,
+    });
+  }
 
   // Fastify의 addSchema로 스키마 등록 (serialization을 위해 필요)
   server.addSchema({

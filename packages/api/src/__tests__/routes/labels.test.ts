@@ -4,7 +4,7 @@
 
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { FastifyInstance } from 'fastify';
-import { createTestServer } from '../helpers/test-server.js';
+import { createTestServer, AUTH_HEADERS } from '../helpers/test-server.js';
 import { MockSheetService, createMockSheetRows, createMockSheetRow } from '../helpers/mock-sheet-service.js';
 
 describe('Labels API', () => {
@@ -32,6 +32,7 @@ describe('Labels API', () => {
       mockSheetService.setMockNewOrders([]);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/labels',
       });
@@ -47,6 +48,7 @@ describe('Labels API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/labels',
       });
@@ -63,6 +65,7 @@ describe('Labels API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/labels',
       });
@@ -84,6 +87,7 @@ describe('Labels API', () => {
       mockSheetService.setMockNewOrders(mockOrders);
 
       const response = await server.inject({
+        headers: AUTH_HEADERS,
         method: 'GET',
         url: '/api/labels',
       });
@@ -104,7 +108,8 @@ describe('Labels API', () => {
         createMockSheetRow({ _rowNumber: undefined, '비고': '입금확인', '주문유형': '배송사고', _dbId: 1500 }),
       ]);
 
-      const response = await server.inject({ method: 'GET', url: '/api/labels/grouped?status=all' });
+      const response = await server.inject({
+        headers: AUTH_HEADERS, method: 'GET', url: '/api/labels/grouped?status=all' });
 
       expect(response.statusCode).toBe(200);
       const { data } = JSON.parse(response.payload);

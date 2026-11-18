@@ -9,7 +9,7 @@ import { useConfirmPayment, useMarkDelivered } from '@/hooks/use-orders';
 import { LabelGroupCard } from '@/components/labels/LabelGroupCard';
 import { Card } from '@/components/common/Card';
 import { Input } from '@/components/ui/input';
-import { apiBaseUrl } from '@/lib/api-client';
+import { BFF_BASE, handleUnauthorized } from '@/lib/api-client';
 import type { Order } from '@/types/api';
 import Link from 'next/link';
 import { useState, useMemo, useEffect } from 'react';
@@ -335,13 +335,14 @@ export default function LabelsPage() {
     try {
       // POST 방식으로 PDF 요청 (URL 길이 제한 우회)
       const rowNumbers = selectedOrders.map(order => order.rowNumber);
-      const response = await fetch(`${apiBaseUrl}/api/orders/report`, {
+      const response = await fetch(`${BFF_BASE}/api/orders/report`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ rowNumbers }),
       });
+      handleUnauthorized(response);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
@@ -410,13 +411,14 @@ export default function LabelsPage() {
     try {
       // POST 방식으로 Excel 요청 (URL 길이 제한 우회)
       const rowNumbers = selectedOrders.map(order => order.rowNumber);
-      const response = await fetch(`${apiBaseUrl}/api/orders/report/excel`, {
+      const response = await fetch(`${BFF_BASE}/api/orders/report/excel`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
         },
         body: JSON.stringify({ rowNumbers }),
       });
+      handleUnauthorized(response);
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));

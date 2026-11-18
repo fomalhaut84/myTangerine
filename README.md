@@ -16,7 +16,7 @@ myTangerine은 구글 스프레드시트에 접수된 감귤 주문을 자동으
 - 📱 **전화번호 자동 포맷팅**: 010-XXXX-XXXX 형식으로 자동 변환
 - 📦 **주문 요약 및 통계**: 5kg/10kg 박스별 수량 및 금액 집계, 월별 통계
 - 📥 **데이터 내보내기**: CSV/Excel/PDF 다운로드 (한글 폰트 지원)
-- 🛡️ **보안/동시 실행 제어**: 서버 전용 API 키 + Next.js Proxy + DB 기반 분산 락(20분 TTL)로 sync 충돌과 비밀 노출 방지
+- 🛡️ **보안/동시 실행 제어**: 관리자 로그인 + 웹 서버 경유 API 호출(서버 전용 키) + DB 기반 분산 락(20분 TTL)로 sync 충돌과 비밀 노출 방지
 - 📊 **차트 및 분석**: 월별 매출 추이, 상품별 분석
 - ✅ **주문 확인 처리**: 개별/일괄 주문 확인
 - 🎨 **다크모드 지원**: 시스템 테마 자동 감지
@@ -101,11 +101,16 @@ cp packages/web/.env.example packages/web/.env.local
 
 `packages/web/.env.local` 파일 내용:
 ```env
-# API 서버 URL (기본값: http://localhost:3001)
-NEXT_PUBLIC_API_BASE_URL=http://localhost:3001
-
 # 웹 서버 포트 (기본값: 3000)
 PORT=3000
+
+# 웹 서버가 API 로 전달할 주소 (기본값: http://127.0.0.1:3001) · 서버 키(루트 .env 와 같은 값)
+API_INTERNAL_URL=http://127.0.0.1:3001
+API_SECRET_KEY=
+
+# 관리자 로그인 — 키 생성은 packages/web/.env.example 참고
+SESSION_SECRET=
+ADMIN_PASSWORD_HASH=
 ```
 
 #### 2.3 Google Sheets API 인증 설정
@@ -393,9 +398,10 @@ Google Forms → Google Sheets (원본 보관)
 - **PDF 내보내기**: 선택된 항목만 한글 PDF로 생성 (NanumGothicCoding 폰트)
 
 ### 4. 보안 및 동시 실행 제어
-- Next.js API Route Proxy(`packages/web/src/app/api/sync/route.ts`)가 sync 호출을 서버 사이드에서 서명하고 브라우저에는 `API_SECRET_KEY`를 노출하지 않습니다.
-- `requireApiKey` 미들웨어는 fail-closed 동작으로 잘못된 키에 즉시 401을 반환하며, `API_SECRET_KEY`는 `.env`에서 서버 전용으로 관리됩니다.
-- `DistributedLockService`가 Prisma `DistributedLock` 모델을 사용해 Sync Service, API, 수동 트리거 간 단일 실행을 보장합니다. TTL과 Next.js proxy timeout은 20분으로 통일해 장시간 작업도 안전하게 처리합니다.
+- 웹은 관리자 비밀번호 로그인(`/login`) 뒤에만 열린다. 브라우저는 API 를 직접 부르지 않고 같은 오리진의 `/bff/api/...` 를 부르며, 웹 서버가 세션을 확인한 뒤 `API_SECRET_KEY` 를 붙여 내부 API 로 전달한다(`packages/web/src/app/bff/[...path]/route.ts`).
+- API 는 `/health` 외 모든 요청에 `x-api-key` 를 요구합니다(전역 훅 `packages/api/src/plugins/api-key-auth.ts` · 상수시간 비교). 키가 없으면 401 · 틀리면 403 · 서버에 `API_SECRET_KEY` 가 없으면 503(fail-closed)이며, 운영에서는 키 없이 기동하지 않습니다.
+- 요청 빈도 상한(`RATE_LIMIT_MAX`, 분당)과 CORS 허용 목록(`CORS_ORIGIN`, 비우면 교차 오리진 차단)을 둡니다. Swagger UI(`/docs`)는 운영에서 등록하지 않습니다.
+- `DistributedLockService`가 Prisma `DistributedLock` 모델을 사용해 Sync Service, API, 수동 트리거 간 단일 실행을 보장합니다. 웹 서버 경유 sync 호출은 5분에서 끊긴다(Node fetch 기본 상한) — 응답이 끊겨도 API 쪽 동기화는 락을 쥔 채 끝까지 진행된다. 리버스 프록시의 `/bff/api/sync` 읽기 타임아웃도 5분 이상이어야 한다.
 - PollingScheduler가 진행 중 promise를 추적해 수동 싱크와 예약 싱크 모두 graceful shutdown 범위에 포함하고, 락은 작업이 완료될 때 해제됩니다.
 
 ### 5. 전화번호 자동 포맷팅

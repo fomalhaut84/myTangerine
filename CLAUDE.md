@@ -12,6 +12,8 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 세션마다 맨 위에 한 문단을 추가한다(`tangerine-handoff`). 새 세션은 이 절과 최신 인계 노트로 시작한다(`tangerine-resume`).
 
+**2026-11-17(오후) · 운영 장애 복구 · 자동 배포 · 의존성 보안 정리 — `v1.1.1` · `v1.1.2` · `v1.2.0`(첫 자동 배포 · 통과).** 배송사고 배송완료 400 두 건(#194 → #195 · #199 → #200) · **운영 DB 인증 장애**(PostgreSQL 18 md5 잔존 → hybrid 가 시트로 무음 폴백 · 사용자 SCRAM 재설정 · 전체 동기화 388 · 충돌 25) · 자동 배포 #201 → #203(Release 발행 = 배포 · 런북 `docs/runbooks/auto-deploy.md`) · `pnpm audit` 205 → 0(#205 · #207 CI Node 24 · #210 Fastify 5 · #211 zod 4 · #213 · #215 · #172 닫힘 · dependabot 16 정리). **실데이터 영향: DB 비밀번호 재설정 · 전체 동기화 · 배포 3회(모두 사용자 실행).** 인계 `docs/handoff/2026-11-17-ops-recovery-auto-deploy-security.md`. 다음 = **#196 API 보안 강화** · v1.2.0 주문 수정(PATCH) 확인(사용자) · #197 · #208(DB 이력 확인 선행) · #202 · #209.
+
 **2026-11-17 · 하네스 세팅 · 프로젝트 분석 — 코드 변경 0 · 실데이터 영향 없음.** pleiades 를 참고해 `.claude/` 하네스 구성(규칙 `workflow.md`·`data-safety.md` · 훅 `safety_guard.py` · 스킬 6 · 에이전트 3) · **리뷰를 pleiades 방식으로 전환**(사전 `code-reviewer` 에이전트 → GitHub Codex bot · codex-cli 미사용 · 사용자 결정) · CLAUDE.md 개요를 TS 모노레포로 교체 · 프로젝트 분석(로컬 전용 `docs/research/project-analysis.md` · 미추적 — 테스트 통과 · 타입체크·lint 전 패키지 실패 · Prisma 마이그레이션 루트 7/core 6 이원화 · 보안 항목은 문서에만). `.claude/` 추적 시작(`settings.local.json` 만 제외 · 이슈 #192). 인계 `docs/handoff/2026-11-17-harness-setup-analysis.md`. 다음 = **#192 PR 머지(사용자)** · 분석 문서 3절 보안 항목 착수 · 실제 DB `_prisma_migrations` 확인(사용자) · 검증 체계 복구.
 
 ## Development Workflow
@@ -203,6 +205,8 @@ myTangerine 은 구글 폼으로 들어오는 감귤 주문(스프레드시트 "
 
 ## 실행·검증
 
+Node **24**(`.nvmrc` · 요구 `>=20.19.0` — Fastify 5) · 운영 서버 Node 24.12 · pnpm 10.
+
 ```bash
 pnpm install                                  # postinstall 이 prisma generate
 pnpm --filter @mytangerine/api dev            # API (PORT)
@@ -210,6 +214,8 @@ pnpm --filter @mytangerine/web dev            # 웹
 pnpm --filter @mytangerine/sync-service dev   # 동기화 — 실제 시트에 쓴다 (data-safety S-2)
 ```
 패키지별 lint·타입·테스트·빌드 명령은 `.claude/rules/workflow.md` 6절 표를 쓴다.
+
+**배포:** GitHub Release 발행 = 서버 자동 배포(Actions → ssh forced command → `deploy/release-inplace.sh`). 스키마 변경 릴리즈는 `--prerelease`(수동) · 서버 조치 필요 시 `--draft`. 런북 `docs/runbooks/auto-deploy.md`.
 
 ## 초기 설정
 
