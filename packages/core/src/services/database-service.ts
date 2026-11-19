@@ -864,6 +864,21 @@ export class DatabaseService {
   }
 
   /**
+   * #258: 행 번호들의 DB 주문 시각 — hybrid 쓰기 전 시트 행 확인용
+   */
+  async getOrderTimestampsByRows(
+    rowNumbers: number[]
+  ): Promise<Map<number, { timestamp: Date; timestampRaw: string | null }>> {
+    const orders = await this._prisma.order.findMany({
+      where: { sheetRowNumber: { in: rowNumbers } },
+      select: { sheetRowNumber: true, timestamp: true, timestampRaw: true },
+    });
+    return new Map(
+      orders.filter(hasSheetRow).map((o) => [o.sheetRowNumber, { timestamp: o.timestamp, timestampRaw: o.timestampRaw }])
+    );
+  }
+
+  /**
    * #257: 이 시트 행의 주문(원문 타임스탬프 또는 해석한 시각이 같은 주문)이 DB 의 **다른** 행 번호에 있는지.
    * 시트 행이 밀린 경우를 가린다. 원문 비교가 시간대와 무관하고, 시각 비교는 원문 형식이 다른 옛 행을 덮는다.
    */
