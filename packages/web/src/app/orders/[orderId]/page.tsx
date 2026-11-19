@@ -18,6 +18,7 @@ import {
 import { Card } from '@/components/common/Card';
 import { StatusBadge } from '@/components/orders/StatusBadge';
 import { ChangeHistoryTab } from '@/components/orders/ChangeHistoryTab';
+import { OriginalInputSection } from '@/components/orders/OriginalInputSection';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -803,6 +804,13 @@ export default function OrderDetailPage() {
             </>
           )}
         </div>
+
+        {/* #281: 최초 입력값 — 주문자가 폼에 입력한 원본 (DB 전용 claim 주문은 폼 입력이 없다) */}
+        {!isEditMode && order.orderType !== 'claim' && (
+          <Card title="최초 입력값" className="mt-6">
+            <OriginalInputSection originalInput={order.originalInput} />
+          </Card>
+        )}
 
         {/* 변경 이력 (Phase 2) */}
         {/* Issue #155: claim 주문은 변경 이력이 sheetRowNumber 기준이라 표시 안 함 */}

@@ -15,6 +15,8 @@ import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normal
 import type { Config } from '../config/config.js';
 import { ChangeLogService, type FieldChange } from './change-log-service.js';
 import { normalizeTimestampRaw } from './sheet-row-identity.js';
+import { buildOriginalInput, type OriginalInput } from './original-input.js';
+import { diffSheetFirstOverwrite } from './sheet-first-diff.js';
 
 /**
  * #266: findOrderAtOtherRow 후보 창 — 해석한 시각 기준 ±27시간.
@@ -117,6 +119,8 @@ export class DatabaseService {
       _orderType: (order.orderType as 'customer' | 'gift' | 'claim') || 'customer',
       // Issue #165: DB ID (claim 주문 식별용)
       _dbId: order.id,
+      // #281: 최초 입력값 (이 기능 이전 주문은 null → 없음)
+      _originalInput: (order.originalInput as Record<string, string> | null) ?? undefined,
     };
   }
 
@@ -825,23 +829,12 @@ export class DatabaseService {
         syncedAt: new Date(),
       };
 
-      // P1 Fix: deletedAt 처리
-      // - undefined: 시트에 '삭제됨' 컬럼 없음 → update에서 제외 (기존 DB 값 유지)
-      // - null: 시트에서 명시적 빈값 → update에 포함 (복원)
-      // - Date: 삭제 날짜 → update에 포함 (soft delete)
-      const { deletedAt, ...dataWithoutDeletedAt } = data;
-      let updateData;
-      if (deletedAt === undefined) {
-        // 시트에 삭제 정보 없음 → 기존 DB soft delete 유지
-        updateData = { ...dataWithoutDeletedAt, ...syncData, syncedAt: new Date() };
-      } else {
-        // deletedAt이 null(복원) 또는 Date(삭제) → 업데이트에 포함
-        updateData = { ...dataWithoutDeletedAt, deletedAt, ...syncData, syncedAt: new Date() };
-      }
+      const updateData = this.buildSyncUpdateData(data, syncData);
 
       const result = await this._prisma.order.upsert({
         where: { sheetRowNumber: data.sheetRowNumber },
-        create: this.buildSyncCreateData(data, syncData, options),
+        // #281: 최초 입력값은 만들 때만 — update(시트 우선 가져오기)는 바꾸지 않는다
+        create: this.buildSyncCreateData(data, syncData, options, buildOriginalInput(row)),
         update: updateData,
       });
 
@@ -854,18 +847,102 @@ export class DatabaseService {
   }
 
   /**
+   * 동기화가 기존 주문을 시트 값으로 덮어쓸 때의 update 데이터 — 최초 입력값(#281)은 넣지 않는다
+   * P1 Fix: deletedAt 처리
+   * - undefined: 시트에 '삭제됨' 컬럼 없음 → update에서 제외 (기존 DB 값 유지)
+   * - null: 시트에서 명시적 빈값 → update에 포함 (복원)
+   * - Date: 삭제 날짜 → update에 포함 (soft delete)
+   */
+  private buildSyncUpdateData(
+    data: ReturnType<DatabaseService['sheetRowToPrismaOrderData']>,
+    syncData: Record<string, unknown>
+  ) {
+    const { deletedAt, ...dataWithoutDeletedAt } = data;
+    return {
+      ...dataWithoutDeletedAt,
+      ...(deletedAt === undefined ? {} : { deletedAt }),
+      ...syncData,
+      syncedAt: new Date(),
+    };
+  }
+
+  /**
+   * #281 시트 우선 가져오기(운영자 복구): 기존 주문을 시트 값으로 덮어쓰고 바뀐 필드 전체를 변경 이력에 남긴다 — 한 트랜잭션.
+   * 동기화가 주문을 읽은 뒤 웹 수정으로 version 이 바뀌었으면 쓰지 않고 던진다(그 수정을 덮지 않는다).
+   * 최초 입력값(original_input)은 바꾸지 않는다.
+   */
+  async overwriteOrderFromSheet(
+    existing: { id: number; version: number | null },
+    row: SheetRow,
+    syncMeta: { syncStatus: 'pending' | 'success' | 'failed'; syncAttemptCount?: number }
+  ): Promise<{ order: PrismaOrder; fieldChanges: Record<string, FieldChange> }> {
+    const data = this.sheetRowToPrismaOrderData(row);
+    const updateData = this.buildSyncUpdateData(data, syncMeta);
+    const expectedVersion = existing.version ?? 1;
+
+    try {
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        const current = await db.order.findUnique({ where: { id: existing.id } });
+        if (!current) {
+          throw new Error(`order #${existing.id} no longer exists`);
+        }
+        if ((current.version ?? 1) !== expectedVersion) {
+          throw new Error(
+            `order #${existing.id} changed concurrently (version ${expectedVersion} → ${current.version}) — not overwritten`
+          );
+        }
+
+        const fieldChanges = diffSheetFirstOverwrite(
+          updateData as Record<string, unknown>,
+          current as unknown as Record<string, unknown>
+        );
+        // 확인한 version 을 조건으로 건다 — 확인과 쓰기 사이에 커밋된 웹 수정도 덮지 않는다
+        const { count } = await db.order.updateMany({
+          where: { id: existing.id, version: expectedVersion },
+          data: updateData,
+        });
+        if (count === 0) {
+          throw new Error(`order #${existing.id} changed concurrently while overwriting — not overwritten`);
+        }
+        const order = await db.order.findUniqueOrThrow({ where: { id: existing.id } });
+
+        if (Object.keys(fieldChanges).length > 0) {
+          await this.changeLogService.logChange(
+            {
+              orderId: existing.id,
+              sheetRowNumber: data.sheetRowNumber,
+              changedBy: 'sync',
+              action: 'update',
+              fieldChanges,
+              previousVersion: expectedVersion,
+            },
+            db
+          );
+        }
+        return { order, fieldChanges };
+      }, WRITE_TX_OPTIONS);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to overwrite order from sheet (row: ${data.sheetRowNumber}): ${message}`);
+    }
+  }
+
+  /**
    * 동기화로 새 주문을 만들 때의 create 데이터 — upsert · 행 재사용 교체가 같이 쓴다
    * #251: 정책이 있으면(cron) 알림 대기 표시
    */
   private buildSyncCreateData(
     data: ReturnType<DatabaseService['sheetRowToPrismaOrderData']>,
     syncData: Record<string, unknown>,
-    options?: { newOrderNotice?: NewOrderNoticePolicy }
+    options: { newOrderNotice?: NewOrderNoticePolicy } | undefined,
+    originalInput: OriginalInput
   ) {
     return {
       ...data,
       ...syncData,
       syncedAt: new Date(),
+      // #281: 주문자가 처음 입력한 값 — 이후 바꾸지 않는다
+      originalInput,
       ...(shouldFlagNewOrderNotice(data, options?.newOrderNotice) ? { newOrderNotice: 'pending' } : {}),
     };
   }
@@ -961,7 +1038,7 @@ export class DatabaseService {
     const deletedAt = existing.deletedAt ?? new Date();
 
     try {
-      return await this.replaceOrderAtRowTx(existing, data, rowNumber, deletedAt, syncMeta, options);
+      return await this.replaceOrderAtRowTx(existing, data, rowNumber, deletedAt, syncMeta, options, buildOriginalInput(row));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to replace order at reused row (row: ${rowNumber}, old #${existing.id}): ${message}`);
@@ -974,7 +1051,8 @@ export class DatabaseService {
     rowNumber: number,
     deletedAt: Date,
     syncMeta: Record<string, unknown>,
-    options?: { newOrderNotice?: NewOrderNoticePolicy }
+    options: { newOrderNotice?: NewOrderNoticePolicy } | undefined,
+    originalInput: OriginalInput
   ): Promise<PrismaOrder> {
     return this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
       await db.order.update({
@@ -998,7 +1076,7 @@ export class DatabaseService {
         db
       );
 
-      return db.order.create({ data: this.buildSyncCreateData(data, syncMeta, options) });
+      return db.order.create({ data: this.buildSyncCreateData(data, syncMeta, options, originalInput) });
     }, WRITE_TX_OPTIONS);
   }
 

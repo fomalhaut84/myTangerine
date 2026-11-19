@@ -24,6 +24,10 @@ export interface SyncRouteResult {
   identityConflictRows: number[];
   rowShiftDetected: boolean;
   unprocessed: number;
+  /** #281: 증분이 DB 를 바꾸지 않고 둔 기존 주문 수 */
+  unchanged?: number;
+  /** #281: 시트 값이 DB 와 달랐지만 DB 를 유지한 행 번호 */
+  sheetDivergedRows?: number[];
 }
 
 export type SyncMode = 'incremental' | 'full';
@@ -47,6 +51,8 @@ export interface SyncResponseBody {
     identityConflictRows: number[];
     rowShiftDetected: boolean;
     unprocessed: number;
+    unchanged: number;
+    sheetDivergedRows: number[];
     duration?: number;
   };
 }
@@ -73,6 +79,8 @@ export function buildSyncResponse(result: SyncRouteResult, mode: SyncMode, durat
     identityConflictRows,
     rowShiftDetected,
     unprocessed,
+    unchanged: result.unchanged ?? 0,
+    sheetDivergedRows: [...(result.sheetDivergedRows ?? [])],
     ...(durationSec !== undefined ? { duration: durationSec } : {}),
   };
 
@@ -87,6 +95,7 @@ export function buildSyncResponse(result: SyncRouteResult, mode: SyncMode, durat
 function buildMessage(r: SyncResponseBody['result'], mode: SyncMode): string {
   const label = mode === 'full' ? '전체 동기화 완료' : '동기화 완료';
   const parts = [`${label}: ${r.success}개 성공, ${r.failed}개 실패, ${r.skipped}개 건너뜀`];
+  if (r.unchanged > 0) parts[0] += `, 기존 주문 유지 ${r.unchanged}개`;
   if (r.conflicts > 0) parts[0] += `, 충돌 ${r.conflicts}건`;
   if (r.duration !== undefined) parts[0] += ` (소요 시간: ${r.duration}초)`;
 
@@ -98,7 +107,10 @@ function buildMessage(r: SyncResponseBody['result'], mode: SyncMode): string {
     parts.push(`행 ${r.identityConflictRows.length}개는 시트와 DB 주문이 맞지 않아 쓰지 않았습니다. 운영 런북을 확인하세요.`);
   }
   if (r.conflicts > 0) {
-    parts.push('충돌은 웹에서 수정한 주문이 시트와 달라 덮어쓰지 않은 것입니다.');
+    parts.push('충돌은 DB 에만 있는 변경(웹 수정 · 시트 반영 실패)이라 시트 값으로 덮어쓰지 않은 것입니다.');
+  }
+  if (r.sheetDivergedRows.length > 0) {
+    parts.push(`행 ${r.sheetDivergedRows.length}개는 시트 값이 DB 와 달라 DB 값을 유지했습니다(정본 = DB).`);
   }
   return parts.join(' — ');
 }
@@ -142,6 +154,12 @@ export function syncResponseSchema(full: boolean) {
           },
           rowShiftDetected: { type: 'boolean', description: '시트 행이 밀려 이번 실행을 멈췄다 (#261)' },
           unprocessed: { type: 'number', description: '멈춰서 처리하지 못한 행 수 (#261)' },
+          unchanged: { type: 'number', description: 'DB 를 바꾸지 않고 둔 기존 주문 수 (#281)' },
+          sheetDivergedRows: {
+            type: 'array',
+            items: { type: 'number' },
+            description: '시트 값이 DB 와 달라 DB 를 유지한 행 번호 (#281 · 정본 = DB)',
+          },
           ...(full ? { duration: { type: 'number', description: '소요 시간 (초)' } } : {}),
         },
       },

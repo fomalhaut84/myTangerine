@@ -10,6 +10,7 @@ import { Config, LabelFormatter } from '@mytangerine/core';
 import { MockSheetService } from './mock-sheet-service.js';
 import ordersRoutes from '../../routes/orders.js';
 import labelsRoutes from '../../routes/labels.js';
+import syncRoutes from '../../routes/sync.js';
 import { errorHandler } from '../../middleware/error-handler.js';
 import { buildCorsOptions } from '../../cors-options.js';
 import apiKeyAuth from '../../plugins/api-key-auth.js';
@@ -182,6 +183,7 @@ export async function createTestServer(): Promise<{
       trackingNumber: { type: 'string' },
       ordererName: { type: 'string' },
       ordererEmail: { type: 'string' },
+
       // Issue #165: claim 주문 식별용 필드
       dbId: { type: 'integer', minimum: 1 },
       idType: { type: 'string', enum: ['rowNumber', 'dbId'] },
@@ -241,6 +243,8 @@ export async function createTestServer(): Promise<{
   // 라우트 등록
   await server.register(ordersRoutes);
   await server.register(labelsRoutes);
+  // #281: 요청 검증(시트 우선 가져오기 확인값)만 본다 — 핸들러의 prisma 는 쓰지 않는다
+  await server.register(syncRoutes);
 
   await server.ready();
 

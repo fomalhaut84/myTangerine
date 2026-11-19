@@ -20,6 +20,7 @@ import {
 } from './sheet-row-identity.js';
 import type { ChangeLogService, FieldChange } from './change-log-service.js';
 import type { NewOrderNoticePolicy } from './new-order-notice.js';
+import { diffSheetFirstOverwrite } from './sheet-first-diff.js';
 import {
   SYNC_STATUS_BATCH_SIZE,
   verifyAndWriteSyncStatuses,
@@ -64,6 +65,10 @@ export interface SyncResult {
   rowShiftDetected: boolean;
   /** #261: 멈춰서 처리하지 못한 행 수(DB 반영도 안 했다 · 다음 실행이 처리) — 멈추지 않았으면 0 */
   unprocessed: number;
+  /** #281: 증분 동기화가 DB 를 바꾸지 않고 둔 기존 주문 수(success 는 새로 만든 주문) */
+  unchanged: number;
+  /** #281: 시트 값이 DB 와 달랐지만 DB 를 유지한 행 번호(hybrid 정본 = DB) */
+  sheetDivergedRows: number[];
 }
 
 /** 행 하나의 동기화 결과 */
@@ -77,6 +82,10 @@ interface SyncRowResult {
   replaced?: boolean;
   /** #260: 행 정체성 충돌 · 교체 상한으로 쓰지 않았다 */
   identityConflict?: boolean;
+  /** #281: DB 를 바꾸지 않고 둔 기존 주문(증분) */
+  unchanged?: boolean;
+  /** #281: 시트 값이 DB 와 달랐다(DB 유지) */
+  diverged?: boolean;
   /** #261: 시트 상태 칸에 쓸 내용 — 바로 쓰지 않고 performSync 가 묶어 확인 뒤 쓴다 */
   statusWrite?: { status: 'success' | 'fail'; orderId?: number; syncedAt: Date };
 }
@@ -89,6 +98,11 @@ interface PendingRow {
 
 /** #257: 한 번의 동기화 실행 동안 공유하는 상태 */
 interface SyncRunContext {
+  /**
+   * #281: incremental = 새 주문만 만든다(기존 주문의 DB 값은 바꾸지 않는다 · hybrid 정본 = DB)
+   * full = 시트 우선 가져오기(운영자 복구) — 기존 주문도 시트 값으로 덮어쓰고 변경 이력을 남긴다
+   */
+  mode: 'incremental' | 'full';
   /** 이번 시트 스냅샷의 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함) 정체성 색인 (#264) */
   sheetIndex: SheetIdentityIndex;
   /** 이번 실행의 교체 수 */
@@ -236,7 +250,22 @@ export class SyncEngine {
         await this.assertNotDuplicate(row, rowNumber);
       }
 
+      // #281: 증분 동기화는 DB 에 있는 같은 주문을 바꾸지 않는다 — 시트 상태 칸만 쓴다
+      if (existingOrder && ctx.mode === 'incremental') {
+        return this.keepExistingOrder(existingOrder, row, rowNumber);
+      }
+
+      // #281: 시트 우선 가져오기도 DB 에만 있는 변경(시트 반영 실패)은 덮어쓰지 않는다 — 재조정(#231) 대상
+      if (existingOrder?.syncStatus === 'failed') {
+        const conflictReason =
+          'DB has changes not yet written to the sheet (syncStatus=failed) — not overwritten by sheet-first import (#281)';
+        this.logger?.warn({ rowNumber, orderId: existingOrder.id }, conflictReason);
+        return { success: true, orderId: existingOrder.id, conflict: true, conflictReason };
+      }
+
       const attemptCount = existingOrder ? (existingOrder.syncAttemptCount || 0) + 1 : 1;
+
+      // (아래 충돌 판정은 시트 우선 가져오기에서만 닿는다 — 증분은 위에서 돌아간다)
 
       // 충돌 감지: DB가 'web'에서 수정되었고, 시트보다 최신인 경우
       // 참고: 'api' 수정은 충돌 감지 대상이 아님 (api는 권위있는 소스로 간주하여 시트 덮어쓰기 허용)
@@ -288,7 +317,25 @@ export class SyncEngine {
         }
       }
 
-      // 충돌 없음 - DB에 upsert
+      // #281 시트 우선 가져오기: 기존 주문 덮어쓰기 + 바뀐 필드 전체 이력 — 한 트랜잭션 · version 확인
+      if (existingOrder) {
+        const { order: overwritten, fieldChanges } = await this.databaseService.overwriteOrderFromSheet(
+          { id: existingOrder.id, version: existingOrder.version },
+          row,
+          { syncStatus: 'success', syncAttemptCount: attemptCount }
+        );
+        this.logger?.info(
+          { rowNumber, orderId: overwritten.id, changedFields: Object.keys(fieldChanges) },
+          'Sheet-first import overwrote an existing order (#281)'
+        );
+        return {
+          success: true,
+          orderId: overwritten.id,
+          statusWrite: { status: 'success', orderId: overwritten.id, syncedAt: new Date() },
+        };
+      }
+
+      // 새 주문 - DB에 upsert(create)
       // #251: 알림 정책은 DB 에 아직 없는 행(새로 만들어지는 주문)에만 넘긴다
       const noticePolicy = !existingOrder ? this.options.newOrderNotice : undefined;
       const order = await this.databaseService.upsertOrder(
@@ -365,6 +412,43 @@ export class SyncEngine {
     };
   }
 
+  /**
+   * #281 증분 동기화: DB 에 있는 같은 주문은 바꾸지 않는다(hybrid 정본 = DB).
+   * - 시트 값이 DB 와 다르면 DB 를 유지하고 그 행을 보고한다(어느 필드인지만 — 값은 개인정보라 남기지 않는다)
+   * - 시트 반영 실패 표시(syncStatus=failed) 주문은 시트 상태 칸도 쓰지 않는다 — DB 변경이 아직 시트에 없다(#231 재조정 대상)
+   * - 상태 칸 DB_SYNC_AT 은 DB 가 마지막으로 반영된 시각이다(지금이 아니다)
+   */
+  private keepExistingOrder(
+    existing: { id: number; syncStatus: string | null; syncedAt?: Date | null; updatedAt?: Date | null } & Record<string, unknown>,
+    row: SheetRow,
+    rowNumber: number
+  ): SyncRowResult {
+    const sheetValues = this.databaseService.sheetRowToPrismaOrderData(row) as unknown as Record<string, unknown>;
+    const divergedFields = Object.keys(diffSheetFirstOverwrite(sheetValues, existing));
+    if (divergedFields.length > 0) {
+      this.logger?.warn(
+        { rowNumber, orderId: existing.id, divergedFields },
+        'Sheet row differs from the DB order — keeping the DB (hybrid DB-first #281)'
+      );
+    }
+    const diverged = divergedFields.length > 0;
+
+    if (existing.syncStatus === 'failed') {
+      return { success: true, orderId: existing.id, unchanged: true, diverged };
+    }
+    return {
+      success: true,
+      orderId: existing.id,
+      unchanged: true,
+      diverged,
+      statusWrite: {
+        status: 'success',
+        orderId: existing.id,
+        syncedAt: existing.syncedAt ?? existing.updatedAt ?? new Date(),
+      },
+    };
+  }
+
   /** #257: 이 시트 행의 주문이 DB 다른 행에 이미 있으면 그 id */
   private async findThisRowsOrderElsewhere(row: SheetRow, rowNumber: number): Promise<number | null> {
     const raw = row['타임스탬프'];
@@ -412,8 +496,10 @@ export class SyncEngine {
 
   /** 행 결과를 실행 결과에 센다 */
   private recordRowResult(result: SyncResult, rowNumber: number, rowResult: SyncRowResult): void {
-    const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced, identityConflict } = rowResult;
+    const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced, identityConflict, unchanged, diverged } =
+      rowResult;
     if (newOrderNotice) result.newOrderNotices++;
+    if (diverged) result.sheetDivergedRows.push(rowNumber);
     if (replaced) result.replaced++;
     if (identityConflict) result.identityConflictRows.push(rowNumber);
 
@@ -426,7 +512,8 @@ export class SyncEngine {
         reason: conflictReason || 'Web modification detected',
       });
     } else if (success) {
-      result.success++;
+      if (unchanged) result.unchanged++;
+      else result.success++;
     } else {
       result.failed++;
       result.errors.push({
@@ -526,6 +613,8 @@ export class SyncEngine {
       identityConflictRows: [],
       rowShiftDetected: false,
       unprocessed: 0,
+      unchanged: 0,
+      sheetDivergedRows: [],
     };
 
     try {
@@ -534,6 +623,7 @@ export class SyncEngine {
       const { rows: allRows, physical } = await this.sheetService.getAllRowsSnapshot();
       // #257: 이번 시트 스냅샷의 정체성 색인 · 교체 건수(차단기)
       const ctx: SyncRunContext = {
+        mode: skipSynced ? 'incremental' : 'full',
         sheetIndex: buildSheetIdentityIndex(physical),
         replacements: 0,
         recentReplacements: null,
@@ -641,16 +731,18 @@ export class SyncEngine {
   }
 
   /**
-   * 증분 동기화 (기본 모드)
-   * DB_SYNC_STATUS가 'success'인 행은 스킵
+   * 증분 동기화 (기본 모드 · cron)
+   * DB_SYNC_STATUS가 'success'인 행은 스킵. #281: 새 주문만 만들고 기존 주문의 DB 값은 바꾸지 않는다(hybrid 정본 = DB)
    */
   async incrementalSync(): Promise<SyncResult> {
     return this.performSync(true, 'incremental');
   }
 
   /**
-   * 전체 재동기화 (복구용)
-   * 모든 행을 강제로 다시 동기화
+   * 시트 우선 전체 가져오기 (운영자 복구 · #281)
+   * 모든 행을 다시 읽어 기존 주문도 시트 값으로 덮어쓴다 — 바뀐 필드는 변경 이력에 남고,
+   * 시트 반영 실패(syncStatus=failed) · 웹 수정 충돌 주문은 덮어쓰지 않는다. 최초 입력값은 바꾸지 않는다.
+   * DB 장애 · sheets 모드 운영 뒤 DB 를 시트에 맞출 때만 쓴다.
    */
   async fullResync(): Promise<SyncResult> {
     return this.performSync(false, 'full');

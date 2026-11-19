@@ -178,6 +178,8 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
       getRawOrderByRowNumber: vi.fn().mockResolvedValue(existing),
       findOrderAtOtherRow: vi.fn().mockResolvedValue(null),
       upsertOrder: vi.fn().mockResolvedValue({ id: 5, newOrderNotice: existing ? null : 'pending' }),
+      // #281: 증분이 기존 주문을 유지할 때 시트 · DB 차이를 본다 — prisma 없이 도는 실제 변환
+      sheetRowToPrismaOrderData: (r: SheetRow) => DatabaseService.prototype.sheetRowToPrismaOrderData.call(null, r),
     };
     const e = new SyncEngine(
       sheetService as unknown as SheetService,
@@ -203,14 +205,15 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
     }
   });
 
-  it('DB 에 이미 있는 행 → 정책을 넘기지 않는다', async () => {
+  it('DB 에 이미 있는 행 → 갱신하지 않으므로 알림도 없다 (#281)', async () => {
     vi.useFakeTimers();
     try {
       const { e, databaseService } = engine({ id: 5, syncAttemptCount: 1, lastModifiedBy: 'sync', timestamp: parseKoreanTimestamp(RECENT_TS) }, { newOrderNotice: POLICY });
       const p = e.incrementalSync();
       await vi.runAllTimersAsync();
       const result = await p;
-      expect(databaseService.upsertOrder.mock.calls[0][2]).toBeUndefined();
+      expect(databaseService.upsertOrder).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ failed: 0, unchanged: 1 });
       expect(result.newOrderNotices).toBe(0);
     } finally {
       vi.useRealTimers();

@@ -179,6 +179,9 @@ export interface SheetRow {
 
   /** Issue #165: DB ID (claim 주문 등 sheetRowNumber가 null인 경우 식별용) */
   _dbId?: number;
+
+  /** #281: 최초 입력값(DB 에서 읽을 때만) — 이 기능 이전 주문은 없음 */
+  _originalInput?: Record<string, string>;
 }
 
 /**
@@ -239,6 +242,9 @@ export interface Order {
 
   /** 원본 시트 행 데이터 (디버깅용) */
   _raw?: SheetRow;
+
+  /** #281: 최초 입력값 — 주문이 처음 들어올 때의 폼 입력. 이 기능 이전 주문은 없음 */
+  originalInput?: Record<string, string>;
 }
 
 /**
@@ -518,6 +524,8 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     originalRowNumber: row._originalRowNumber,
     // Issue #165: DB ID (claim 주문 식별용)
     dbId: row._dbId,
+    // #281: 최초 입력값
+    originalInput: row._originalInput,
     _raw: row,
   };
 }
