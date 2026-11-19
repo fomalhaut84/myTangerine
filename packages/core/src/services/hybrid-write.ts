@@ -53,3 +53,37 @@ export class HybridWriteError extends Error {
 export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
+
+/** #258: 시트 행 확인에서 쓰기를 막았을 때의 사용자 문구 */
+export const SHEET_ROW_MISMATCH_MESSAGE =
+  '구글 시트의 행 순서가 DB 와 맞지 않아 저장하지 않았습니다. 변경된 내용은 없습니다. 관리자에게 시트 행 확인을 요청해 주세요.';
+
+/**
+ * #258: 대상 시트 행이 DB 주문과 다른 주문이다(시트 행이 밀림) — DB · 시트 모두 쓰지 않았다.
+ * 409 는 오류 처리기가 message 를 그대로 보여 준다 — 행 번호만 넣고 고객 정보는 넣지 않는다.
+ */
+export class SheetRowMismatchError extends Error {
+  readonly statusCode = 409;
+
+  constructor(
+    readonly operation: string,
+    readonly rows: number[]
+  ) {
+    super(`${SHEET_ROW_MISMATCH_MESSAGE} (행 ${rows.join(', ')})`);
+    this.name = 'SheetRowMismatchError';
+  }
+}
+
+/** #258: 시트 행을 읽지 못해 확인할 수 없었다 — 쓰지 않았다(503 · 일반 문구) */
+export class SheetRowCheckError extends Error {
+  readonly statusCode = 503;
+  readonly publicMessage = DB_WRITE_FAILED_MESSAGE;
+
+  constructor(
+    readonly operation: string,
+    readonly cause: unknown
+  ) {
+    super(`Hybrid ${operation}: could not verify sheet rows — nothing was written: ${describeError(cause)}`);
+    this.name = 'SheetRowCheckError';
+  }
+}

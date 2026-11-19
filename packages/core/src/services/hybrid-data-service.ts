@@ -14,11 +14,14 @@ import type { DatabaseService } from './database-service.js';
 import type { SheetRow, OrderStatus } from '../types/order.js';
 import {
   HybridWriteError,
+  SheetRowCheckError,
+  SheetRowMismatchError,
   describeError,
   sheetPartial,
   writeOk,
   type WriteOutcome,
 } from './hybrid-write.js';
+import { matchesSheetRow } from './sheet-row-identity.js';
 
 export type DataSourceMode = 'sheets' | 'database' | 'hybrid';
 
@@ -454,6 +457,9 @@ export class HybridDataService {
   ): Promise<WriteOutcome> {
     const target = rowNumbers ? `rows ${rowNumbers.join(', ')}` : 'all rows';
 
+    // #258: 시트 행이 밀렸으면 다른 고객 행에 쓰게 된다 — DB 를 쓰기 전에 확인하고, 다르면 아무것도 쓰지 않는다
+    await this.assertSheetRowsMatch(operation, rowNumbers);
+
     try {
       await dbWrite();
     } catch (dbError) {
@@ -472,6 +478,38 @@ export class HybridDataService {
 
     this.logger?.info(`[hybrid] ${operation} DB+Sheets success (${target})`);
     return writeOk();
+  }
+
+  /**
+   * #258: 대상 행들의 시트 `타임스탬프` 를 한 번에 읽어 DB 주문과 같은 주문인지 본다.
+   * - DB 에 그 행 번호의 주문이 없으면 확인 대상이 아니다(DB 쓰기가 판단)
+   * - 시트 값이 비었거나 다른 주문이면 SheetRowMismatchError(409) — 아무것도 쓰지 않는다
+   * - 시트를 읽지 못하면 SheetRowCheckError(503) — 확인 없이 쓰지 않는다
+   */
+  private async assertSheetRowsMatch(operation: string, rowNumbers: number[] | undefined): Promise<void> {
+    if (!rowNumbers || rowNumbers.length === 0 || !this.sheetService) return;
+
+    let dbOrders: Map<number, { timestamp: Date; timestampRaw: string | null }>;
+    let sheetRaws: Map<number, string>;
+    try {
+      dbOrders = await this.databaseService.getOrderTimestampsByRows(rowNumbers);
+      const toCheck = rowNumbers.filter((n) => dbOrders.has(n));
+      if (toCheck.length === 0) return;
+      sheetRaws = await this.sheetService.getTimestampsByRows(toCheck);
+    } catch (checkError) {
+      this.logger?.error(`[hybrid-guard] ${operation} could not verify sheet rows — nothing written: ${describeError(checkError)}`);
+      throw new SheetRowCheckError(operation, checkError);
+    }
+
+    const mismatched = [...dbOrders.entries()]
+      .filter(([row, order]) => !matchesSheetRow(order, sheetRaws.get(row)))
+      .map(([row]) => row);
+    if (mismatched.length === 0) return;
+
+    this.logger?.error(
+      `[hybrid-guard] ${operation} sheet rows do not hold the DB orders (rows ${mismatched.join(', ')}) — nothing written (#258)`
+    );
+    throw new SheetRowMismatchError(operation, mismatched);
   }
 
   /**

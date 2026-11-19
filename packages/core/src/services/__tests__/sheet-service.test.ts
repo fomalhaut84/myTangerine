@@ -14,6 +14,7 @@ vi.mock('googleapis', () => {
       values: {
         get: vi.fn(),
         update: vi.fn(),
+        batchGet: vi.fn(),
       },
     },
   };
@@ -722,6 +723,39 @@ describe('SheetService', () => {
 
       // col < 0
       await expect(service.updateCell(10, -1, 'test')).rejects.toThrow('Invalid column number: -1');
+    });
+  });
+
+  // #258: hybrid 쓰기 전 행 확인 — 타임스탬프 칸만 한 번에 읽는다
+  describe('getTimestampsByRows', () => {
+    const headers = ['비고', '타임스탬프', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
+      '받으실분 성함', '받으실분 주소 (도로명 주소로 부탁드려요)', '받으실분 연락처 (핸드폰번호)', '상품 선택', '5kg 수량', '10kg 수량'];
+
+    it('헤더에서 타임스탬프 열을 찾아(A 열이라고 가정하지 않음) batchGet 1회로 읽는다 · 빈 칸은 빈 문자열', async () => {
+      mockGoogleAPI.sheets.spreadsheets.values.get.mockResolvedValue({ data: { values: [headers] } });
+      mockGoogleAPI.sheets.spreadsheets.values.batchGet.mockResolvedValue({
+        data: { valueRanges: [{ values: [['2026. 11. 19 오전 10:26:32']] }, {}] },
+      });
+
+      const result = await service.getTimestampsByRows([391, 392]);
+
+      expect(mockGoogleAPI.sheets.spreadsheets.values.batchGet).toHaveBeenCalledTimes(1);
+      expect(mockGoogleAPI.sheets.spreadsheets.values.batchGet).toHaveBeenCalledWith(
+        expect.objectContaining({ ranges: ["'감귤 주문서(응답)'!B391", "'감귤 주문서(응답)'!B392"] })
+      );
+      expect(result).toEqual(new Map([[391, '2026. 11. 19 오전 10:26:32'], [392, '']]));
+    });
+
+    it('빈 목록이면 읽지 않는다', async () => {
+      mockGoogleAPI.sheets.spreadsheets.values.batchGet.mockClear();
+      expect(await service.getTimestampsByRows([])).toEqual(new Map());
+      expect(mockGoogleAPI.sheets.spreadsheets.values.batchGet).not.toHaveBeenCalled();
+    });
+
+    it('읽기 실패는 행 번호를 담아 던진다', async () => {
+      mockGoogleAPI.sheets.spreadsheets.values.get.mockResolvedValue({ data: { values: [headers] } });
+      mockGoogleAPI.sheets.spreadsheets.values.batchGet.mockRejectedValue(new Error('quota'));
+      await expect(service.getTimestampsByRows([391])).rejects.toThrow('Failed to read timestamps for rows 391: quota');
     });
   });
 });

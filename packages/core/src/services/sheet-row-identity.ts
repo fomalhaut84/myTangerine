@@ -80,3 +80,18 @@ export function appearsAtOtherRow(index: SheetIdentityIndex, raw: string | null 
   if (!key) return false;
   return (index.get(key) ?? []).some((n) => n !== rowNumber);
 }
+
+/**
+ * #258: 웹 쓰기 전 확인 — **엄격**: 시트 값이 비었거나 읽을 수 없으면 같은 주문으로 보지 않는다(쓰지 않는 쪽).
+ * 정규화한 원문이 같거나, 둘 다 해석되고 시각이 같으면 같은 주문.
+ */
+export function matchesSheetRow(
+  existing: { timestamp: Date; timestampRaw: string | null },
+  sheetRaw: string | null | undefined
+): boolean {
+  const sheetKey = normalizeTimestampRaw(sheetRaw);
+  if (!sheetKey) return false;
+  if (normalizeTimestampRaw(existing.timestampRaw) === sheetKey) return true;
+  const sheetTime = parseSheetTimestamp(sheetRaw);
+  return sheetTime !== null && existing.timestamp.getTime() === sheetTime.getTime();
+}

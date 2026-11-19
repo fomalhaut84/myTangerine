@@ -41,15 +41,20 @@ const CALLS: Record<WriteMethod, { call: (s: HybridDataService) => Promise<unkno
 };
 
 function fakes() {
-  const sheet = Object.fromEntries(WRITE_METHODS.map((m) => [m, vi.fn().mockResolvedValue(undefined)])) as Record<
-    WriteMethod,
-    Fn
-  >;
+  // #258: 쓰기 전 행 확인 — 기본은 "시트 행이 DB 주문과 같다"
+  const raw = (n: number) => `2026. 11. ${n}. 오전 10:00:00`;
+  const sheet = {
+    ...Object.fromEntries(WRITE_METHODS.map((m) => [m, vi.fn().mockResolvedValue(undefined)])),
+    getTimestampsByRows: vi.fn(async (rows: number[]) => new Map(rows.map((n) => [n, raw(n)]))),
+  } as Record<WriteMethod | 'getTimestampsByRows', Fn>;
   const db = {
     ...Object.fromEntries(WRITE_METHODS.map((m) => [m, vi.fn().mockResolvedValue(undefined)])),
     markSheetSyncFailed: vi.fn().mockResolvedValue(undefined),
     clearSheetSyncFailure: vi.fn().mockResolvedValue(undefined),
-  } as Record<WriteMethod | 'markSheetSyncFailed' | 'clearSheetSyncFailure', Fn>;
+    getOrderTimestampsByRows: vi.fn(
+      async (rows: number[]) => new Map(rows.map((n) => [n, { timestamp: new Date(0), timestampRaw: raw(n) }]))
+    ),
+  } as Record<WriteMethod | 'markSheetSyncFailed' | 'clearSheetSyncFailure' | 'getOrderTimestampsByRows', Fn>;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   return { sheet, db, logger };
 }

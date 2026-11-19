@@ -143,6 +143,32 @@ export class SheetService {
   }
 
   /**
+   * #258: 행 번호들의 `타임스탬프` 칸을 한 번에 읽는다(batchGet 1회) — hybrid 쓰기 전 행 확인용.
+   * 빈 칸은 ''. getAllRows 와 같은 기본 표시 형식(FORMATTED_VALUE)으로 읽는다.
+   */
+  async getTimestampsByRows(rowNumbers: number[]): Promise<Map<number, string>> {
+    if (rowNumbers.length === 0) return new Map();
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+      const headers = await this.getHeaders();
+      const col = headers.indexOf('타임스탬프');
+      if (col < 0) throw new Error("Column '타임스탬프' not found");
+      const letter = this.columnToLetter(col + 1);
+
+      const response = await this.sheets.spreadsheets.values.batchGet({
+        spreadsheetId,
+        ranges: rowNumbers.map((n) => `${this.quoteSheetName(sheetName)}!${letter}${n}`),
+      });
+      const ranges = response.data.valueRanges ?? [];
+      return new Map(rowNumbers.map((n, i) => [n, String(ranges[i]?.values?.[0]?.[0] ?? '')]));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to read timestamps for rows ${rowNumbers.join(', ')}: ${message}`);
+    }
+  }
+
+  /**
    * 헤더 캐시 무효화
    * Google Sheet의 컬럼 구조가 변경되었을 때 호출하여 캐시를 초기화합니다.
    */
