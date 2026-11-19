@@ -219,6 +219,8 @@ pnpm --filter @mytangerine/sync-service dev   # 동기화 — 실제 시트에 �
 
 **배포:** GitHub Release 발행 = 서버 자동 배포(Actions → ssh forced command → `deploy/release-inplace.sh`). 스키마 변경 릴리즈는 `--prerelease`(수동) · 서버 조치 필요 시 `--draft`. 런북 `docs/runbooks/auto-deploy.md`.
 
+**시트 · 동기화 운영:** 응답 시트에서 주문 행을 지우거나 손으로 넣지 않는다(폼이 끼워 넣어 행이 밀린다 — 2026-11-19 사고). 어긋나면 앱이 쓰지 않고 멈추고 `#hermes` 로 알린다. 신호 · 진단 · 정리 절차는 런북 `docs/runbooks/sheet-sync-operations.md`.
+
 ## 초기 설정
 
 1. `cp .env.example .env` 후 값 입력 (`DATABASE_URL` · `SPREADSHEET_ID` · `GOOGLE_CREDENTIALS_FILE` · `DATA_SOURCE` · `API_SECRET_KEY` · `DEFAULT_SENDER_*` · `NEXT_PUBLIC_API_BASE_URL`)
