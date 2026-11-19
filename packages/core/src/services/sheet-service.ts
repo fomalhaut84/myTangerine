@@ -143,37 +143,6 @@ export class SheetService {
   }
 
   /**
-   * #264: 거르지 않은 **물리 행 전체**의 `타임스탬프` — 2행부터 끝까지 values.get 1회.
-   * getAllRows 는 '삭제됨' 행과 받는 사람 정보가 빠진 행을 거르므로 행 밀림 판정 색인에 쓰면 그런 행으로 밀린 주문을 놓친다.
-   */
-  async getAllRowTimestamps(): Promise<Array<{ _rowNumber: number; 타임스탬프: string }>> {
-    try {
-      const spreadsheetId = await this.getSpreadsheetId();
-      const sheetName = await this.getFirstSheetName();
-      const headers = await this.getHeaders();
-      const col = headers.indexOf('타임스탬프');
-      if (col < 0) throw new Error("Column '타임스탬프' not found");
-      const letter = this.columnToLetter(col + 1);
-
-      // 1행(헤더)부터 함께 읽어 그 열이 정말 `타임스탬프` 인지 본다 — 헤더 캐시는 프로세스 수명 동안 유지되므로
-      // 실행 중 열이 삽입되면 다른 열을 읽어 판정이 교체 쪽으로 열린다(사전 리뷰 major). 다르면 캐시를 비우고 실패
-      const response = await this.sheets.spreadsheets.values.get({
-        spreadsheetId,
-        range: `${this.quoteSheetName(sheetName)}!${letter}1:${letter}`,
-      });
-      const [headerCell, ...values] = response.data.values ?? [];
-      if (String(headerCell?.[0] ?? '') !== '타임스탬프') {
-        this.headers = null;
-        throw new Error(`Header cache is stale — column ${letter} is no longer '타임스탬프'`);
-      }
-      return values.map((cells, i) => ({ _rowNumber: i + 2, 타임스탬프: String(cells?.[0] ?? '') }));
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(`Failed to read all row timestamps: ${message}`);
-    }
-  }
-
-  /**
    * #258: 행 번호들의 `타임스탬프` 칸을 한 번에 읽는다 — hybrid 쓰기 전 행 확인용.
    * 가장 작은 행 ~ 가장 큰 행의 **연속 범위 하나**를 values.get 1회로 읽는다 — 행마다 범위를 넣는 batchGet 은
    * 일괄 확인이 많으면 요청 URL 이 길어져 거절될 수 있다(감사 ❓). 빈 칸은 ''.
@@ -258,6 +227,17 @@ export class SheetService {
    * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
   async getAllRows(includeDeleted: boolean = false): Promise<SheetRow[]> {
+    return (await this.getAllRowsSnapshot(includeDeleted)).rows;
+  }
+
+  /**
+   * #264: getAllRows 와 같은 행 + 같은 응답의 **거르지 않은 물리 행 전체** 타임스탬프.
+   * 행 밀림 판정 색인은 '삭제됨' · 필수 정보 빠진 행까지 봐야 하고, 처리 대상과 **같은 시점**이어야 한다
+   * (따로 두 번 읽으면 그 사이 행이 움직여 손실 방향으로 오판할 수 있다 — 감사 ❌). 시트 읽기는 1회다.
+   */
+  async getAllRowsSnapshot(
+    includeDeleted: boolean = false
+  ): Promise<{ rows: SheetRow[]; physical: Array<{ _rowNumber: number; 타임스탬프: string }> }> {
     // 매 요청마다 로그 캐시 초기화 (수정된 데이터의 재검증을 위해)
     this.loggedInvalidRows.clear();
 
@@ -271,7 +251,7 @@ export class SheetService {
 
       const rows = response.data.values;
       if (!rows || rows.length === 0) {
-        return [];
+        return { rows: [], physical: [] };
       }
 
       // 첫 번째 행은 헤더
@@ -295,6 +275,11 @@ export class SheetService {
         rowData._rowNumber = index + 2;
         return rowData as unknown as SheetRow;
       });
+
+      const physical = allRows.map((row) => ({
+        _rowNumber: row._rowNumber as number,
+        타임스탬프: String(row['타임스탬프'] ?? ''),
+      }));
 
       // 필수 필드가 비어있는 행은 제외 (데이터 정합성 유지)
       // 타임스탬프, 받으실분 정보(이름, 주소, 전화번호)는 반드시 필요
@@ -341,7 +326,7 @@ export class SheetService {
 
       // Soft Delete 필터링 (Phase 3)
       if (!includeDeleted) {
-        return validRows.filter((row) => {
+        const activeRows = validRows.filter((row) => {
           // '삭제됨' 컬럼에 값이 있거나 _isDeleted 플래그가 true면 제외
           const deletedValue = row['삭제됨'];
           if (row._isDeleted || (deletedValue && deletedValue.trim() !== '')) {
@@ -349,9 +334,10 @@ export class SheetService {
           }
           return true;
         });
+        return { rows: activeRows, physical };
       }
 
-      return validRows;
+      return { rows: validRows, physical };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to get all rows: ${message}`);

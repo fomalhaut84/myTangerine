@@ -725,38 +725,33 @@ describe('SheetService', () => {
     });
   });
 
-  // #264: 행 밀림 판정 색인 — getAllRows 와 달리 거르지 않은 물리 행 전체
-  describe('getAllRowTimestamps', () => {
-    const headers = ['비고', '타임스탬프', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
-      '받으실분 성함', '받으실분 주소 (도로명 주소로 부탁드려요)', '받으실분 연락처 (핸드폰번호)', '상품 선택', '5kg 수량', '10kg 수량'];
+  // #264: 처리 대상과 행 밀림 판정 색인을 같은 응답 하나에서
+  describe('getAllRowsSnapshot', () => {
+    const headers = ['타임스탬프', '비고', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
+      '받으실분 성함', '받으실분 주소 (도로명 주소로 부탁드려요)', '받으실분 연락처 (핸드폰번호)', '상품 선택', '5kg 수량', '10kg 수량', '삭제됨'];
+    const full = (ts: string, deleted = '') => [ts, '', 'a', 'b', '010', '받는이', '주소', '010-1', '5kg', '1', '', deleted];
 
-    it('타임스탬프 열 2행부터 끝까지 한 번에 읽고 행 번호를 붙인다 · 빈 칸도 행으로 남긴다', async () => {
+    it('rows 는 getAllRows 처럼 거르고 physical 은 같은 응답의 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함)', async () => {
       const get = mockGoogleAPI.sheets.spreadsheets.values.get;
       get.mockReset();
-      get
-        .mockResolvedValueOnce({ data: { values: [headers] } })
-        .mockResolvedValueOnce({
-          data: { values: [['타임스탬프'], ['2026. 1. 7 오후 7:49:40'], [], ['2026. 11. 19 오전 10:26:32']] },
-        });
-      const rows = await service.getAllRowTimestamps();
-      expect(get).toHaveBeenLastCalledWith(expect.objectContaining({ range: "'감귤 주문서(응답)'!B1:B" }));
-      expect(rows).toEqual([
-        { _rowNumber: 2, 타임스탬프: '2026. 1. 7 오후 7:49:40' },
-        { _rowNumber: 3, 타임스탬프: '' },
-        { _rowNumber: 4, 타임스탬프: '2026. 11. 19 오전 10:26:32' },
+      get.mockResolvedValueOnce({
+        data: {
+          values: [
+            headers,
+            full('2026. 11. 19 오전 10:26:32'),
+            full('2026. 1. 7 오후 7:49:40', '2026-11-19'), // 삭제됨
+            ['2026. 1. 8 오전 9:00:00', ''], // 받는 사람 정보 없음
+          ],
+        },
+      });
+      const { rows, physical } = await service.getAllRowsSnapshot();
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(rows.map((r) => r._rowNumber)).toEqual([2]);
+      expect(physical).toEqual([
+        { _rowNumber: 2, 타임스탬프: '2026. 11. 19 오전 10:26:32' },
+        { _rowNumber: 3, 타임스탬프: '2026. 1. 7 오후 7:49:40' },
+        { _rowNumber: 4, 타임스탬프: '2026. 1. 8 오전 9:00:00' },
       ]);
-    });
-
-    it('캐시된 헤더와 실제 1행이 다르면(실행 중 열 삽입) 캐시를 비우고 실패 — 다른 열로 판정하지 않는다', async () => {
-      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
-      get.mockReset();
-      get
-        .mockResolvedValueOnce({ data: { values: [headers] } })
-        .mockResolvedValueOnce({ data: { values: [['새 열'], ['x']] } })
-        .mockResolvedValueOnce({ data: { values: [headers] } }); // 캐시를 비웠으므로 다음 호출은 헤더를 다시 읽는다
-      await expect(service.getAllRowTimestamps()).rejects.toThrow('Header cache is stale');
-      get.mockResolvedValueOnce({ data: { values: [['타임스탬프'], ['y']] } });
-      expect(await service.getAllRowTimestamps()).toEqual([{ _rowNumber: 2, 타임스탬프: 'y' }]);
     });
   });
 

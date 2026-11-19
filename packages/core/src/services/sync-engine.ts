@@ -68,8 +68,8 @@ interface SyncRowResult {
 
 /** #257: 한 번의 동기화 실행 동안 공유하는 상태 */
 interface SyncRunContext {
-  /** null = 물리 행 전체를 읽지 못함(판정 불가 → 교체하지 않는다) */
-  sheetIndex: SheetIdentityIndex | null;
+  /** 이번 시트 스냅샷의 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함) 정체성 색인 (#264) */
+  sheetIndex: SheetIdentityIndex;
   /** 이번 실행의 교체 수 */
   replacements: number;
   /** 최근 창(24시간) 동안 이전 실행들이 한 교체 수 — 첫 교체 때 한 번 읽는다 */
@@ -440,17 +440,6 @@ export class SyncEngine {
     );
   }
 
-  /** #264: 물리 행 전체로 정체성 색인 — 실패하면 null(판정 불가) */
-  private async loadSheetIdentityIndex(): Promise<SheetIdentityIndex | null> {
-    try {
-      return buildSheetIdentityIndex(await this.sheetService.getAllRowTimestamps());
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      this.logger?.error({ error: message }, 'Could not read all sheet rows — row replacements disabled for this sync (#264)');
-      return null;
-    }
-  }
-
   /** #257: 행이 밀린 신호가 있으면 throw (쓰지 않음) */
   private async assertNotShifted(
     existing: { id: number; timestampRaw: string | null },
@@ -458,11 +447,6 @@ export class SyncEngine {
     rowNumber: number,
     ctx: SyncRunContext
   ): Promise<void> {
-    if (ctx.sheetIndex === null) {
-      throw new Error(
-        `Row identity conflict: row ${rowNumber} no longer holds DB #${existing.id}, and could not read all sheet rows to check — not replacing (#264)`
-      );
-    }
     const oldStillInSheet = appearsAtOtherRow(ctx.sheetIndex, existing.timestampRaw, rowNumber);
     const movedId = await this.findThisRowsOrderElsewhere(row, rowNumber);
     if (!oldStillInSheet && movedId === null) return;
@@ -502,11 +486,11 @@ export class SyncEngine {
 
     try {
       // 모든 행 가져오기
-      const allRows = await this.sheetService.getAllRows();
+      // #264: 처리 대상과 행 밀림 판정 색인(거르지 않은 물리 행 전체)을 같은 응답 하나에서
+      const { rows: allRows, physical } = await this.sheetService.getAllRowsSnapshot();
       // #257: 이번 시트 스냅샷의 정체성 색인 · 교체 건수(차단기)
-      // #264: 색인은 거르지 않은 물리 행 전체로 — 못 읽으면 null(판정 불가 → 교체하지 않는다)
       const ctx: SyncRunContext = {
-        sheetIndex: await this.loadSheetIdentityIndex(),
+        sheetIndex: buildSheetIdentityIndex(physical),
         replacements: 0,
         recentReplacements: null,
         replacementLimitHit: false,

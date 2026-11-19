@@ -62,17 +62,11 @@ function engine(opts: {
   recentReplacements?: number;
   /** #264: 거르지 않은 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함) — 없으면 rows 와 같다 */
   physicalRows?: Array<{ _rowNumber: number; 타임스탬프: string }>;
-  physicalReadFails?: boolean;
 }) {
   const rows = opts.rows ?? [sheetRow()];
-  const sheetService = {
-    getAllRows: vi.fn().mockResolvedValue(rows),
-    getAllRowTimestamps: opts.physicalReadFails
-      ? vi.fn().mockRejectedValue(new Error('quota'))
-      : vi.fn().mockResolvedValue(
-          opts.physicalRows ?? rows.map((r) => ({ _rowNumber: r._rowNumber as number, 타임스탬프: r['타임스탬프'] as string }))
-        ),
-  };
+  const physical =
+    opts.physicalRows ?? rows.map((r) => ({ _rowNumber: r._rowNumber as number, 타임스탬프: r['타임스탬프'] as string }));
+  const sheetService = { getAllRowsSnapshot: vi.fn().mockResolvedValue({ rows, physical }) };
   const databaseService = {
     getRawOrderByRowNumber: vi.fn().mockImplementation(async (n: number) =>
       opts.existing ? { ...opts.existing, sheetRowNumber: n } : null
@@ -161,18 +155,6 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     expect(result.errors[0].error).toContain('that order is at another sheet row');
   });
 
-  it('물리 행을 읽지 못하면 판정할 수 없으므로 교체하지 않는다 · 일반 신규 주문은 계속', async () => {
-    const fresh = { ...sheetRow('2026. 11. 19. 오전 10:40:00'), _rowNumber: 395 } as SheetRow;
-    const { e, databaseService } = engine({ existing: OLD_ORDER, rows: [sheetRow(), fresh], physicalReadFails: true });
-    databaseService.getRawOrderByRowNumber.mockImplementation(async (n: number) =>
-      n === 395 ? null : { ...OLD_ORDER, sheetRowNumber: n }
-    );
-    const result = await run(e);
-    expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
-    expect(result.errors[0].error).toContain('could not read all sheet rows');
-    expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);
-  });
-
   it('원문이 같으면 해석한 시각이 달라도(시간대 차이) 같은 주문 → 갱신', async () => {
     const tzShifted = { ...OLD_ORDER, timestamp: new Date(0), timestampRaw: '2026. 11. 19 오전 10:26:32' };
     const { e, databaseService } = engine({ existing: tzShifted });
@@ -231,9 +213,10 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
 
   it('시트 타임스탬프를 읽을 수 없으면 판정하지 않고 지금처럼 갱신', async () => {
     const { e, databaseService } = engine({ existing: OLD_ORDER });
-    (e as unknown as { sheetService: { getAllRows: ReturnType<typeof vi.fn> } }).sheetService.getAllRows.mockResolvedValue([
-      sheetRow('잘못된 값'),
-    ]);
+    (e as unknown as { sheetService: { getAllRowsSnapshot: ReturnType<typeof vi.fn> } }).sheetService.getAllRowsSnapshot.mockResolvedValue({
+      rows: [sheetRow('잘못된 값')],
+      physical: [{ _rowNumber: 391, 타임스탬프: '잘못된 값' }],
+    });
     await run(e);
     expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
