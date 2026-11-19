@@ -260,8 +260,10 @@ export class SheetReconciler {
       const updates = Object.fromEntries(
         desired.filter(([column, value]) => headerSet.has(column) && (sheetRow[column] ?? '') !== value)
       );
-      // 빈 값은 열이 없어도 잃을 것이 없다
-      const unapplied = absent.filter(([, value]) => value !== '').map(([column]) => column);
+      // 빈 값은 열이 없어도 잃을 것이 없다 — 주문유형 '판매' 도 같다(시트는 빈 칸을 판매로 읽는다 · parseOrderType)
+      const unapplied = absent
+        .filter(([column, value]) => value !== '' && !(column === '주문유형' && value === '판매'))
+        .map(([column]) => column);
       plans.push({ order, updates, unapplied });
     }
     result.missingColumns = [...missing];
