@@ -136,6 +136,9 @@ export class PollingScheduler {
           newOrderNotices: result.newOrderNotices,
           replaced: result.replaced,
           replacementLimitHit: result.replacementLimitHit,
+          // #261: 상태 칸 쓰기 전 · 후 확인에서 행 밀림 → 이번 실행 정지 · 남은 행 수
+          rowShiftDetected: result.rowShiftDetected,
+          unprocessed: result.unprocessed,
         },
         'Scheduled sync completed'
       );

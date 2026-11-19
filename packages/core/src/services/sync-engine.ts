@@ -60,8 +60,10 @@ export interface SyncResult {
   replacementLimitHit: boolean;
   /** #260: 행 정체성 충돌 · 교체 상한으로 쓰지 않은(안전 정지) 행 번호 */
   identityConflictRows: number[];
-  /** #261: 상태 칸을 쓰기 직전 확인에서 시트 행이 스냅샷과 달라(행 밀림) 이번 실행을 멈췄다 */
+  /** #261: 상태 칸을 쓰기 전 · 후 확인에서 시트 행이 스냅샷과 달라(행 밀림) 이번 실행을 멈췄다 */
   rowShiftDetected: boolean;
+  /** #261: 멈춰서 처리하지 못한 행 수(DB 반영도 안 했다 · 다음 실행이 처리) — 멈추지 않았으면 0 */
+  unprocessed: number;
 }
 
 /** 행 하나의 동기화 결과 */
@@ -76,7 +78,7 @@ interface SyncRowResult {
   /** #260: 행 정체성 충돌 · 교체 상한으로 쓰지 않았다 */
   identityConflict?: boolean;
   /** #261: 시트 상태 칸에 쓸 내용 — 바로 쓰지 않고 performSync 가 묶어 확인 뒤 쓴다 */
-  statusWrite?: { status: 'success' | 'fail'; orderId?: number };
+  statusWrite?: { status: 'success' | 'fail'; orderId?: number; syncedAt: Date };
 }
 
 /** #261: 상태 칸 쓰기를 기다리는 행 — 쓰기 결과에 따라 행 결과가 확정된다 */
@@ -299,7 +301,7 @@ export class SyncEngine {
       this.logger?.debug({ rowNumber, orderId: order.id, attemptCount }, 'DB upsert successful');
 
       // #261: 시트 상태 칸은 performSync 가 묶어 행 확인 뒤 쓴다(쓰기 실패는 그때 이 행의 실패로 바뀐다)
-      return { success: true, orderId: order.id, newOrderNotice, statusWrite: { status: 'success', orderId: order.id } };
+      return { success: true, orderId: order.id, newOrderNotice, statusWrite: { status: 'success', orderId: order.id, syncedAt: new Date() } };
     } catch (dbError) {
       // DB upsert 실패
       const dbMessage = dbError instanceof Error ? dbError.message : String(dbError);
@@ -308,7 +310,7 @@ export class SyncEngine {
       // #260: 행 정체성 문제(안전 정지)는 결과에 따로 모아 알림이 쓰게 한다
       const identityConflict = dbError instanceof RowIdentityConflictError || dbError instanceof RowReplacementLimitError;
       // 시트에 fail 기록 — #261: 이것도 묶어 행 확인 뒤 쓴다
-      return { success: false, error: `DB upsert failed: ${dbMessage}`, identityConflict, statusWrite: { status: 'fail' } };
+      return { success: false, error: `DB upsert failed: ${dbMessage}`, identityConflict, statusWrite: { status: 'fail', syncedAt: new Date() } };
     }
   }
 
@@ -359,7 +361,7 @@ export class SyncEngine {
       orderId: order.id,
       newOrderNotice,
       replaced: true,
-      statusWrite: { status: 'success', orderId: order.id },
+      statusWrite: { status: 'success', orderId: order.id, syncedAt: new Date() },
     };
   }
 
@@ -436,7 +438,7 @@ export class SyncEngine {
 
   /**
    * #261: 모아 둔 상태 칸을 행 확인 뒤 쓰고 그 행들의 결과를 확정한다.
-   * @returns false = 시트 행이 스냅샷과 달라(행 밀림) 쓰지 않았다 — 호출자는 이번 실행을 멈춘다
+   * @returns false = 시트 행이 스냅샷과 달라(행 밀림) 멈춰야 한다 — 호출자는 이번 실행을 멈춘다
    */
   private async flushSyncStatuses(batch: readonly PendingRow[], result: SyncResult): Promise<boolean> {
     if (batch.length === 0) return true;
@@ -446,45 +448,60 @@ export class SyncEngine {
       batch.map((p) => p.entry)
     );
 
-    if (outcome.kind === 'written') {
-      this.logger?.debug({ rows }, 'Sheets sync status updated');
-      batch.forEach((p) => this.recordRowResult(result, p.entry.rowNumber, p.rowResult));
-      return true;
+    switch (outcome.kind) {
+      case 'written': {
+        if ('postCheckError' in outcome) {
+          this.logger?.warn({ rows, error: outcome.postCheckError }, 'Sheets sync status written, but post-write row check failed');
+        } else {
+          this.logger?.debug({ rows }, 'Sheets sync status updated');
+        }
+        batch.forEach((p) => this.recordRowResult(result, p.entry.rowNumber, p.rowResult));
+        return true;
+      }
+      case 'failed': {
+        // 지금까지의 시트 쓰기 실패와 같다 — DB 는 반영됐고 상태 칸만 못 썼다(다음 증분 동기화가 다시 처리)
+        this.logger?.error(
+          { rows, stage: outcome.stage, error: outcome.error },
+          outcome.stage === 'write'
+            ? 'Sheets sync status write failed — some cells may have been written'
+            : 'Sheets sync status not written: row check read failed'
+        );
+        batch.forEach((p) =>
+          this.recordRowResult(result, p.entry.rowNumber, {
+            ...p.rowResult,
+            success: false,
+            error: p.rowResult.success
+              ? `Sheets update failed: ${outcome.error}`
+              : `${p.rowResult.error}; fail status not written: ${outcome.error}`,
+          })
+        );
+        return true;
+      }
+      case 'shifted':
+      case 'writtenThenShifted': {
+        const written = outcome.kind === 'writtenThenShifted';
+        const reason = written
+          ? `Sheet row ${outcome.mismatchedRows[0]} changed right after writing — DB_SYNC_* may have been written onto shifted rows ` +
+            `${rows.join(', ')}; check them, sync stopped (#261)`
+          : `Sheet row ${outcome.mismatchedRows[0]} no longer matches this sync's snapshot — rows shifted during sync? ` +
+            'DB_SYNC_* not written, sync stopped (#261)';
+        this.logger?.error(
+          { rows, mismatchedRows: outcome.mismatchedRows, written },
+          'Row identity conflict around sync status write: sheet rows shifted — stopping this sync (#261)'
+        );
+        batch.forEach((p) =>
+          this.recordRowResult(result, p.entry.rowNumber, {
+            ...p.rowResult,
+            success: false,
+            conflict: false,
+            identityConflict: true,
+            error: p.rowResult.success ? reason : `${p.rowResult.error}; ${reason}`,
+          })
+        );
+        result.rowShiftDetected = true;
+        return false;
+      }
     }
-
-    if (outcome.kind === 'failed') {
-      // 지금까지의 시트 쓰기 실패와 같다 — DB 는 반영됐고 상태 칸만 못 썼다(다음 증분 동기화가 다시 처리)
-      this.logger?.error({ rows, error: outcome.error }, 'DB sync done but Sheets sync status update failed');
-      batch.forEach((p) =>
-        this.recordRowResult(
-          result,
-          p.entry.rowNumber,
-          p.rowResult.success
-            ? { ...p.rowResult, success: false, error: `Sheets update failed: ${outcome.error}` }
-            : p.rowResult
-        )
-      );
-      return true;
-    }
-
-    const reason =
-      `Sheet row ${outcome.mismatchedRows[0]} no longer matches this sync's snapshot — rows shifted during sync? ` +
-      'DB_SYNC_* not written, sync stopped (#261)';
-    this.logger?.error(
-      { rows, mismatchedRows: outcome.mismatchedRows },
-      'Row identity conflict before writing sync status: sheet rows shifted — not writing, stopping this sync (#261)'
-    );
-    batch.forEach((p) =>
-      this.recordRowResult(result, p.entry.rowNumber, {
-        ...p.rowResult,
-        success: false,
-        conflict: false,
-        identityConflict: true,
-        error: p.rowResult.success ? reason : `${p.rowResult.error}; ${reason}`,
-      })
-    );
-    result.rowShiftDetected = true;
-    return false;
   }
 
   /**
@@ -508,6 +525,7 @@ export class SyncEngine {
       replacementLimitHit: false,
       identityConflictRows: [],
       rowShiftDetected: false,
+      unprocessed: 0,
     };
 
     try {
@@ -528,54 +546,83 @@ export class SyncEngine {
       // 각 행 동기화 — #261: 상태 칸은 SYNC_STATUS_BATCH_SIZE 행씩 모아 행 확인 뒤 쓴다
       let pending: PendingRow[] = [];
       let shifted = false;
-      for (const row of allRows) {
-        const rowNumber = row._rowNumber;
+      try {
+        for (const [index, row] of allRows.entries()) {
+          const rowNumber = row._rowNumber;
 
-        if (!rowNumber) {
-          result.skipped++;
-          continue;
-        }
-
-        // 증분 모드에서만 DB_SYNC_STATUS 확인
-        if (skipSynced) {
-          const syncStatus = row['DB_SYNC_STATUS'];
-          if (syncStatus === 'success') {
-            this.logger?.debug({ rowNumber, syncStatus }, 'Row already synced successfully, skipping');
+          if (!rowNumber) {
             result.skipped++;
             continue;
           }
-        }
 
-        // 행 동기화
-        const rowResult = await this.syncRow(row, ctx);
-        if (rowResult.statusWrite) {
-          pending = [
-            ...pending,
-            {
-              entry: { rowNumber, ...rowResult.statusWrite, snapshotTimestamp: String(row['타임스탬프'] ?? '') },
-              rowResult,
-            },
-          ];
-        } else {
-          this.recordRowResult(result, rowNumber, rowResult);
-        }
-
-        if (pending.length >= SYNC_STATUS_BATCH_SIZE) {
-          const batch = pending;
-          pending = [];
-          if (!(await this.flushSyncStatuses(batch, result))) {
-            shifted = true;
-            break;
+          // 증분 모드에서만 DB_SYNC_STATUS 확인
+          if (skipSynced) {
+            const syncStatus = row['DB_SYNC_STATUS'];
+            if (syncStatus === 'success') {
+              this.logger?.debug({ rowNumber, syncStatus }, 'Row already synced successfully, skipping');
+              result.skipped++;
+              continue;
+            }
           }
-        }
 
-        // Rate limiting: Google Sheets API quota 준수를 위해 1초 대기
-        // (60 requests/minute 제한을 초과하지 않도록)
-        await new Promise(resolve => setTimeout(resolve, 1000));
+          // 행 동기화
+          const rowResult = await this.syncRow(row, ctx);
+          if (rowResult.statusWrite) {
+            pending = [
+              ...pending,
+              {
+                entry: { rowNumber, ...rowResult.statusWrite, snapshotTimestamp: String(row['타임스탬프'] ?? '') },
+                rowResult,
+              },
+            ];
+          } else {
+            this.recordRowResult(result, rowNumber, rowResult);
+          }
+
+          if (pending.length >= SYNC_STATUS_BATCH_SIZE) {
+            const batch = pending;
+            pending = [];
+            if (!(await this.flushSyncStatuses(batch, result))) {
+              shifted = true;
+              result.unprocessed = allRows.length - (index + 1);
+              break;
+            }
+          }
+
+          // Rate limiting: Google Sheets API quota 준수를 위해 1초 대기
+          // (60 requests/minute 제한을 초과하지 않도록)
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        }
+      } catch (loopError) {
+        // syncRow · flush 는 오류를 결과로 바꾸므로 여기 오면 불변식이 깨진 것 — 묶어 둔 행은 DB 에 반영됐고 상태 칸만 비어 있다
+        this.logger?.error(
+          {
+            pendingRows: pending.map((p) => p.entry.rowNumber),
+            success: result.success,
+            failed: result.failed,
+            error: loopError instanceof Error ? loopError.message : String(loopError),
+          },
+          `${mode} sync aborted with unflushed sync statuses — rows are in DB, DB_SYNC_* left blank (next run retries)`
+        );
+        throw loopError;
       }
 
-      if (!shifted) {
-        await this.flushSyncStatuses(pending, result);
+      if (!shifted && !(await this.flushSyncStatuses(pending, result))) {
+        shifted = true;
+      }
+
+      if (shifted) {
+        this.logger?.warn(
+          {
+            success: result.success,
+            failed: result.failed,
+            skipped: result.skipped,
+            conflicts: result.conflicts,
+            unprocessed: result.unprocessed,
+            identityConflictRows: result.identityConflictRows,
+          },
+          `${mode} sync stopped: sheet rows shifted during sync (#261) — see docs/runbooks/sheet-sync-operations.md`
+        );
       }
 
       result.replacementLimitHit = ctx.replacementLimitHit;
