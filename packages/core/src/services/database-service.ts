@@ -854,10 +854,12 @@ export class DatabaseService {
   /**
    * #251: 알림 대기 주문 — pending · 삭제 안 됨 · 시트 행 있음 · 오래된 것부터
    */
-  async getPendingNewOrderNotices(limit: number): Promise<Array<{ id: number; sheetRowNumber: number }>> {
+  async getPendingNewOrderNotices(
+    limit: number
+  ): Promise<Array<{ id: number; sheetRowNumber: number; timestamp: Date }>> {
     const rows = await this._prisma.order.findMany({
       where: { newOrderNotice: 'pending', deletedAt: null, sheetRowNumber: { not: null } },
-      select: { id: true, sheetRowNumber: true },
+      select: { id: true, sheetRowNumber: true, timestamp: true },
       orderBy: { id: 'asc' },
       take: limit,
     });

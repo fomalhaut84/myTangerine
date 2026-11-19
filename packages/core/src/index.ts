@@ -34,6 +34,7 @@ export {
 export { SyncEngine, type SyncResult, type SyncEngineOptions, type Logger } from './services/sync-engine.js';
 export {
   shouldFlagNewOrderNotice,
+  isWithinNoticeWindow,
   NEW_ORDER_NOTICE_WINDOW_MS,
   type NewOrderNoticePolicy,
   type NewOrderNoticeStatus,

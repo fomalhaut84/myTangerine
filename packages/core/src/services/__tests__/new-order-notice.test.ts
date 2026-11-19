@@ -81,6 +81,15 @@ describe('shouldFlagNewOrderNotice', () => {
     expect(shouldFlagNewOrderNotice({ timestamp: new Date('x'), deletedAt: null }, POLICY)).toBe(false);
   });
 
+  it('isActive 가 false 면(키 거부 뒤) → false', () => {
+    expect(
+      shouldFlagNewOrderNotice({ timestamp: NOW, deletedAt: null }, { ...POLICY, isActive: () => false })
+    ).toBe(false);
+    expect(
+      shouldFlagNewOrderNotice({ timestamp: NOW, deletedAt: null }, { ...POLICY, isActive: () => true })
+    ).toBe(true);
+  });
+
   it('정책이 없으면(수동 동기화) → false', () => {
     expect(shouldFlagNewOrderNotice({ timestamp: NOW, deletedAt: null }, undefined)).toBe(false);
   });
@@ -134,7 +143,7 @@ describe('DatabaseService 알림 대기 조회 · 결과 기록', () => {
     expect(rows).toEqual([{ id: 3, sheetRowNumber: 12 }]);
     expect(prisma.order.findMany).toHaveBeenCalledWith({
       where: { newOrderNotice: 'pending', deletedAt: null, sheetRowNumber: { not: null } },
-      select: { id: true, sheetRowNumber: true },
+      select: { id: true, sheetRowNumber: true, timestamp: true },
       orderBy: { id: 'asc' },
       take: 20,
     });

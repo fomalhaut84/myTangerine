@@ -5,8 +5,12 @@
  * 실제 발송(hermes)은 sync-service 가 하고, api 수동 동기화는 정책을 넘기지 않아 표시하지 않는다(사용자 2026-11-19).
  */
 
-/** 알림 상태 — null 은 알림 대상이 아님 */
-export type NewOrderNoticeStatus = 'pending' | 'sent' | 'rejected';
+/**
+ * 알림 상태 — null 은 알림 대상이 아님
+ * - rejected: hermes 가 형식 오류(400·413)로 거부
+ * - expired: 보낼 때 주문 시각이 창 밖(hermes 장기 장애 · 키 교체 지연 뒤 몰아 보내기 방지)
+ */
+export type NewOrderNoticeStatus = 'pending' | 'sent' | 'rejected' | 'expired';
 
 /** 기본 창: 주문 시각이 지금으로부터 24시간 안인 주문만 (사용자 2026-11-19 · 대량 알림 방지) */
 export const NEW_ORDER_NOTICE_WINDOW_MS = 24 * 60 * 60 * 1000;
@@ -16,6 +20,8 @@ export interface NewOrderNoticePolicy {
   windowMs: number;
   /** 시험용 시계 */
   now?: () => Date;
+  /** false 를 돌려주면 표시하지 않는다 — hermes 가 키를 거부(401·403)한 뒤 표시를 멈출 때 */
+  isActive?: () => boolean;
 }
 
 /**
@@ -31,9 +37,20 @@ export function shouldFlagNewOrderNotice(
   policy: NewOrderNoticePolicy | undefined
 ): boolean {
   if (!policy) return false;
+  if (policy.isActive && !policy.isActive()) return false;
   if (data.deletedAt instanceof Date) return false;
+  return isWithinNoticeWindow(data.timestamp, policy);
+}
 
-  const orderTime = data.timestamp.getTime();
+/**
+ * 주문 시각이 알림 창 안인지 — 표시할 때와 보낼 때 같은 기준을 쓴다.
+ * 시각을 읽지 못했으면(Invalid Date) false.
+ */
+export function isWithinNoticeWindow(
+  timestamp: Date,
+  policy: Pick<NewOrderNoticePolicy, 'windowMs' | 'now'>
+): boolean {
+  const orderTime = timestamp.getTime();
   if (Number.isNaN(orderTime)) return false;
 
   const now = (policy.now ?? (() => new Date()))().getTime();
