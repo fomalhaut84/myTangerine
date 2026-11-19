@@ -50,11 +50,11 @@ function fakes() {
   const db = {
     ...Object.fromEntries(WRITE_METHODS.map((m) => [m, vi.fn().mockResolvedValue(undefined)])),
     markSheetSyncFailed: vi.fn().mockResolvedValue(undefined),
-    clearSheetSyncFailure: vi.fn().mockResolvedValue(undefined),
+    clearSheetSyncFailureIfUnchanged: vi.fn().mockResolvedValue(undefined),
     getOrderTimestampsByRows: vi.fn(
       async (rows: number[]) => new Map(rows.map((n) => [n, { timestamp: new Date(0), timestampRaw: raw(n) }]))
     ),
-  } as Record<WriteMethod | 'markSheetSyncFailed' | 'clearSheetSyncFailure' | 'getOrderTimestampsByRows', Fn>;
+  } as Record<WriteMethod | 'markSheetSyncFailed' | 'clearSheetSyncFailureIfUnchanged' | 'getOrderTimestampsByRows', Fn>;
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   return { sheet, db, logger };
 }
@@ -84,7 +84,7 @@ describe('HybridDataService hybrid writes', () => {
       expect(f.db[method].mock.invocationCallOrder[0]).toBeLessThan(f.sheet[method].mock.invocationCallOrder[0]);
       expect(f.db.markSheetSyncFailed).not.toHaveBeenCalled();
       // 회귀: PR #230 Codex P2 (일부 필드만 쓴 성공으로 이전 시트 실패 표시를 지우지 않는다 — #231 재조정이 지운다)
-      expect(f.db.clearSheetSyncFailure).not.toHaveBeenCalled();
+      expect(f.db.clearSheetSyncFailureIfUnchanged).not.toHaveBeenCalled();
     });
 
     it('does not touch Sheets when the DB write fails and throws HybridWriteError (503)', async () => {
@@ -94,7 +94,7 @@ describe('HybridDataService hybrid writes', () => {
       expect((error as HybridWriteError).statusCode).toBe(503);
       expect((error as HybridWriteError).failedStore).toBe('database');
       expect((error as HybridWriteError).publicMessage).toContain('변경된 내용은 없습니다');
-      expect(f.db.clearSheetSyncFailure).not.toHaveBeenCalled();
+      expect(f.db.clearSheetSyncFailureIfUnchanged).not.toHaveBeenCalled();
       expect(f.sheet[method]).not.toHaveBeenCalled();
     });
 
@@ -106,7 +106,7 @@ describe('HybridDataService hybrid writes', () => {
         expect(f.db.markSheetSyncFailed).toHaveBeenCalledWith(rows, expect.stringContaining('quota exceeded'));
       }
       expect(f.logger.error).toHaveBeenCalledWith(expect.stringContaining('[hybrid-partial]'));
-      expect(f.db.clearSheetSyncFailure).not.toHaveBeenCalled();
+      expect(f.db.clearSheetSyncFailureIfUnchanged).not.toHaveBeenCalled();
     });
 
     it('still returns the partial outcome when recording the sheet failure also fails', async () => {

@@ -13,6 +13,7 @@ import { Card } from '@/components/common/Card';
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { AlertTriangle, TrendingDown, PackageX } from 'lucide-react';
 import type { KPIAlert } from '@/types/api';
+import { summarizeSyncResult, type SyncSummary } from '@/lib/sync-result';
 
 /** MoM 감소 임계값 (%) */
 const MOM_DECLINE_THRESHOLD = -10;
@@ -20,7 +21,8 @@ const MOM_DECLINE_THRESHOLD = -10;
 export function QuickActions() {
   const syncMutation = useSyncData();
   const [syncMessage, setSyncMessage] = useState<string | null>(null);
-  const [syncErrors, setSyncErrors] = useState<Array<{ rowNumber: number; error: string }> | null>(null);
+  // #279: 정지 · 충돌 · 실패 상세와 표시 강도
+  const [syncSummary, setSyncSummary] = useState<SyncSummary | null>(null);
   const syncTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
   // KPI 데이터 조회
@@ -80,23 +82,25 @@ export function QuickActions() {
 
     try {
       const result = await syncMutation.mutateAsync();
+      const summary = summarizeSyncResult(result);
       setSyncMessage(result.message);
+      setSyncSummary(summary);
 
-      // 실패한 행이 있으면 에러 목록 표시
-      if (result.result.errors.length > 0) {
-        setSyncErrors(result.result.errors);
-      } else {
-        setSyncErrors(null);
+      // 정지(error)는 사람이 확인해야 하므로 닫힐 때까지 남긴다 — 나머지는 10초 표시
+      if (summary.tone !== 'error') {
+        syncTimeoutRef.current = setTimeout(() => {
+          setSyncMessage(null);
+          setSyncSummary(null);
+        }, 10000);
       }
-
-      syncTimeoutRef.current = setTimeout(() => {
-        setSyncMessage(null);
-        setSyncErrors(null);
-      }, 10000); // 에러가 있으면 10초 표시
     } catch (error) {
       setSyncMessage('데이터 동기화 중 오류가 발생했습니다.');
-      setSyncErrors(null);
-      syncTimeoutRef.current = setTimeout(() => setSyncMessage(null), 5000);
+      // 요청 자체 실패 — 정지가 아니므로 5초 뒤 함께 지운다
+      setSyncSummary({ tone: 'error', details: [] });
+      syncTimeoutRef.current = setTimeout(() => {
+        setSyncMessage(null);
+        setSyncSummary(null);
+      }, 5000);
     }
   };
 
@@ -169,28 +173,39 @@ export function QuickActions() {
 
         {syncMessage && (
           <div
+            role={syncSummary?.tone === 'error' ? 'alert' : 'status'}
             className={`p-3 rounded-lg text-sm ${
-              syncMessage.includes('오류')
+              syncSummary?.tone === 'error'
                 ? 'bg-red-100 text-red-700'
-                : syncErrors && syncErrors.length > 0
+                : syncSummary?.tone === 'warning'
                 ? 'bg-yellow-100 text-yellow-800'
                 : 'bg-green-100 text-green-700'
             }`}
           >
             <div className="text-center">{syncMessage}</div>
 
-            {/* 실패한 행 목록 표시 */}
-            {syncErrors && syncErrors.length > 0 && (
-              <div className="mt-3 max-h-48 overflow-y-auto">
-                <div className="text-xs font-semibold mb-2">실패한 행:</div>
-                <div className="space-y-1">
-                  {syncErrors.map((err, idx) => (
-                    <div key={idx} className="text-xs bg-white bg-opacity-50 p-2 rounded">
-                      <span className="font-semibold">행 {err.rowNumber}:</span> {err.error}
-                    </div>
-                  ))}
-                </div>
-              </div>
+            {/* #279: 정지 · 충돌 · 실패 행 */}
+            {syncSummary && syncSummary.details.length > 0 && (
+              <ul className="mt-3 max-h-48 overflow-y-auto space-y-1">
+                {syncSummary.details.map((detail) => (
+                  <li key={detail} className="text-xs bg-white bg-opacity-50 p-2 rounded">
+                    {detail}
+                  </li>
+                ))}
+              </ul>
+            )}
+
+            {syncSummary?.tone === 'error' && (
+              <button
+                type="button"
+                onClick={() => {
+                  setSyncMessage(null);
+                  setSyncSummary(null);
+                }}
+                className="mt-2 w-full text-xs underline"
+              >
+                닫기
+              </button>
             )}
           </div>
         )}

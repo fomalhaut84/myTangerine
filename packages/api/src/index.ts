@@ -314,6 +314,7 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
         description: '주문자 이메일',
         example: 'hong@example.com',
       },
+
       // Issue #165: claim 주문 식별용 필드
       dbId: {
         type: 'integer',

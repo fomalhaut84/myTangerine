@@ -1100,7 +1100,22 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
             required: ['success', 'order'],
             properties: {
               success: { type: 'boolean', enum: [true], example: true },
-              order: { $ref: 'Order#' },
+              // #281: 최초 입력값은 상세 응답에만 — 공용 Order# 에 두면 주문을 펼쳐 내보내는 다른 응답(라벨 등)으로 샌다
+              order: {
+                allOf: [
+                  { $ref: 'Order#' },
+                  {
+                    type: 'object',
+                    properties: {
+                      originalInput: {
+                        type: 'object',
+                        additionalProperties: { type: 'string' },
+                        description: '최초 입력값 — 주문자가 폼에 입력한 원본(시트 헤더 → 값). 이 기능 이전 주문은 없음',
+                      },
+                    },
+                  },
+                ],
+              },
             },
           },
           400: { $ref: 'ErrorResponse#' },
@@ -1176,6 +1191,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           dbId: order.dbId,
           // Issue #168: 프론트엔드에서 어떤 ID를 사용해야 하는지 명시
           idType: responseIdType,
+          // #281: 최초 입력값 — 상세에서만 돌려준다(목록 · 보고서에는 싣지 않는다)
+          originalInput: order.originalInput,
         },
       };
     }

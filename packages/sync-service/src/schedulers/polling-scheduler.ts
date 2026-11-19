@@ -10,6 +10,12 @@ import type { SyncEngine } from '../services/sync-engine.js';
 import { withDistributedLock } from '@mytangerine/core';
 import type { PrismaClient } from '@prisma/client';
 import { logger } from '../utils/logger.js';
+import type { ReconcileAlertInput } from '../notifications/sync-alert.js';
+
+/** #231 시트 재조정 — 알림에 넘길 결과 */
+interface ReconcilerLike {
+  reconcile(): Promise<ReconcileAlertInput & { reconciled: readonly number[]; stale: readonly number[] }>;
+}
 
 /**
  * 폴링 스케줄러 설정
@@ -39,7 +45,11 @@ export class PollingScheduler {
     private alerter?: {
       onSyncResult(result: { identityConflictRows: readonly number[] }): Promise<void>;
       onSyncFailure(): Promise<void>;
-    }
+      onReconcileResult?(result: ReconcileAlertInput): Promise<void>;
+      onReconcileError?(): Promise<void>;
+    },
+    /** #231 hybrid 시트 반영 실패 자동 재조정 — 증분 동기화 뒤 같은 sync 락 안에서 */
+    private reconciler?: ReconcilerLike
   ) {
     // Process ID 생성 (sync-service + PID + timestamp)
     this.processId = `sync-service-${process.pid}-${Date.now()}`;
@@ -109,6 +119,33 @@ export class PollingScheduler {
   }
 
   /**
+   * #231: 증분 동기화 뒤 시트 반영 실패 주문을 DB 값으로 다시 맞춘다(같은 sync 락 안).
+   * 동기화가 멈춘 회차(행 밀림 · 행 정체성 정지)는 시트가 불안정하므로 건너뛴다.
+   * 재조정 오류는 동기화 실패로 세지 않는다 — 로그만 남기고 다음 회차에 다시 한다.
+   */
+  private async reconcileAfterSync(syncResult: {
+    rowShiftDetected?: boolean;
+    identityConflictRows?: readonly number[];
+  }): Promise<ReconcileAlertInput | null> {
+    if (!this.reconciler) return null;
+    if (syncResult.rowShiftDetected || (syncResult.identityConflictRows ?? []).length > 0) {
+      logger.warn('Sync stopped on sheet row identity — skipping sheet reconcile this cycle (#231)');
+      return null;
+    }
+    try {
+      return await this.reconciler.reconcile();
+    } catch (error) {
+      // core 재조정기는 던지지 않지만, 던지면 연속 실패로 센다(알림 없이 멈추지 않게)
+      logger.error(
+        { error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined },
+        'Sheet reconcile failed (#231)'
+      );
+      await this.alerter?.onReconcileError?.();
+      return null;
+    }
+  }
+
+  /**
    * 동기화 실행 (내부용)
    * DB 기반 분산 락으로 API와 충돌 방지
    */
@@ -117,12 +154,13 @@ export class PollingScheduler {
       logger.info('Starting scheduled sync...');
 
       // DB 기반 분산 락으로 API 수동 동기화와 충돌 방지
-      const result = await withDistributedLock(
+      const { result, reconcile } = await withDistributedLock(
         this.prisma,
         'sync',
         this.processId,
         async () => {
-          return await this.syncEngine.incrementalSync();
+          const syncResult = await this.syncEngine.incrementalSync();
+          return { result: syncResult, reconcile: await this.reconcileAfterSync(syncResult) };
         },
         { ttlMs: 20 * 60 * 1000 } // 20분 TTL
       );
@@ -154,6 +192,9 @@ export class PollingScheduler {
       // #260: 행 안전 정지가 있으면 경고(하루 1회) · 연속 실패 수 초기화
       // core dist 가 낡아 필드가 없어도 실패로 세지 않게 (core 는 타입 선언이 없어 any 로 들어온다)
       await this.alerter?.onSyncResult({ identityConflictRows: result.identityConflictRows ?? [] });
+      if (reconcile) {
+        await this.alerter?.onReconcileResult?.(reconcile);
+      }
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
