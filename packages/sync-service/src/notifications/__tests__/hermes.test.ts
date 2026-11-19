@@ -39,6 +39,13 @@ describe('loadHermesConfig', () => {
     expect(loadHermesConfig({ HERMES_KEY: KEY, HERMES_URL: 'not a url' }).enabled).toBe(false);
   });
 
+  it('http 는 루프백만 · 원격은 https 만 (키 평문 전송 방지)', () => {
+    expect(loadHermesConfig({ HERMES_KEY: KEY, HERMES_URL: 'http://localhost:4700/v1/messages' }).enabled).toBe(true);
+    expect(loadHermesConfig({ HERMES_KEY: KEY, HERMES_URL: 'http://[::1]:4700/v1/messages' }).enabled).toBe(true);
+    expect(loadHermesConfig({ HERMES_KEY: KEY, HERMES_URL: 'http://hermes.example.com/v1/messages' }).enabled).toBe(false);
+    expect(loadHermesConfig({ HERMES_KEY: KEY, HERMES_URL: 'https://hermes.example.com/v1/messages' }).enabled).toBe(true);
+  });
+
   it('ADMIN_WEB_URL 은 https 만 받고 끝 / 를 뗀다', () => {
     const ok = loadHermesConfig({ HERMES_KEY: KEY, ADMIN_WEB_URL: 'https://admin.example.com/' });
     expect(ok).toMatchObject({ enabled: true, adminWebUrl: 'https://admin.example.com' });

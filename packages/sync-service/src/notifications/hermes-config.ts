@@ -3,13 +3,15 @@
  *
  * - HERMES_KEY(비밀)가 없으면 꺼진다 — 표시도 발송도 하지 않는다.
  *   키 없이 운영하는 동안 대기가 쌓였다가 키를 넣는 순간 몰려 나가지 않게 한다
- * - HERMES_URL 기본값은 같은 서버 루프백(hermes 는 지금 루프백 요청만 받는다)
+ * - HERMES_URL 기본값은 같은 서버 루프백(hermes 는 지금 루프백 요청만 받는다) · http 는 루프백만, 원격은 https
  * - ADMIN_WEB_URL 은 주문 상세 링크의 앞부분. hermes 는 https 링크만 게시하므로 https 만 받는다
  *
  * 결과 객체와 경고 문구에 키 값을 넣지 않는다(S-1).
  */
 
 export const DEFAULT_HERMES_URL = 'http://127.0.0.1:4700/v1/messages';
+
+const LOOPBACK_HOSTS: ReadonlySet<string> = new Set(['127.0.0.1', 'localhost', '[::1]']);
 
 export type HermesConfig =
   | { enabled: false; reason: string }
@@ -35,6 +37,10 @@ export function loadHermesConfig(env: Env): HermesConfig {
   const url = parseUrl(rawUrl);
   if (!url || (url.protocol !== 'http:' && url.protocol !== 'https:')) {
     return { enabled: false, reason: 'HERMES_URL 이 http(s) 주소가 아니다 — 신규 주문 알림을 끈다' };
+  }
+  // http 는 같은 서버(루프백)일 때만 — 원격 http 면 Bearer 키가 평문으로 네트워크에 나간다
+  if (url.protocol === 'http:' && !LOOPBACK_HOSTS.has(url.hostname)) {
+    return { enabled: false, reason: 'HERMES_URL 이 루프백이 아닌 http 주소다(키 평문 전송) — 신규 주문 알림을 끈다' };
   }
 
   const warnings: string[] = [];
