@@ -21,11 +21,14 @@ import { logger } from './utils/logger.js';
 import { loadHermesConfig } from './notifications/hermes-config.js';
 import { sendHermesMessage } from './notifications/hermes-client.js';
 import { NewOrderNotifier } from './notifications/new-order-notifier.js';
+import { SyncAlerter } from './notifications/sync-alert.js';
 
 /**
- * #251: hermes 설정이 있으면 신규 주문 알림 발송기를 만든다. 키 값은 로그에 남기지 않는다
+ * #251 · #260: hermes 설정이 있으면 신규 주문 알림 발송기와 동기화 경고를 만든다. 키 값은 로그에 남기지 않는다
  */
-function createNewOrderNotifier(databaseService: DatabaseService): NewOrderNotifier | undefined {
+function createNotifications(
+  databaseService: DatabaseService
+): { notifier: NewOrderNotifier; alerter: SyncAlerter } | undefined {
   const hermes = loadHermesConfig(process.env);
   if (!hermes.enabled) {
     logger.info({ reason: hermes.reason }, 'New order notices disabled');
@@ -38,13 +41,18 @@ function createNewOrderNotifier(databaseService: DatabaseService): NewOrderNotif
   logger.info({ hermesUrl: hermes.url, link: Boolean(hermes.adminWebUrl) }, 'New order notices enabled');
 
   const target = { url: hermes.url, key: hermes.key };
-  return new NewOrderNotifier({
+  const send = (message: Parameters<typeof sendHermesMessage>[1], idempotencyKey: string) =>
+    sendHermesMessage(target, message, idempotencyKey);
+  const notifier = new NewOrderNotifier({
     store: databaseService,
-    send: (message, idempotencyKey) => sendHermesMessage(target, message, idempotencyKey),
+    send,
     isFresh: (timestamp) => isWithinNoticeWindow(timestamp, { windowMs: NEW_ORDER_NOTICE_WINDOW_MS }),
     logger,
     adminWebUrl: hermes.adminWebUrl,
   });
+  // #260: 동기화 정지 · 연속 실패 경고 — 같은 키를 쓰므로 신규 주문 알림이 키 거부로 멈추면 함께 멈춘다
+  const alerter = new SyncAlerter({ send, logger, adminWebUrl: hermes.adminWebUrl, isActive: () => notifier.isActive() });
+  return { notifier, alerter };
 }
 
 /**
@@ -76,7 +84,8 @@ async function main() {
     logger.info('ChangeLogService initialized');
 
     // #251 신규 주문 알림(hermes) — 루트 .env 를 읽은 Config 다음에 읽는다. 키가 없으면 표시도 발송도 하지 않는다
-    const notifier = createNewOrderNotifier(databaseService);
+    const notifications = createNotifications(databaseService);
+    const notifier = notifications?.notifier;
     const syncEngineOptions: SyncEngineOptions = notifier
       ? {
           newOrderNotice: {
@@ -98,7 +107,8 @@ async function main() {
         interval: syncInterval,
         enabled: syncEnabled,
       },
-      notifier
+      notifier,
+      notifications?.alerter
     );
 
     scheduler.start();

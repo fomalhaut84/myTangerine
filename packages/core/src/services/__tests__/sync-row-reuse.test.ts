@@ -112,6 +112,7 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     // 시트에는 새 주문 id 로 성공 기록
     expect(sheetStatus).toHaveBeenCalledWith(391, 'success', 1500);
     expect(result).toMatchObject({ success: 1, failed: 0, replaced: 1 });
+    expect(result.identityConflictRows).toEqual([]);
   });
 
   it('cron(알림 정책) 이면 새 주문에 정책을 넘기고 알림 건수에 넣는다', async () => {
@@ -128,6 +129,7 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
     expect(result).toMatchObject({ success: 0, failed: 1, replaced: 0 });
     expect(result.errors[0].error).toContain("this row's order is DB #1490");
+    expect(result.identityConflictRows).toEqual([391]); // #260 알림이 쓴다
     // 기존 실패 경로와 같이 시트 DB_SYNC_STATUS 만 fail
     expect(sheetStatus).toHaveBeenCalledWith(391, 'fail');
   });
@@ -176,6 +178,7 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     const result = await run(e);
     expect(databaseService.replaceOrderAtRow).toHaveBeenCalledTimes(3);
     expect(result).toMatchObject({ replaced: 3, replacementLimitHit: true, failed: 1 });
+    expect(result.identityConflictRows).toEqual([394]);
     expect(result.errors[0]).toMatchObject({ rowNumber: 394 });
     expect(result.errors[0].error).toContain('Row replacement limit (3 per 24h)');
     expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);

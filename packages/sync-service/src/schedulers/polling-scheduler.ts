@@ -34,7 +34,12 @@ export class PollingScheduler {
     private prisma: PrismaClient,
     private config: PollingSchedulerConfig,
     /** #251: 동기화 뒤 신규 주문 알림 발송 (HERMES_KEY 가 없으면 없음) */
-    private notifier?: { flush(): Promise<unknown> }
+    private notifier?: { flush(): Promise<unknown> },
+    /** #260: 동기화 정지 · 연속 실패 경고 (HERMES_KEY 가 없으면 없음) */
+    private alerter?: {
+      onSyncResult(result: { identityConflictRows: readonly number[] }): Promise<void>;
+      onSyncFailure(): Promise<void>;
+    }
   ) {
     // Process ID 생성 (sync-service + PID + timestamp)
     this.processId = `sync-service-${process.pid}-${Date.now()}`;
@@ -142,6 +147,10 @@ export class PollingScheduler {
           `${result.failed} row(s) failed to sync`
         );
       }
+
+      // #260: 행 안전 정지가 있으면 경고(하루 1회) · 연속 실패 수 초기화
+      // core dist 가 낡아 필드가 없어도 실패로 세지 않게 (core 는 타입 선언이 없어 any 로 들어온다)
+      await this.alerter?.onSyncResult({ identityConflictRows: result.identityConflictRows ?? [] });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 
@@ -150,6 +159,8 @@ export class PollingScheduler {
         logger.warn({ error: message }, 'Sync already in progress (manual or another scheduler), skipping this cycle');
       } else {
         logger.error({ error: message }, 'Scheduled sync failed');
+        // #260: 락 충돌(건너뜀)은 세지 않는다 — 진짜 실패만 연속 횟수에
+        await this.alerter?.onSyncFailure();
       }
     }
 
