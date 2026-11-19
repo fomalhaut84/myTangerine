@@ -4,9 +4,9 @@
 
 import { describe, it, expect, afterEach, vi } from 'vitest';
 import { toast } from 'sonner';
-import { BFF_BASE, handleUnauthorized, notifyWriteWarnings } from '../api-client';
+import { BFF_BASE, handleUnauthorized, notifyWriteWarnings, notifyWriteConflict } from '../api-client';
 
-vi.mock('sonner', () => ({ toast: { warning: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { warning: vi.fn(), error: vi.fn() } }));
 
 describe('api-client', () => {
   afterEach(() => {
@@ -58,5 +58,28 @@ describe('notifyWriteWarnings (#197)', () => {
     const response = json({ success: true, warnings: ['w'] });
     await notifyWriteWarnings('POST', response);
     expect(await response.json()).toEqual({ success: true, warnings: ['w'] });
+  });
+});
+
+describe('notifyWriteConflict (#258)', () => {
+  const json = (body: unknown, status: number) =>
+    new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
+
+  afterEach(() => {
+    vi.mocked(toast.error).mockClear();
+  });
+
+  it('shows the server message for a 409 write (sheet rows do not match)', async () => {
+    await notifyWriteConflict('PATCH', json({ success: false, error: '구글 시트의 행 순서가 DB 와 맞지 않아 저장하지 않았습니다. (행 391)' }, 409));
+    expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('행 순서가 DB 와 맞지 않아'), expect.anything());
+  });
+
+  it('ignores reads, other statuses and bodies without a message', async () => {
+    await notifyWriteConflict('GET', json({ error: 'x' }, 409));
+    await notifyWriteConflict('POST', json({ error: 'x' }, 500));
+    await notifyWriteConflict('POST', json({ error: 'x' }, 200));
+    await notifyWriteConflict('POST', json({ success: false }, 409));
+    await notifyWriteConflict('POST', new Response('nope', { status: 409 }));
+    expect(toast.error).not.toHaveBeenCalled();
   });
 });
