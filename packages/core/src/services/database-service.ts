@@ -892,6 +892,22 @@ export class DatabaseService {
     const rowNumber = data.sheetRowNumber;
     const deletedAt = existing.deletedAt ?? new Date();
 
+    try {
+      return await this.replaceOrderAtRowTx(existing, data, rowNumber, deletedAt, syncMeta, options);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to replace order at reused row (row: ${rowNumber}, old #${existing.id}): ${message}`);
+    }
+  }
+
+  private replaceOrderAtRowTx(
+    existing: { id: number; version: number | null; deletedAt: Date | null },
+    data: ReturnType<DatabaseService['sheetRowToPrismaOrderData']>,
+    rowNumber: number,
+    deletedAt: Date,
+    syncMeta: Record<string, unknown>,
+    options?: { newOrderNotice?: NewOrderNoticePolicy }
+  ): Promise<PrismaOrder> {
     return this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
       await db.order.update({
         where: { id: existing.id },

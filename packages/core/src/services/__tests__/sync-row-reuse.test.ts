@@ -2,9 +2,10 @@
  * 시트 행 번호 재사용 (#257)
  *
  * 시트에서 행을 지운 뒤 새 폼 주문이 그 행 번호를 받으면, 동기화가 같은 행 번호의 **다른** DB 주문을 덮어썼다.
- * - 같은 행 번호의 DB 주문과 주문 시각(타임스탬프)이 다르면 다른 주문이다(웹은 타임스탬프를 바꾸지 않는다)
- * - 그 시각의 주문이 DB 다른 행에 없으면: 예전 주문을 행에서 분리 + 삭제 처리(보존 · 이력) → 새 주문 생성 (한 트랜잭션)
- * - 있으면(행이 밀림): 아무것도 쓰지 않고 실패로 남긴다(안전 정지)
+ * - 같은 주문인지: 정규화한 원문 타임스탬프 먼저(시간대 무관) → 다르면 해석한 시각 · 둘 다 다를 때만 다른 주문
+ * - 예전 주문이 시트 어디에도 없으면: 예전 주문을 행에서 분리 + 삭제 처리(보존 · 이력) → 새 주문 생성 (한 트랜잭션)
+ * - 예전 주문이 시트 다른 행에 있거나 이 행의 주문이 DB 다른 행에 있으면(행이 밀림 · 폼 끼워 넣기): 쓰지 않고 실패
+ * - 한 번의 동기화에서 교체가 3건을 넘으면 동기화 전체를 멈춘다(차단기)
  *
  * Prisma · SheetService 는 mock 이다(S-4).
  */
@@ -40,6 +41,7 @@ const OLD_ORDER = {
   id: 1487,
   sheetRowNumber: 391,
   timestamp: parseKoreanTimestamp(OLD_TS),
+  timestampRaw: OLD_TS,
   status: '배송완료',
   version: 2,
   deletedAt: null,
@@ -56,10 +58,13 @@ function engine(opts: {
   existing: Record<string, unknown> | null;
   movedId?: number | null;
   notice?: NewOrderNoticePolicy;
+  rows?: SheetRow[];
 }) {
-  const sheetService = { getAllRows: vi.fn().mockResolvedValue([sheetRow()]) };
+  const sheetService = { getAllRows: vi.fn().mockResolvedValue(opts.rows ?? [sheetRow()]) };
   const databaseService = {
-    getRawOrderByRowNumber: vi.fn().mockResolvedValue(opts.existing),
+    getRawOrderByRowNumber: vi.fn().mockImplementation(async (n: number) =>
+      opts.existing ? { ...opts.existing, sheetRowNumber: n } : null
+    ),
     findSyncedOrderIdByTimestamp: vi.fn().mockResolvedValue(opts.movedId ?? null),
     upsertOrder: vi.fn().mockResolvedValue({ id: 1487, newOrderNotice: null }),
     replaceOrderAtRow: vi.fn().mockResolvedValue({ id: 1500, newOrderNotice: opts.notice ? 'pending' : null }),
@@ -91,6 +96,7 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
 
     expect(databaseService.upsertOrder).not.toHaveBeenCalled();
     expect(databaseService.findSyncedOrderIdByTimestamp).toHaveBeenCalledWith(parseKoreanTimestamp(NEW_TS), 391);
+    expect(databaseService.upsertOrder).not.toHaveBeenCalled();
     const [existingArg, rowArg, metaArg, optArg] = databaseService.replaceOrderAtRow.mock.calls[0];
     expect(existingArg).toMatchObject({ id: 1487, version: 2 });
     expect(rowArg._rowNumber).toBe(391);
@@ -114,13 +120,45 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     expect(databaseService.upsertOrder).not.toHaveBeenCalled();
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
     expect(result).toMatchObject({ success: 0, failed: 1, replaced: 0 });
-    expect(result.errors[0].error).toContain('Row identity conflict');
+    expect(result.errors[0].error).toContain("this row's order is DB #1490");
     // 기존 실패 경로와 같이 시트 DB_SYNC_STATUS 만 fail
     expect(sheetStatus).toHaveBeenCalledWith(391, 'fail');
   });
 
+  it('예전 주문이 시트 다른 행에 아직 있으면(폼이 위에 끼워 넣어 밀림) → 쓰지 않고 실패 (운영 2026-11-19 사례)', async () => {
+    const shiftedOld = { ...sheetRow(OLD_TS), _rowNumber: 393 } as SheetRow;
+    const { e, databaseService, sheetStatus } = engine({ existing: OLD_ORDER, rows: [sheetRow(), shiftedOld] });
+    const result = await run(e);
+    expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
+    expect(result.errors.find((x) => x.rowNumber === 391)?.error).toContain('that order is at another sheet row');
+    expect(sheetStatus).toHaveBeenCalledWith(391, 'fail');
+  });
+
+  it('원문이 같으면 해석한 시각이 달라도(시간대 차이) 같은 주문 → 갱신', async () => {
+    const tzShifted = { ...OLD_ORDER, timestamp: new Date(0), timestampRaw: '2026. 11. 19 오전 10:26:32' };
+    const { e, databaseService } = engine({ existing: tzShifted });
+    await run(e);
+    expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);
+    expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
+  });
+
+  it('한 번의 동기화에서 교체가 3건을 넘으면 동기화 전체를 멈춘다(차단기)', async () => {
+    const rows = [391, 392, 393, 394].map(
+      (n, i) => ({ ...sheetRow(`2026. 11. 19. 오전 10:2${i}:00`), _rowNumber: n }) as SheetRow
+    );
+    const { e, databaseService } = engine({ existing: OLD_ORDER, rows });
+    vi.useFakeTimers();
+    const p = e.incrementalSync();
+    const assertion = expect(p).rejects.toThrow('Row replacement limit (3)');
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(databaseService.replaceOrderAtRow).toHaveBeenCalledTimes(3);
+  });
+
   it('타임스탬프가 같으면 지금처럼 갱신(upsert)', async () => {
-    const { e, databaseService } = engine({ existing: { ...OLD_ORDER, timestamp: parseKoreanTimestamp(NEW_TS) } });
+    const { e, databaseService } = engine({
+      existing: { ...OLD_ORDER, timestamp: parseKoreanTimestamp(NEW_TS), timestampRaw: NEW_TS },
+    });
     await run(e);
     expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
@@ -218,12 +256,12 @@ describe('DatabaseService.replaceOrderAtRow — 한 트랜잭션', () => {
     expect(tx.order.create.mock.calls[0][0].data).not.toHaveProperty('newOrderNotice');
   });
 
-  it('새 주문 생성이 실패하면 오류를 던진다(트랜잭션 롤백 — 예전 주문 분리도 되돌려진다)', async () => {
+  it('새 주문 생성이 실패하면 원인을 담아 던진다(트랜잭션 롤백 — 예전 주문 분리도 되돌려진다)', async () => {
     const { tx, service } = dbSetup();
     tx.order.create.mockRejectedValue(new Error('unique violation'));
     await expect(
       service.replaceOrderAtRow({ id: 1487, version: 2, deletedAt: null }, sheetRow(), { syncStatus: 'success' })
-    ).rejects.toThrow('unique violation');
+    ).rejects.toThrow('Failed to replace order at reused row (row: 391, old #1487): unique violation');
   });
 });
 
