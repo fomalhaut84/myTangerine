@@ -48,6 +48,16 @@ describe('#281 최초 입력값 · 시트 우선 가져오기', () => {
     for (const o of res.json().orders ?? []) expect(o).not.toHaveProperty('originalInput');
   });
 
+  it('라벨 묶음 응답에는 최초 입력값이 실리지 않는다(주문을 펼쳐 내보내는 응답 — 감사 ❌ 회귀)', async () => {
+    mock.setMockAllOrders([
+      createMockSheetRow({ _rowNumber: 11, '비고': '입금확인', _dbId: 11, _originalInput: { '받으실분 성함': '처음 받는이' } } as never),
+    ]);
+    const res = await server.inject({ method: 'GET', url: '/api/labels/grouped?status=all', headers: AUTH_HEADERS });
+    expect(res.statusCode).toBe(200);
+    expect(res.payload).not.toContain('originalInput');
+    expect(res.payload).not.toContain('처음 받는이');
+  });
+
   it('시트 우선 가져오기는 확인값 없이는 실행하지 않는다(400)', async () => {
     const res = await server.inject({
       method: 'POST',

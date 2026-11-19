@@ -60,6 +60,12 @@ describe('summarizeSyncResult', () => {
     expect(s.details).toContain('멈춘 행: 1, 2, 3, 4, 5, 6, 7, 8, 9, 10 외 3개');
   });
 
+  it('#281: 시트와 다른 행(DB 유지)은 정보로만 보여 준다(표시 강도는 그대로)', () => {
+    const s = summarizeSyncResult(response({ unchanged: 2, sheetDivergedRows: [12, 13] }));
+    expect(s.tone).toBe('success');
+    expect(s.details).toContain('시트 값이 DB 와 달라 DB 값을 유지한 행: 12, 13');
+  });
+
   it('이전 API(새 필드 없음) 응답도 깨지지 않는다', () => {
     expect(summarizeSyncResult(response()).tone).toBe('success');
   });

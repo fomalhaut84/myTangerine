@@ -121,6 +121,14 @@ describe('syncResponseSchema — 직렬화 뒤에도 필드가 남는다', () =>
     expect(json.result.duration).toBe(12);
   });
 
+  it('#281: 기존 주문 유지 수 · 시트와 다른 행이 응답 · 메시지에 남는다', async () => {
+    const body = buildSyncResponse(result({ success: 1, unchanged: 3, sheetDivergedRows: [12] }), 'incremental');
+    expect(body.message).toContain('기존 주문 유지 3개');
+    expect(body.message).toContain('행 1개는 시트 값이 DB 와 달라 DB 값을 유지했습니다');
+    const json = await serialize(body);
+    expect(json.result).toMatchObject({ unchanged: 3, sheetDivergedRows: [12] });
+  });
+
   it('core dist 가 낡아 새 필드가 없어도(undefined) 기본값으로 응답한다', async () => {
     const legacy = { total: 1, success: 1, failed: 0, skipped: 0, errors: [] } as unknown as SyncRouteResult;
     const body = buildSyncResponse(legacy, 'incremental');

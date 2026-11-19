@@ -16,6 +16,7 @@ import type { Config } from '../config/config.js';
 import { ChangeLogService, type FieldChange } from './change-log-service.js';
 import { normalizeTimestampRaw } from './sheet-row-identity.js';
 import { buildOriginalInput, type OriginalInput } from './original-input.js';
+import { diffSheetFirstOverwrite } from './sheet-first-diff.js';
 
 /**
  * #266: findOrderAtOtherRow 후보 창 — 해석한 시각 기준 ±27시간.
@@ -828,19 +829,7 @@ export class DatabaseService {
         syncedAt: new Date(),
       };
 
-      // P1 Fix: deletedAt 처리
-      // - undefined: 시트에 '삭제됨' 컬럼 없음 → update에서 제외 (기존 DB 값 유지)
-      // - null: 시트에서 명시적 빈값 → update에 포함 (복원)
-      // - Date: 삭제 날짜 → update에 포함 (soft delete)
-      const { deletedAt, ...dataWithoutDeletedAt } = data;
-      let updateData;
-      if (deletedAt === undefined) {
-        // 시트에 삭제 정보 없음 → 기존 DB soft delete 유지
-        updateData = { ...dataWithoutDeletedAt, ...syncData, syncedAt: new Date() };
-      } else {
-        // deletedAt이 null(복원) 또는 Date(삭제) → 업데이트에 포함
-        updateData = { ...dataWithoutDeletedAt, deletedAt, ...syncData, syncedAt: new Date() };
-      }
+      const updateData = this.buildSyncUpdateData(data, syncData);
 
       const result = await this._prisma.order.upsert({
         where: { sheetRowNumber: data.sheetRowNumber },
@@ -854,6 +843,79 @@ export class DatabaseService {
       const message = error instanceof Error ? error.message : String(error);
       const rowNum = row._rowNumber || 'unknown';
       throw new Error(`Failed to upsert order (row: ${rowNum}): ${message}`);
+    }
+  }
+
+  /**
+   * 동기화가 기존 주문을 시트 값으로 덮어쓸 때의 update 데이터 — 최초 입력값(#281)은 넣지 않는다
+   * P1 Fix: deletedAt 처리
+   * - undefined: 시트에 '삭제됨' 컬럼 없음 → update에서 제외 (기존 DB 값 유지)
+   * - null: 시트에서 명시적 빈값 → update에 포함 (복원)
+   * - Date: 삭제 날짜 → update에 포함 (soft delete)
+   */
+  private buildSyncUpdateData(
+    data: ReturnType<DatabaseService['sheetRowToPrismaOrderData']>,
+    syncData: Record<string, unknown>
+  ) {
+    const { deletedAt, ...dataWithoutDeletedAt } = data;
+    return {
+      ...dataWithoutDeletedAt,
+      ...(deletedAt === undefined ? {} : { deletedAt }),
+      ...syncData,
+      syncedAt: new Date(),
+    };
+  }
+
+  /**
+   * #281 시트 우선 가져오기(운영자 복구): 기존 주문을 시트 값으로 덮어쓰고 바뀐 필드 전체를 변경 이력에 남긴다 — 한 트랜잭션.
+   * 동기화가 주문을 읽은 뒤 웹 수정으로 version 이 바뀌었으면 쓰지 않고 던진다(그 수정을 덮지 않는다).
+   * 최초 입력값(original_input)은 바꾸지 않는다.
+   */
+  async overwriteOrderFromSheet(
+    existing: { id: number; version: number | null },
+    row: SheetRow,
+    syncMeta: { syncStatus: 'pending' | 'success' | 'failed'; syncAttemptCount?: number }
+  ): Promise<{ order: PrismaOrder; fieldChanges: Record<string, FieldChange> }> {
+    const data = this.sheetRowToPrismaOrderData(row);
+    const updateData = this.buildSyncUpdateData(data, syncMeta);
+    const expectedVersion = existing.version ?? 1;
+
+    try {
+      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+        const current = await db.order.findUnique({ where: { id: existing.id } });
+        if (!current) {
+          throw new Error(`order #${existing.id} no longer exists`);
+        }
+        if ((current.version ?? 1) !== expectedVersion) {
+          throw new Error(
+            `order #${existing.id} changed concurrently (version ${expectedVersion} → ${current.version}) — not overwritten`
+          );
+        }
+
+        const fieldChanges = diffSheetFirstOverwrite(
+          updateData as Record<string, unknown>,
+          current as unknown as Record<string, unknown>
+        );
+        const order = await db.order.update({ where: { id: existing.id }, data: updateData });
+
+        if (Object.keys(fieldChanges).length > 0) {
+          await this.changeLogService.logChange(
+            {
+              orderId: existing.id,
+              sheetRowNumber: data.sheetRowNumber,
+              changedBy: 'sync',
+              action: 'update',
+              fieldChanges,
+              previousVersion: expectedVersion,
+            },
+            db
+          );
+        }
+        return { order, fieldChanges };
+      }, WRITE_TX_OPTIONS);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to overwrite order from sheet (row: ${data.sheetRowNumber}): ${message}`);
     }
   }
 

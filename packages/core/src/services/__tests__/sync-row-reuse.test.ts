@@ -90,6 +90,8 @@ function engine(opts: {
     countRecentRowReplacements: vi.fn().mockResolvedValue(opts.recentReplacements ?? 0),
     upsertOrder: vi.fn().mockResolvedValue({ id: 1487, newOrderNotice: null }),
     replaceOrderAtRow: vi.fn().mockResolvedValue({ id: 1500, newOrderNotice: opts.notice ? 'pending' : null }),
+    // #281: 증분이 기존 주문을 유지할 때 시트 · DB 차이를 본다 — prisma 없이 도는 실제 변환
+    sheetRowToPrismaOrderData: (r: SheetRow) => DatabaseService.prototype.sheetRowToPrismaOrderData.call(null, r),
   };
   const e = new SyncEngine(
     sheetService as unknown as SheetService,
@@ -172,8 +174,9 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
   it('원문이 같으면 해석한 시각이 달라도(시간대 차이) 같은 주문 → 교체하지 않는다 (증분은 DB 를 바꾸지 않음 · #281)', async () => {
     const tzShifted = { ...OLD_ORDER, timestamp: new Date(0), timestampRaw: '2026. 11. 19 오전 10:26:32' };
     const { e, databaseService } = engine({ existing: tzShifted });
-    await run(e);
+    const result = await run(e);
     expect(databaseService.upsertOrder).not.toHaveBeenCalled();
+    expect(result).toMatchObject({ failed: 0, unchanged: 1 });
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
   });
 

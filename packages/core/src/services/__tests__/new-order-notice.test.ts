@@ -178,6 +178,8 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
       getRawOrderByRowNumber: vi.fn().mockResolvedValue(existing),
       findOrderAtOtherRow: vi.fn().mockResolvedValue(null),
       upsertOrder: vi.fn().mockResolvedValue({ id: 5, newOrderNotice: existing ? null : 'pending' }),
+      // #281: 증분이 기존 주문을 유지할 때 시트 · DB 차이를 본다 — prisma 없이 도는 실제 변환
+      sheetRowToPrismaOrderData: (r: SheetRow) => DatabaseService.prototype.sheetRowToPrismaOrderData.call(null, r),
     };
     const e = new SyncEngine(
       sheetService as unknown as SheetService,
@@ -211,6 +213,7 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
       await vi.runAllTimersAsync();
       const result = await p;
       expect(databaseService.upsertOrder).not.toHaveBeenCalled();
+      expect(result).toMatchObject({ failed: 0, unchanged: 1 });
       expect(result.newOrderNotices).toBe(0);
     } finally {
       vi.useRealTimers();

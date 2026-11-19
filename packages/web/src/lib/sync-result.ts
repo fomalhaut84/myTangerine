@@ -26,6 +26,10 @@ export interface SyncResponse {
     identityConflictRows?: number[];
     rowShiftDetected?: boolean;
     unprocessed?: number;
+    /** #281: DB 를 바꾸지 않고 둔 기존 주문 수 */
+    unchanged?: number;
+    /** #281: 시트 값이 DB 와 달라 DB 를 유지한 행 */
+    sheetDivergedRows?: number[];
     duration?: number;
   };
 }
@@ -59,6 +63,10 @@ export function summarizeSyncResult(response: SyncResponse): SyncSummary {
     ...(stalledRows.length > 0 ? [`멈춘 행: ${listRows(stalledRows)}`] : []),
     ...(conflictRows.length > 0 ? [`충돌(웹 수정 우선 · 시트 값 미반영) 행: ${listRows(conflictRows)}`] : []),
     ...(otherFailedRows.length > 0 ? [`실패한 행: ${listRows(otherFailedRows)}`] : []),
+    // #281: 정보 — 정본은 DB 라 시트 값과 달라도 DB 를 유지했다(표시 강도는 바꾸지 않는다)
+    ...((r.sheetDivergedRows ?? []).length > 0
+      ? [`시트 값이 DB 와 달라 DB 값을 유지한 행: ${listRows(r.sheetDivergedRows ?? [])}`]
+      : []),
   ];
 
   const tone: SyncTone = stopped

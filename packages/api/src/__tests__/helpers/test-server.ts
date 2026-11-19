@@ -183,8 +183,7 @@ export async function createTestServer(): Promise<{
       trackingNumber: { type: 'string' },
       ordererName: { type: 'string' },
       ordererEmail: { type: 'string' },
-      // #281: 최초 입력값 (주문 상세에서만 채운다)
-      originalInput: { type: 'object', additionalProperties: { type: 'string' } },
+
       // Issue #165: claim 주문 식별용 필드
       dbId: { type: 'integer', minimum: 1 },
       idType: { type: 'string', enum: ['rowNumber', 'dbId'] },
