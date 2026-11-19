@@ -56,6 +56,25 @@ export function buildReconcileStallMessage(rows: readonly number[], adminWebUrl:
   };
 }
 
+export function buildReconcileShiftedMessage(
+  shifted: ReadonlyArray<{ rowNumber: number; cells: number }>,
+  adminWebUrl: string | undefined
+): HermesMessage {
+  const listed = shifted
+    .slice(0, MAX_LISTED_ROWS)
+    .map((s) => `행 ${s.rowNumber}(${s.cells}칸)`)
+    .join(', ');
+  const more = shifted.length > MAX_LISTED_ROWS ? ` 외 ${shifted.length - MAX_LISTED_ROWS}건` : '';
+  return {
+    title: '시트 재조정 — 다른 행에 써졌을 수 있음',
+    text:
+      `DB → 시트 재조정이 쓴 직후 시트 행이 바뀌었습니다: ${listed}${more}. ` +
+      '그 칸들이 다른 주문 행에 써졌을 수 있습니다 — 시트 "버전 기록" 으로 해당 행을 확인해 주세요(고객 최초 입력값은 주문 상세에 있습니다).',
+    ...ordersLink(adminWebUrl),
+    level: 'warn',
+  };
+}
+
 export function buildReconcileFailureMessage(consecutive: number, adminWebUrl: string | undefined): HermesMessage {
   return {
     title: '시트 재조정 실패',
@@ -69,7 +88,7 @@ export function buildReconcileFailureMessage(consecutive: number, adminWebUrl: s
 export interface ReconcileAlertInput {
   attempted: number;
   skippedIdentity: readonly number[];
-  shiftedAfterWrite: readonly number[];
+  shiftedAfterWrite: ReadonlyArray<{ rowNumber: number; cells: number }>;
   failed: readonly unknown[];
   reconciled?: readonly number[];
   stale?: readonly number[];
@@ -105,15 +124,30 @@ export class SyncAlerter {
    * 대상이 없던 회차는 연속 수를 바꾸지 않는다.
    */
   async onReconcileResult(result: ReconcileAlertInput): Promise<void> {
-    const stalled = [...result.skippedIdentity, ...result.shiftedAfterWrite];
-    if (stalled.length > 0) {
-      await this.sendOncePerDay('sheet-reconcile-stall', buildReconcileStallMessage(stalled, this.deps.adminWebUrl));
+    // 썼는데 직후 행이 바뀜 — 다른 주문 행에 써졌을 수 있다. 행이 다르면 같은 날에도 따로 알린다(묻히지 않게)
+    if (result.shiftedAfterWrite.length > 0) {
+      const rows = result.shiftedAfterWrite.map((s) => s.rowNumber).join('_');
+      await this.sendOncePerDay(
+        `sheet-reconcile-written-shifted-${rows}`,
+        buildReconcileShiftedMessage(result.shiftedAfterWrite, this.deps.adminWebUrl)
+      );
     }
-    if (result.attempted === 0) return;
+    if (result.skippedIdentity.length > 0) {
+      await this.sendOncePerDay('sheet-reconcile-stall', buildReconcileStallMessage(result.skippedIdentity, this.deps.adminWebUrl));
+    }
     if (result.failed.length === 0) {
-      this.consecutiveReconcileFailures = 0;
+      if (result.attempted > 0) this.consecutiveReconcileFailures = 0;
       return;
     }
+    await this.countReconcileFailure();
+  }
+
+  /** 재조정이 예외로 끝난 회차 — 결과가 없어도 연속 실패로 센다(알림 없이 멈추지 않게) */
+  async onReconcileError(): Promise<void> {
+    await this.countReconcileFailure();
+  }
+
+  private async countReconcileFailure(): Promise<void> {
     this.consecutiveReconcileFailures++;
     if (this.consecutiveReconcileFailures < (this.deps.failureThreshold ?? FAILURE_THRESHOLD)) return;
     await this.sendOncePerDay(

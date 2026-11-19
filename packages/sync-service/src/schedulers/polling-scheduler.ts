@@ -46,6 +46,7 @@ export class PollingScheduler {
       onSyncResult(result: { identityConflictRows: readonly number[] }): Promise<void>;
       onSyncFailure(): Promise<void>;
       onReconcileResult?(result: ReconcileAlertInput): Promise<void>;
+      onReconcileError?(): Promise<void>;
     },
     /** #231 hybrid 시트 반영 실패 자동 재조정 — 증분 동기화 뒤 같은 sync 락 안에서 */
     private reconciler?: ReconcilerLike
@@ -134,7 +135,12 @@ export class PollingScheduler {
     try {
       return await this.reconciler.reconcile();
     } catch (error) {
-      logger.error({ error: error instanceof Error ? error.message : String(error) }, 'Sheet reconcile failed (#231)');
+      // core 재조정기는 던지지 않지만, 던지면 연속 실패로 센다(알림 없이 멈추지 않게)
+      logger.error(
+        { error: error instanceof Error ? error.message : String(error), stack: error instanceof Error ? error.stack : undefined },
+        'Sheet reconcile failed (#231)'
+      );
+      await this.alerter?.onReconcileError?.();
       return null;
     }
   }

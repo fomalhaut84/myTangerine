@@ -11,13 +11,13 @@ import {
   SheetService,
   DatabaseService,
   ChangeLogService,
-  SheetReconciler,
   isWithinNoticeWindow,
   NEW_ORDER_NOTICE_WINDOW_MS,
   type SyncEngineOptions,
 } from '@mytangerine/core';
 import { SyncEngine } from './services/sync-engine.js';
 import { PollingScheduler } from './schedulers/polling-scheduler.js';
+import { createReconciler } from './schedulers/reconcile-gate.js';
 import { logger } from './utils/logger.js';
 import { loadHermesConfig } from './notifications/hermes-config.js';
 import { sendHermesMessage } from './notifications/hermes-client.js';
@@ -110,8 +110,9 @@ async function main() {
       },
       notifier,
       notifications?.alerter,
-      // #231 hybrid 시트 반영 실패 자동 재조정 (DB 우선 #281) — 실패 표시가 없으면 아무것도 하지 않는다
-      new SheetReconciler(sheetService, databaseService, logger)
+      // #231 hybrid 시트 반영 실패 자동 재조정 (DB 우선 #281) — hybrid 에서만(S-5).
+      // sheets · database 모드에서는 시트가 정본이거나 시트를 쓰지 않으므로, 남은 실패 표시로 시트를 덮지 않는다
+      createReconciler(process.env.DATA_SOURCE, sheetService, databaseService, logger)
     );
 
     scheduler.start();

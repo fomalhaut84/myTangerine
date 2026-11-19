@@ -144,15 +144,34 @@ describe('SyncAlerter.onReconcileResult — 시트 재조정 (#231)', () => {
     expect(send).not.toHaveBeenCalled();
   });
 
-  it('행이 어긋나 쓰지 못했거나 쓴 직후 바뀌었으면 하루 1회 경고 — 행 번호만', async () => {
+  it('행이 어긋나 쓰지 못했으면 하루 1회 경고 — 행 번호만', async () => {
     const { a, send } = alerter();
-    await a.onReconcileResult({ ...ok, skippedIdentity: [12], shiftedAfterWrite: [13] });
+    await a.onReconcileResult({ ...ok, skippedIdentity: [12, 13] });
     await a.onReconcileResult({ ...ok, skippedIdentity: [12] });
     expect(send).toHaveBeenCalledTimes(1);
     const [msg, key] = send.mock.calls[0];
     expect(key).toBe('sheet-reconcile-stall-2026-11-20');
     expect(msg).toMatchObject({ title: '시트 재조정 정지', level: 'warn' });
     expect(msg.text).toContain('행 12, 13');
+  });
+
+  it('쓴 직후 행이 바뀌었으면 "다른 행에 써졌을 수 있음" 을 따로 — 정지 경고에 묻히지 않고, 행이 다르면 같은 날에도 다시', async () => {
+    const { a, send } = alerter();
+    await a.onReconcileResult({ ...ok, skippedIdentity: [12] });
+    await a.onReconcileResult({ ...ok, shiftedAfterWrite: [{ rowNumber: 14, cells: 3 }] });
+    await a.onReconcileResult({ ...ok, shiftedAfterWrite: [{ rowNumber: 14, cells: 3 }] });
+    await a.onReconcileResult({ ...ok, shiftedAfterWrite: [{ rowNumber: 15, cells: 2 }] });
+    const shifted = send.mock.calls.filter((c) => String(c[1]).startsWith('sheet-reconcile-written-shifted'));
+    expect(shifted).toHaveLength(2);
+    expect(shifted[0][0].title).toContain('다른 행에 써졌을 수 있음');
+    expect(shifted[0][0].text).toContain('행 14(3칸)');
+  });
+
+  it('재조정이 예외로 끝난 회차도 연속 실패로 센다', async () => {
+    const { a, send } = alerter();
+    for (let i = 0; i < 5; i++) await a.onReconcileError();
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][1]).toBe('sheet-reconcile-failure-2026-11-20');
   });
 
   it('쓰기 실패가 연속 5회면 하루 1회 경고 · 성공하면 연속 수를 0 으로', async () => {

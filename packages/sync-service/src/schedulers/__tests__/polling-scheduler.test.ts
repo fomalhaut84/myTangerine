@@ -29,7 +29,7 @@ function make(syncResult = baseResult) {
   const order: string[] = [];
   const syncEngine = { incrementalSync: vi.fn(async () => { order.push('sync'); return syncResult; }) };
   const reconciler = { reconcile: vi.fn(async () => { order.push('reconcile'); return reconcileResult; }) };
-  const alerter = { onSyncResult: vi.fn(), onSyncFailure: vi.fn(), onReconcileResult: vi.fn() };
+  const alerter = { onSyncResult: vi.fn(), onSyncFailure: vi.fn(), onReconcileResult: vi.fn(), onReconcileError: vi.fn() };
   const s = new PollingScheduler(syncEngine as never, {} as never, { interval: '* * * * *', enabled: false }, undefined, alerter, reconciler);
   const run = () => (s as unknown as { runSync(): Promise<void> }).runSync();
   return { run, syncEngine, reconciler, alerter, order };
@@ -68,5 +68,6 @@ describe('PollingScheduler — 시트 재조정 (#231)', () => {
     expect(alerter.onSyncResult).toHaveBeenCalled();
     expect(alerter.onSyncFailure).not.toHaveBeenCalled();
     expect(alerter.onReconcileResult).not.toHaveBeenCalled();
+    expect(alerter.onReconcileError).toHaveBeenCalledTimes(1);
   });
 });

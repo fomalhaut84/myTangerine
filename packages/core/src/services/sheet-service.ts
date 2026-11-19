@@ -173,6 +173,43 @@ export class SheetService {
   }
 
   /**
+   * #231: 헤더(1행)와 행들을 batchGet **1회**로 새로 읽는다 — 재조정이 시트 값과 DB 를 비교하고 정확한 열에 쓰도록.
+   * 읽은 헤더로 캐시를 갱신한다(폼 질문 추가로 열이 밀렸어도 이후 쓰기가 새 열 위치를 쓴다).
+   * 행은 가장 작은 ~ 가장 큰 행의 연속 범위로 읽고, 요청한 행만 돌려준다. 빈 칸은 ''.
+   */
+  async getRowsWithHeaders(
+    rowNumbers: number[]
+  ): Promise<{ headers: string[]; rows: Map<number, Record<string, string>> }> {
+    if (rowNumbers.length === 0) return { headers: await this.getHeaders(), rows: new Map() };
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+      const quoted = this.quoteSheetName(sheetName);
+      const first = Math.min(...rowNumbers);
+      const last = Math.max(...rowNumbers);
+      const response = await this.sheets.spreadsheets.values.batchGet({
+        spreadsheetId,
+        ranges: [`${quoted}!1:1`, `${quoted}!${first}:${last}`],
+      });
+      const [headerRange, rowRange] = response.data.valueRanges ?? [];
+      const headers = (headerRange?.values?.[0] ?? []).map((h) => String(h));
+      this.validateRequiredColumns(Object.fromEntries(headers.map((h) => [h, ''])) as unknown as SheetRow);
+      this.headers = headers;
+
+      const values = rowRange?.values ?? [];
+      const rows = new Map(
+        rowNumbers
+          .filter((n) => values[n - first] !== undefined)
+          .map((n) => [n, Object.fromEntries(headers.map((h, i) => [h, String(values[n - first]?.[i] ?? '')]))] as const)
+      );
+      return { headers, rows };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to read rows ${rowNumbers.join(', ')}: ${message}`);
+    }
+  }
+
+  /**
    * 헤더 캐시 무효화
    * Google Sheet의 컬럼 구조가 변경되었을 때 호출하여 캐시를 초기화합니다.
    */

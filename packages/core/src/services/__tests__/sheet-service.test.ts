@@ -15,6 +15,7 @@ vi.mock('googleapis', () => {
         get: vi.fn(),
         update: vi.fn(),
         batchUpdate: vi.fn(),
+        batchGet: vi.fn(),
       },
     },
   };
@@ -848,6 +849,36 @@ describe('SheetService', () => {
       get.mockResolvedValueOnce({ data: { values: [headers] } });
       await expect(service.updateRowsCells([{ row: 10, updates: { 없는열: 'x' } }])).rejects.toThrow("Column '없는열' not found");
       expect(batchUpdate).not.toHaveBeenCalled();
+    });
+  });
+
+  // #231: 재조정 — 헤더(1행)와 대상 행들을 한 요청으로 새로 읽는다(헤더 캐시가 낡아 엉뚱한 열에 쓰지 않게)
+  describe('getRowsWithHeaders', () => {
+    const headers = ['비고', '타임스탬프', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
+      '받으실분 성함', '받으실분 주소 (도로명 주소로 부탁드려요)', '받으실분 연락처 (핸드폰번호)', '상품 선택', '5kg 수량', '10kg 수량'];
+
+    it('batchGet 1회로 헤더 + 연속 범위를 읽어 행 번호 → {헤더: 값} · 빈 칸은 빈 문자열 · 헤더 캐시를 갱신한다', async () => {
+      const batchGet = mockGoogleAPI.sheets.spreadsheets.values.batchGet;
+      batchGet.mockReset();
+      batchGet.mockResolvedValueOnce({
+        data: { valueRanges: [{ values: [headers] }, { values: [['입금확인', 'T391'], [], ['', 'T393', '보내는이']] }] },
+      });
+
+      const { headers: h, rows } = await service.getRowsWithHeaders([393, 391]);
+
+      expect(batchGet).toHaveBeenCalledTimes(1);
+      expect(batchGet.mock.calls[0][0].ranges).toEqual(["'감귤 주문서(응답)'!1:1", "'감귤 주문서(응답)'!391:393"]);
+      expect(h).toEqual(headers);
+      expect(rows.get(391)).toMatchObject({ 비고: '입금확인', 타임스탬프: 'T391', '상품 선택': '' });
+      expect(rows.get(393)).toMatchObject({ 비고: '', 타임스탬프: 'T393', '보내는분 성함': '보내는이' });
+      expect(rows.has(392)).toBe(false);
+    });
+
+    it('필수 열이 없는 헤더면 던진다', async () => {
+      const batchGet = mockGoogleAPI.sheets.spreadsheets.values.batchGet;
+      batchGet.mockReset();
+      batchGet.mockResolvedValueOnce({ data: { valueRanges: [{ values: [['타임스탬프']] }, { values: [] }] } });
+      await expect(service.getRowsWithHeaders([5])).rejects.toThrow();
     });
   });
 });
