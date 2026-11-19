@@ -80,6 +80,8 @@ head -10 ~/.bashrc                   # 비대화형이면 바로 return 하는 �
 grep '^PORT=' .env packages/web/.env.local   # 헬스 체크가 보는 포트 — 같은 서버의 다른 앱(pleiades 등)과 겹치지 않는지
 ```
 
+**pm2 앱 정의는 저장소에 있다 — `deploy/ecosystem.config.cjs` (#256).** fork 모드 · 이름 · cwd · `TZ` 를 담는다(비밀 없음). 새 서버나 다시 등록할 때는 아래 *pm2 fork 모드 전환* 절차를 쓴다.
+
 **pm2 시간대 고정 (2026-11-19 적용 · #257).** 동기화 판정은 원문 타임스탬프를 먼저 비교해 시간대와 무관하지만, 시각 해석이 프로세스 시간대를 따르므로 세 앱을 KST 로 고정한다.
 배포 스크립트는 `--update-env` 없이 재시작하므로 한 번 넣으면 유지된다.
 
@@ -116,6 +118,31 @@ forced command 가 가리키는 `deploy/ssh-deploy.sh` 는 **이 기능이 들�
 그 다음 릴리즈부터는 발행만 하면 된다.
 
 되돌리기(직전 태그로)는 서버에서 사람이 한다: `deploy/release-inplace.sh <직전 태그> --yes --allow-downgrade` — 자동 경로(ssh)는 이 플래그를 붙일 수 없다.
+
+## pm2 fork 모드 전환 (#256 · 1회)
+
+**왜:** 2026-04 부터 세 앱이 `cluster_mode` 로 `pnpm` 을 띄우고 있었다. cluster 모드는 pm2 가 직접 띄운 프로세스(pnpm)의 출력만 로그에 남겨,
+pnpm 이 다시 띄운 `node dist/index.js` 의 앱 로그(동기화 결과 · `hybrid-fallback` · 알림 오류)가 사라졌다. fork 모드는 출력 파이프를 그대로 물려줘 로그가 남는다.
+
+**언제:** 이 정의가 들어간 태그가 서버에 체크아웃된 뒤(자동 배포가 끝난 뒤). 앱마다 몇 초씩 끊긴다 — 주문이 적은 시간에.
+
+```bash
+cd ~/myTangerine
+pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const p of JSON.parse(s.slice(s.indexOf("["))).filter(p=>/^myTangerine/.test(p.name)))console.log(p.name,p.pm2_env.exec_mode)})'
+# 1) sync 먼저 — 로그가 남는지 확인
+pm2 delete myTangerineSync && pm2 start deploy/ecosystem.config.cjs --only myTangerineSync
+sleep 90; pm2 logs myTangerineSync --lines 30 --nostream | grep -E "Initializing|New order notices|Scheduled sync completed"   # 보여야 한다
+# 2) api · web
+pm2 delete myTangerineApi && pm2 start deploy/ecosystem.config.cjs --only myTangerineApi
+pm2 delete myTangerineWeb && pm2 start deploy/ecosystem.config.cjs --only myTangerineWeb
+# 3) 상태 · 저장 (재부팅 뒤에도 유지)
+pm2 ls                                    # 세 앱 online · mode fork
+pm2 save
+```
+
+- 로그 파일 이름이 `~/.pm2/logs/<앱>-out.log` · `-error.log` 로 바뀐다(번호 없음). 예전 `-out-5/6/7.log` 는 지워도 된다(선택)
+- 배포 스크립트는 앱 **이름**으로 재시작하므로 바꿀 것이 없다. `TZ` 는 정의의 `env` 로 들어간다
+- **되돌리기:** `pm2 delete <앱> && pm2 start /usr/local/bin/pnpm -i 1 --name <앱> -- --filter <패키지> start` → `pm2 save` (예전 cluster 방식 — 로그는 다시 사라진다)
 
 ## 웹 접근 제어 전환 (#196 · 1회 · `--draft` 릴리즈)
 

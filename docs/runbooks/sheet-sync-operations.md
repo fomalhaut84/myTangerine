@@ -23,7 +23,8 @@ v2.4.0 부터 앱은 어긋남을 감지하면 **쓰지 않고 멈춘다**(안�
 | 시트 `DB_SYNC_STATUS = fail` | 그 행은 동기화되지 않았다 | 매분 재시도 중 |
 | 신규 폼 주문이 웹에 안 보임 · 알림 없음 | 그 행이 안전 정지됐을 수 있다 | 위 신호와 함께 |
 
-> 앱 로그는 지금 pm2 에 남지 않는다(#256) — 위 신호가 사실상 유일한 창구다.
+> 앱 로그: pm2 fork 모드 전환(#256 · `auto-deploy.md`) 전에는 pm2 에 남지 않는다 — 전환 뒤에는 `pm2 logs myTangerineSync` 에서
+> `Row identity conflict` · `Scheduled sync completed` 를 볼 수 있다.
 
 ## 진단 — DB 와 시트 대조 (읽기만)
 
