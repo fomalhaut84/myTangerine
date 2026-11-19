@@ -53,6 +53,8 @@ export interface SyncResult {
   replaced: number;
   /** #257: 교체 상한에 걸려 교체하지 못한 행이 있었다(그 행들은 errors 에 있다) */
   replacementLimitHit: boolean;
+  /** #260: 행 정체성 충돌 · 교체 상한으로 쓰지 않은(안전 정지) 행 번호 */
+  identityConflictRows: number[];
 }
 
 /** 행 하나의 동기화 결과 */
@@ -64,6 +66,8 @@ interface SyncRowResult {
   conflictReason?: string;
   newOrderNotice?: boolean;
   replaced?: boolean;
+  /** #260: 행 정체성 충돌 · 교체 상한으로 쓰지 않았다 */
+  identityConflict?: boolean;
 }
 
 /** #257: 한 번의 동기화 실행 동안 공유하는 상태 */
@@ -76,6 +80,14 @@ interface SyncRunContext {
   recentReplacements: number | null;
   /** 이번 실행에서 상한 때문에 교체하지 못한 행이 있었다 */
   replacementLimitHit: boolean;
+}
+
+/** #257 · #260: 시트 행과 DB 주문의 정체성이 맞지 않아 그 행을 쓰지 않았다(행 밀림 · 중복 방지) */
+export class RowIdentityConflictError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'RowIdentityConflictError';
+  }
 }
 
 /** #257: 행 재사용 교체가 상한(최근 24시간)을 넘었다 — 그 행은 교체하지 않고 실패로 남긴다 */
@@ -362,7 +374,9 @@ export class SyncEngine {
         );
       }
 
-      return { success: false, error: `DB upsert failed: ${dbMessage}` };
+      // #260: 행 정체성 문제(안전 정지)는 결과에 따로 모아 알림이 쓰게 한다
+      const identityConflict = dbError instanceof RowIdentityConflictError || dbError instanceof RowReplacementLimitError;
+      return { success: false, error: `DB upsert failed: ${dbMessage}`, identityConflict };
     }
   }
 
@@ -435,7 +449,7 @@ export class SyncEngine {
       { rowNumber, matchingOrderId: otherId },
       'Row identity conflict: this order already exists at another row — not creating a duplicate (#257)'
     );
-    throw new Error(
+    throw new RowIdentityConflictError(
       `Row identity conflict: row ${rowNumber}'s order already exists as DB #${otherId} at another row — sheet rows shifted? (not creating a duplicate)`
     );
   }
@@ -455,7 +469,7 @@ export class SyncEngine {
       { rowNumber, existingOrderId: existing.id, oldStillInSheet, matchingOrderId: movedId },
       'Row identity conflict: sheet rows look shifted — not writing (#257)'
     );
-    throw new Error(
+    throw new RowIdentityConflictError(
       `Row identity conflict: row ${rowNumber} no longer holds DB #${existing.id}` +
         (oldStillInSheet ? ' (that order is at another sheet row)' : '') +
         (movedId !== null ? ` (this row's order is DB #${movedId})` : '') +
@@ -482,6 +496,7 @@ export class SyncEngine {
       newOrderNotices: 0,
       replaced: 0,
       replacementLimitHit: false,
+      identityConflictRows: [],
     };
 
     try {
@@ -519,9 +534,11 @@ export class SyncEngine {
         }
 
         // 행 동기화
-        const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced } = await this.syncRow(row, ctx);
+        const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced, identityConflict } =
+          await this.syncRow(row, ctx);
         if (newOrderNotice) result.newOrderNotices++;
         if (replaced) result.replaced++;
+        if (identityConflict) result.identityConflictRows.push(rowNumber);
 
         if (conflict && orderId) {
           // 충돌 감지 - 별도 카운트
