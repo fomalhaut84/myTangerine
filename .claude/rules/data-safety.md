@@ -20,8 +20,9 @@ PostgreSQL 은 그 시트에서 동기화된 사본 + DB 전용 데이터(배송
 
 ## Prisma 스키마 — 정본 하나 (#208 · 2026-11-18)
 
-- 정본은 **루트 `prisma/schema.prisma` + `prisma/migrations/`** 하나다. 운영 DB `_prisma_migrations` 가 이 이력 7개와 일치한다
-  (2026-11-18 사용자 서버 `migrate status` — "up to date"). 마이그레이션은 여기에만 추가한다.
+- 정본은 **루트 `prisma/schema.prisma` + `prisma/migrations/`** 하나다. 운영 DB `_prisma_migrations` 가 이 이력 8개와 일치한다
+  (2026-11-19 v2.3.0 배포 뒤 사용자 서버 `migrate status` — "up to date"). 마이그레이션은 여기에만 추가한다.
+- 운영 DB 앱 사용자는 `public` 스키마 CREATE 권한이 있다(2026-11-19 부여 — PostgreSQL 15+ 기본값에 없다). 마이그레이션 실패 대응은 런북 `auto-deploy.md` *마이그레이션이 실패했을 때*
 - 갈라져 있던 `packages/core/prisma/`(스키마 + 마이그레이션 6개 — 3개는 루트와 바이트 단위로 같은 복제본, 3개는 운영 미적용이며
   그 컬럼·인덱스는 루트 `add_phase3_columns` · `add_orderer_columns` 에 들어 있다)는 #208 에서 지웠다 — 내용은 git 이력에 있다.
   되살리지 않는다(core 이력으로 deploy 하면 `add_order_type` · `add_phase2_change_log` 가 빠진 DB 가 된다).
