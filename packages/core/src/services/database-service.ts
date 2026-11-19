@@ -404,16 +404,34 @@ export class DatabaseService {
   }
 
   /**
-   * 시트 반영 실패 표시 해제 (#197) — 행 전체를 시트에 다시 맞춘 뒤에만 쓴다(#231 재조정).
-   * 일부 필드만 쓰는 일반 hybrid 쓰기의 성공으로는 지우지 않는다(PR #230 Codex P2).
-   * 'failed' 인 행만 바꾼다(동기화가 남긴 다른 상태는 건드리지 않는다).
+   * #231 재조정 대상 — 시트 반영 실패 표시가 있고 시트 행이 있는 주문, 오래된 것부터.
+   * (DB 전용 claim 은 시트 행이 없어 대상이 아니다)
    */
-  async clearSheetSyncFailure(rowNumbers: number[]): Promise<void> {
-    if (rowNumbers.length === 0) return;
-    await this._prisma.order.updateMany({
-      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: 'failed' },
-      data: { syncStatus: 'success', syncErrorMessage: null },
+  async getSheetSyncFailedOrders(limit: number, excludeIds: readonly number[] = []): Promise<PrismaOrder[]> {
+    return this._prisma.order.findMany({
+      where: {
+        syncStatus: 'failed',
+        sheetRowNumber: { not: null },
+        // 재조정기가 미뤄 둔(백오프) 주문은 빼고 읽는다 — 막힌 주문이 앞자리를 차지해 뒤 주문을 가리지 않게
+        ...(excludeIds.length > 0 ? { id: { notIn: [...excludeIds] } } : {}),
+      },
+      orderBy: { updatedAt: 'asc' },
+      take: limit,
     });
+  }
+
+  /**
+   * 시트 반영 실패 표시 해제 (#197 · #231) — 행 전체를 시트에 다시 맞춘 뒤에만 쓴다.
+   * 일부 필드만 쓰는 일반 hybrid 쓰기의 성공으로는 지우지 않는다(PR #230 Codex P2).
+   * **읽은 뒤 주문이 바뀌지 않았을 때(updatedAt 같음)만** 지운다 — 그 사이 웹 수정이 있었으면 시트가 낡았을 수 있다.
+   * @returns 지운 건수(0 = 바뀌었거나 이미 지워짐)
+   */
+  async clearSheetSyncFailureIfUnchanged(orderId: number, readUpdatedAt: Date): Promise<number> {
+    const { count } = await this._prisma.order.updateMany({
+      where: { id: orderId, syncStatus: 'failed', updatedAt: readUpdatedAt },
+      data: { syncStatus: 'success', syncErrorMessage: null, syncedAt: new Date() },
+    });
+    return count;
   }
 
   /**

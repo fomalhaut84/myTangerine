@@ -102,17 +102,6 @@ describe('DatabaseService write transactions', () => {
   });
 });
 
-describe('DatabaseService.clearSheetSyncFailure', () => {
-  it('resets only rows currently marked failed', async () => {
-    const { root, service } = setup();
-    await service.clearSheetSyncFailure([2]);
-    expect(root.order.updateMany).toHaveBeenCalledWith({
-      where: { sheetRowNumber: { in: [2] }, syncStatus: 'failed' },
-      data: { syncStatus: 'success', syncErrorMessage: null },
-    });
-  });
-});
-
 describe('DatabaseService.markSheetSyncFailed', () => {
   it('marks the rows as failed with the reason, without touching version or change log', async () => {
     const { root, service } = setup();
