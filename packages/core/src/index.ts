@@ -31,7 +31,14 @@ export {
   SHEET_SYNC_WARNING,
   type WriteOutcome,
 } from './services/hybrid-write.js';
-export { SyncEngine, type SyncResult, type Logger } from './services/sync-engine.js';
+export { SyncEngine, type SyncResult, type SyncEngineOptions, type Logger } from './services/sync-engine.js';
+export {
+  shouldFlagNewOrderNotice,
+  isWithinNoticeWindow,
+  NEW_ORDER_NOTICE_WINDOW_MS,
+  type NewOrderNoticePolicy,
+  type NewOrderNoticeStatus,
+} from './services/new-order-notice.js';
 export {
   DistributedLockService,
   withDistributedLock,

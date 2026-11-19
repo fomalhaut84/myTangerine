@@ -10,6 +10,7 @@ import type { SheetService } from './sheet-service.js';
 import type { DatabaseService } from './database-service.js';
 import type { SheetRow } from '../types/order.js';
 import type { ChangeLogService, FieldChange } from './change-log-service.js';
+import type { NewOrderNoticePolicy } from './new-order-notice.js';
 
 /**
  * 로거 인터페이스 (선택적)
@@ -37,6 +38,14 @@ export interface SyncResult {
   conflicts: number;
   errors: Array<{ rowNumber: number; error: string }>;
   conflictDetails: Array<{ rowNumber: number; orderId: number; reason: string }>;
+  /** #251: 이번 동기화에서 알림 대기로 표시한 새 주문 수 (정책이 없으면 늘 0) */
+  newOrderNotices: number;
+}
+
+/** SyncEngine 옵션 */
+export interface SyncEngineOptions {
+  /** #251: 있으면 새로 만드는 주문에 알림 대기 표시 — sync-service(cron)만 넘긴다 */
+  newOrderNotice?: NewOrderNoticePolicy;
 }
 
 /**
@@ -50,7 +59,8 @@ export class SyncEngine {
     private sheetService: SheetService,
     private databaseService: DatabaseService,
     logger?: Logger,
-    changeLogService?: ChangeLogService
+    changeLogService?: ChangeLogService,
+    private readonly options: SyncEngineOptions = {}
   ) {
     this.logger = logger;
     this.changeLogService = changeLogService;
@@ -189,6 +199,7 @@ export class SyncEngine {
     error?: string;
     conflict?: boolean;
     conflictReason?: string;
+    newOrderNotice?: boolean;
   }> {
     const rowNumber = row._rowNumber;
 
@@ -253,10 +264,14 @@ export class SyncEngine {
       }
 
       // 충돌 없음 - DB에 upsert
-      const order = await this.databaseService.upsertOrder(row, {
-        syncStatus: 'success',
-        syncAttemptCount: attemptCount,
-      });
+      // #251: 알림 정책은 DB 에 아직 없는 행(새로 만들어지는 주문)에만 넘긴다
+      const noticePolicy = !existingOrder ? this.options.newOrderNotice : undefined;
+      const order = await this.databaseService.upsertOrder(
+        row,
+        { syncStatus: 'success', syncAttemptCount: attemptCount },
+        noticePolicy ? { newOrderNotice: noticePolicy } : undefined
+      );
+      const newOrderNotice = Boolean(noticePolicy) && order.newOrderNotice === 'pending';
 
       this.logger?.debug({ rowNumber, orderId: order.id, attemptCount }, 'DB upsert successful');
 
@@ -265,7 +280,7 @@ export class SyncEngine {
         await this.updateSheetSyncStatus(rowNumber, 'success', order.id);
         this.logger?.debug({ rowNumber }, 'Sheets sync status updated');
 
-        return { success: true, orderId: order.id };
+        return { success: true, orderId: order.id, newOrderNotice };
       } catch (sheetError) {
         // DB upsert 성공, Sheets 업데이트 실패
         const sheetMessage = sheetError instanceof Error ? sheetError.message : String(sheetError);
@@ -274,10 +289,12 @@ export class SyncEngine {
           'DB upsert succeeded but Sheets update failed'
         );
 
+        // DB 에는 만들어졌으므로 알림 표시도 남아 있다 — 건수에 넣는다
         return {
           success: false,
           orderId: order.id,
           error: `Sheets update failed: ${sheetMessage}`,
+          newOrderNotice,
         };
       }
     } catch (dbError) {
@@ -317,6 +334,7 @@ export class SyncEngine {
       conflicts: 0,
       errors: [],
       conflictDetails: [],
+      newOrderNotices: 0,
     };
 
     try {
@@ -346,7 +364,8 @@ export class SyncEngine {
         }
 
         // 행 동기화
-        const { success, error, conflict, conflictReason, orderId } = await this.syncRow(row);
+        const { success, error, conflict, conflictReason, orderId, newOrderNotice } = await this.syncRow(row);
+        if (newOrderNotice) result.newOrderNotices++;
 
         if (conflict && orderId) {
           // 충돌 감지 - 별도 카운트

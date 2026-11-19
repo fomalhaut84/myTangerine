@@ -5,6 +5,7 @@
 import { FastifyPluginAsync } from 'fastify';
 import { SyncEngine, withDistributedLock, ChangeLogService } from '@mytangerine/core';
 import { requireApiKey, requireAppClient } from '../middleware/auth.js';
+import { DatabaseNotConfiguredError } from '../plugins/prisma.js';
 
 /**
  * 동기화 상태 캐시
@@ -168,6 +169,8 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           status: statusData,
         });
       } catch (error) {
+        // #245 sheets 모드 + DB 미설정 → 전역 에러 핸들러가 503 으로 답한다
+        if (error instanceof DatabaseNotConfiguredError) throw error;
         const errorMessage = error instanceof Error ? error.message : String(error);
         const errorStack = error instanceof Error ? error.stack : undefined;
         fastify.log.error({ errorMessage, errorStack }, 'Failed to get sync status');
@@ -295,6 +298,8 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
       } catch (error) {
+        // #245 sheets 모드 + DB 미설정 → 전역 에러 핸들러가 503 으로 답한다
+        if (error instanceof DatabaseNotConfiguredError) throw error;
         fastify.log.error({ error }, 'Manual sync failed');
         const message = error instanceof Error ? error.message : String(error);
 
@@ -436,6 +441,8 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           },
         });
       } catch (error) {
+        // #245 sheets 모드 + DB 미설정 → 전역 에러 핸들러가 503 으로 답한다
+        if (error instanceof DatabaseNotConfiguredError) throw error;
         fastify.log.error({ error }, 'Full resync failed');
         const message = error instanceof Error ? error.message : String(error);
 
