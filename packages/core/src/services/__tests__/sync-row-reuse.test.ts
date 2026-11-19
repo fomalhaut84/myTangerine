@@ -371,14 +371,24 @@ describe('DatabaseService.findOrderAtOtherRow', () => {
     expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBeNull();
   });
 
-  it('원문이 없는(NULL) 옛 주문은 해석한 시각이 같을 때만', async () => {
+  it('원문 형식이 달라 정규화로도 맞지 않는 옛 주문은 해석한 시각이 같을 때만', async () => {
     const { root, service } = dbSetup();
     const ts = parseKoreanTimestamp(NEW_TS);
     root.order.findMany.mockResolvedValue([
-      { id: 1401, timestampRaw: null, timestamp: new Date(ts.getTime() + H) },
-      { id: 1402, timestampRaw: null, timestamp: ts },
+      { id: 1401, timestampRaw: '2026-11-19 10:26:32', timestamp: new Date(ts.getTime() + H) },
+      { id: 1402, timestampRaw: '2026-11-19 10:26:32', timestamp: ts },
     ]);
     expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBe(1402);
+  });
+
+  it('정규화 원문이 맞는 후보와 시각만 맞는 후보가 함께 있으면 id 가 작은 쪽(조회 순서)', async () => {
+    const { root, service } = dbSetup();
+    const ts = parseKoreanTimestamp(NEW_TS);
+    root.order.findMany.mockResolvedValue([
+      { id: 1403, timestampRaw: '2026-11-19 10:26:32', timestamp: ts },
+      { id: 1404, timestampRaw: '2026. 11. 19 오전 10:26:32', timestamp: new Date(ts.getTime() + 9 * H) },
+    ]);
+    expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBe(1403);
   });
 
   it('시각을 못 읽었으면 원문으로만 · 없으면 null', async () => {
