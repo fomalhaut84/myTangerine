@@ -80,6 +80,16 @@ head -10 ~/.bashrc                   # 비대화형이면 바로 return 하는 �
 grep '^PORT=' .env packages/web/.env.local   # 헬스 체크가 보는 포트 — 같은 서버의 다른 앱(pleiades 등)과 겹치지 않는지
 ```
 
+**pm2 앱 정의는 저장소에 있다 — `deploy/ecosystem.config.cjs` (#256).** fork 모드 · 이름 · cwd · `TZ` 를 담는다(비밀 없음). 새 서버나 다시 등록할 때는 아래 *pm2 fork 모드 전환* 절차를 쓴다.
+
+**pm2 시간대 고정 (2026-11-19 적용 · #257).** 동기화 판정은 원문 타임스탬프를 먼저 비교해 시간대와 무관하지만, 시각 해석이 프로세스 시간대를 따르므로 세 앱을 KST 로 고정한다.
+배포 스크립트는 `--update-env` 없이 재시작하므로 한 번 넣으면 유지된다.
+
+```bash
+TZ=Asia/Seoul pm2 restart myTangerineApi myTangerineSync myTangerineWeb --update-env   # 앱을 띄우는 계정의 로그인 셸에서
+pm2 save
+```
+
 ### 6. GitHub 태그 보호 (권장)
 
 Settings → Rules → Rulesets → **New tag ruleset**: 대상 `v*` · *Restrict creations / updates / deletions* · 우회는 관리자만.
@@ -108,6 +118,31 @@ forced command 가 가리키는 `deploy/ssh-deploy.sh` 는 **이 기능이 들�
 그 다음 릴리즈부터는 발행만 하면 된다.
 
 되돌리기(직전 태그로)는 서버에서 사람이 한다: `deploy/release-inplace.sh <직전 태그> --yes --allow-downgrade` — 자동 경로(ssh)는 이 플래그를 붙일 수 없다.
+
+## pm2 fork 모드 전환 (#256 · 1회)
+
+**왜:** 2026-04 부터 세 앱이 `cluster_mode` 로 `pnpm` 을 띄우고 있었다. cluster 모드는 pm2 가 직접 띄운 프로세스(pnpm)의 출력만 로그에 남겨,
+pnpm 이 다시 띄운 `node dist/index.js` 의 앱 로그(동기화 결과 · `hybrid-fallback` · 알림 오류)가 사라졌다. fork 모드는 출력 파이프를 그대로 물려줘 로그가 남는다.
+
+**언제:** 이 정의가 들어간 태그가 서버에 체크아웃된 뒤(자동 배포가 끝난 뒤). 앱마다 몇 초씩 끊긴다 — 주문이 적은 시간에.
+
+```bash
+cd ~/myTangerine
+pm2 jlist | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{for(const p of JSON.parse(s.slice(s.indexOf("["))).filter(p=>/^myTangerine/.test(p.name)))console.log(p.name,p.pm2_env.exec_mode)})'
+# 1) sync 먼저 — 로그가 남는지 확인
+pm2 delete myTangerineSync && pm2 start deploy/ecosystem.config.cjs --only myTangerineSync
+sleep 90; pm2 logs myTangerineSync --lines 30 --nostream | grep -E "Initializing|New order notices|Scheduled sync completed"   # 보여야 한다
+# 2) api · web
+pm2 delete myTangerineApi && pm2 start deploy/ecosystem.config.cjs --only myTangerineApi
+pm2 delete myTangerineWeb && pm2 start deploy/ecosystem.config.cjs --only myTangerineWeb
+# 3) 상태 · 저장 (재부팅 뒤에도 유지)
+pm2 ls                                    # 세 앱 online · mode fork
+pm2 save
+```
+
+- 로그 파일 이름이 `~/.pm2/logs/<앱>-out.log` · `-error.log` 로 바뀐다(번호 없음). 예전 `-out-5/6/7.log` 는 지워도 된다(선택)
+- 배포 스크립트는 앱 **이름**으로 재시작하므로 바꿀 것이 없다. `TZ` 는 정의의 `env` 로 들어간다
+- **되돌리기:** `pm2 delete <앱> && pm2 start /usr/local/bin/pnpm -i 1 --name <앱> -- --filter <패키지> start` → `pm2 save` (예전 cluster 방식 — 로그는 다시 사라진다)
 
 ## 웹 접근 제어 전환 (#196 · 1회 · `--draft` 릴리즈)
 
@@ -156,11 +191,42 @@ prerelease 를 나중에 정식으로 바꿔도 배포는 돌지 않는다(`rele
 
 `.claude/rules/data-safety.md` 의 *Prisma 스키마 — 정본 하나* 를 먼저 읽는다 — 정본은 루트 `prisma/` 하나다(#208). `migrate status` 확인 없이 `migrate deploy` 하지 않는다.
 
+**배포 전 점검 — 스키마 CREATE 권한 (#255).** PostgreSQL 15+ 는 `public` 스키마 CREATE 권한을 기본으로 주지 않는다. 앱 사용자가 테이블 소유자여도 `CREATE INDEX` 는 스키마 CREATE 권한이 필요하다(2026-11-19 v2.3.0 에서 막힘 — 이후 부여됨).
+
+```bash
+sudo -u postgres psql -d mytangerine -c "SELECT has_schema_privilege('mytangerine', 'public', 'CREATE');"   # t 여야 한다
+# f 면: sudo -u postgres psql -d mytangerine -c 'GRANT CREATE ON SCHEMA public TO mytangerine;'
+```
+
+**재시작 금지 구간.** 3단계의 `pnpm prisma:generate` 부터 `prisma:deploy` 가 성공할 때까지는 api · web 을 재시작하지 않는다 — client 는 새 스키마인데 DB 는 옛 스키마라, 재시작하면 주문 조회가 실패할 수 있다(떠 있는 프로세스는 메모리의 옛 client 로 계속 동작한다).
+
 1. sync-service 정지: `pm2 stop myTangerineSync`
 2. 백업: `sudo -u postgres pg_dump -Fc mytangerine > ~/mytangerine-$(date +%Y%m%d-%H%M).dump`
 3. `git fetch --tags && git checkout vX.Y.Z` → `CI=true pnpm install --frozen-lockfile` → `pnpm prisma:generate`(DB 접속 없음 · install 이 건너뛰어도 client 를 만든다) → `pnpm exec prisma migrate status`(저장소 루트) → **up to date 가 아닐 때만** `pnpm prisma:deploy` → 4개 패키지 빌드 → `pm2 restart …`
 4. sync-service 재개: `pm2 start myTangerineSync` — 다음 단계의 헬스 확인은 pm2 앱 3개가 **모두 online** 이어야 통과하므로 먼저 켠다
 5. `deploy/release-inplace.sh vX.Y.Z --yes --confirm-manual` — 헬스 확인 뒤 이 태그를 성공으로 기록한다(`손 배포 확인`). 이걸 하지 않으면 다음 자동 배포 · 재실행이 "성공으로 끝나지 않았다"(rc 4)로 멈춘다
+
+### 마이그레이션이 실패했을 때 (P3018)
+
+**Prisma 마이그레이션은 문장마다 따로 커밋된다 — 실패해도 앞 문장은 적용된 채로 남는다.** 2026-11-19 v2.3.0 에서 `ADD COLUMN` 2개는 적용되고 `CREATE INDEX` 만 실패했다.
+먼저 무엇이 적용됐는지 본 뒤 정리 방법을 고른다. **확인 없이 `migrate resolve --rolled-back` 하지 않는다** — 부분 적용 상태에서 그렇게 하면 다시 배포할 때 "이미 있음"으로 또 실패한다.
+
+1. 서비스는 그대로 둔다(재시작 금지 구간). sync-service 는 이미 정지 상태
+2. 실패 기록 · 적용 상태를 읽기 조회로 확인한다 — 마이그레이션 SQL 의 대상(컬럼 · 인덱스 · 테이블)을 그대로 넣는다
+   ```bash
+   sudo -u postgres psql -d mytangerine -c "SELECT migration_name, finished_at, rolled_back_at, applied_steps_count FROM _prisma_migrations ORDER BY started_at DESC LIMIT 2;"
+   sudo -u postgres psql -d mytangerine -c "SELECT column_name, data_type FROM information_schema.columns WHERE table_name='<테이블>' AND column_name IN ('<컬럼>', …);"
+   sudo -u postgres psql -d mytangerine -c "SELECT indexname FROM pg_indexes WHERE tablename='<테이블>' AND indexname IN ('<인덱스>', …);"
+   ```
+3. 고른다:
+
+   | 상태 | 정리 |
+   |---|---|
+   | 아무것도 적용 안 됨 | 원인 해결(예: 권한) → `pnpm exec prisma migrate resolve --rolled-back <이름>` → `pnpm prisma:deploy` |
+   | **일부 적용** | 원인 해결 → **남은 문장만** 마이그레이션 파일 그대로 실행 → `pnpm exec prisma migrate resolve --applied <이름>` |
+   | 전부 적용(기록만 실패) | `pnpm exec prisma migrate resolve --applied <이름>` |
+
+4. `pnpm exec prisma migrate status` 가 **up to date** 인지 확인한 뒤 3단계의 나머지(빌드 → 재시작)부터 이어 간다
 
 **스키마가 바뀐 릴리즈의 되돌리기는 손으로 한다** — `release-inplace.sh <직전> --allow-downgrade` 도 두 태그 사이 스키마 차이를 보고 rc 1 로 멈춘다.
 `git checkout <직전태그>` → `CI=true pnpm install --frozen-lockfile` → 4개 패키지 빌드 → `pm2 restart …` → `deploy/release-inplace.sh <직전태그> --yes --confirm-manual`.
