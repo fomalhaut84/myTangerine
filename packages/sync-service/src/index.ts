@@ -6,10 +6,46 @@
  */
 
 import 'dotenv/config';
-import { Config, SheetService, DatabaseService, ChangeLogService } from '@mytangerine/core';
+import {
+  Config,
+  SheetService,
+  DatabaseService,
+  ChangeLogService,
+  isWithinNoticeWindow,
+  NEW_ORDER_NOTICE_WINDOW_MS,
+  type SyncEngineOptions,
+} from '@mytangerine/core';
 import { SyncEngine } from './services/sync-engine.js';
 import { PollingScheduler } from './schedulers/polling-scheduler.js';
 import { logger } from './utils/logger.js';
+import { loadHermesConfig } from './notifications/hermes-config.js';
+import { sendHermesMessage } from './notifications/hermes-client.js';
+import { NewOrderNotifier } from './notifications/new-order-notifier.js';
+
+/**
+ * #251: hermes 설정이 있으면 신규 주문 알림 발송기를 만든다. 키 값은 로그에 남기지 않는다
+ */
+function createNewOrderNotifier(databaseService: DatabaseService): NewOrderNotifier | undefined {
+  const hermes = loadHermesConfig(process.env);
+  if (!hermes.enabled) {
+    logger.info({ reason: hermes.reason }, 'New order notices disabled');
+    return undefined;
+  }
+
+  for (const warning of hermes.warnings) {
+    logger.warn({}, warning);
+  }
+  logger.info({ hermesUrl: hermes.url, link: Boolean(hermes.adminWebUrl) }, 'New order notices enabled');
+
+  const target = { url: hermes.url, key: hermes.key };
+  return new NewOrderNotifier({
+    store: databaseService,
+    send: (message, idempotencyKey) => sendHermesMessage(target, message, idempotencyKey),
+    isFresh: (timestamp) => isWithinNoticeWindow(timestamp, { windowMs: NEW_ORDER_NOTICE_WINDOW_MS }),
+    logger,
+    adminWebUrl: hermes.adminWebUrl,
+  });
+}
 
 /**
  * 메인 함수
@@ -39,15 +75,31 @@ async function main() {
     const changeLogService = new ChangeLogService(databaseService.prisma);
     logger.info('ChangeLogService initialized');
 
+    // #251 신규 주문 알림(hermes) — 루트 .env 를 읽은 Config 다음에 읽는다. 키가 없으면 표시도 발송도 하지 않는다
+    const notifier = createNewOrderNotifier(databaseService);
+    const syncEngineOptions: SyncEngineOptions = notifier
+      ? {
+          newOrderNotice: {
+            windowMs: NEW_ORDER_NOTICE_WINDOW_MS,
+            isActive: () => notifier.isActive(),
+          },
+        }
+      : {};
+
     // SyncEngine 초기화 (logger + changeLogService 전달)
-    const syncEngine = new SyncEngine(sheetService, databaseService, logger, changeLogService);
+    const syncEngine = new SyncEngine(sheetService, databaseService, logger, changeLogService, syncEngineOptions);
     logger.info('SyncEngine initialized');
 
     // PollingScheduler 초기화 및 시작
-    const scheduler = new PollingScheduler(syncEngine, databaseService.prisma, {
-      interval: syncInterval,
-      enabled: syncEnabled,
-    });
+    const scheduler = new PollingScheduler(
+      syncEngine,
+      databaseService.prisma,
+      {
+        interval: syncInterval,
+        enabled: syncEnabled,
+      },
+      notifier
+    );
 
     scheduler.start();
 

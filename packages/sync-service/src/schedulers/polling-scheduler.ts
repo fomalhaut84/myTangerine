@@ -32,7 +32,9 @@ export class PollingScheduler {
   constructor(
     private syncEngine: SyncEngine,
     private prisma: PrismaClient,
-    private config: PollingSchedulerConfig
+    private config: PollingSchedulerConfig,
+    /** #251: 동기화 뒤 신규 주문 알림 발송 (HERMES_KEY 가 없으면 없음) */
+    private notifier?: { flush(): Promise<unknown> }
   ) {
     // Process ID 생성 (sync-service + PID + timestamp)
     this.processId = `sync-service-${process.pid}-${Date.now()}`;
@@ -146,6 +148,12 @@ export class PollingScheduler {
       } else {
         logger.error({ error: message }, 'Scheduled sync failed');
       }
+    }
+
+    // #251: 동기화 성공 여부와 상관없이 대기 알림을 보낸다(이전 회차에 표시된 것 포함).
+    // 락 밖에서 돈다 — 알림은 시트·DB 동기화와 겹쳐도 안전하고(pending 일 때만 기록), flush 는 던지지 않는다
+    if (this.notifier) {
+      await this.notifier.flush();
     }
   }
 
