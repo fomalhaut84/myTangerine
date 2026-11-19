@@ -20,6 +20,11 @@ import {
 } from './sheet-row-identity.js';
 import type { ChangeLogService, FieldChange } from './change-log-service.js';
 import type { NewOrderNoticePolicy } from './new-order-notice.js';
+import {
+  SYNC_STATUS_BATCH_SIZE,
+  verifyAndWriteSyncStatuses,
+  type PendingSyncStatus,
+} from './sync-status-writer.js';
 
 /**
  * 로거 인터페이스 (선택적)
@@ -55,6 +60,8 @@ export interface SyncResult {
   replacementLimitHit: boolean;
   /** #260: 행 정체성 충돌 · 교체 상한으로 쓰지 않은(안전 정지) 행 번호 */
   identityConflictRows: number[];
+  /** #261: 상태 칸을 쓰기 직전 확인에서 시트 행이 스냅샷과 달라(행 밀림) 이번 실행을 멈췄다 */
+  rowShiftDetected: boolean;
 }
 
 /** 행 하나의 동기화 결과 */
@@ -68,6 +75,14 @@ interface SyncRowResult {
   replaced?: boolean;
   /** #260: 행 정체성 충돌 · 교체 상한으로 쓰지 않았다 */
   identityConflict?: boolean;
+  /** #261: 시트 상태 칸에 쓸 내용 — 바로 쓰지 않고 performSync 가 묶어 확인 뒤 쓴다 */
+  statusWrite?: { status: 'success' | 'fail'; orderId?: number };
+}
+
+/** #261: 상태 칸 쓰기를 기다리는 행 — 쓰기 결과에 따라 행 결과가 확정된다 */
+interface PendingRow {
+  entry: PendingSyncStatus;
+  rowResult: SyncRowResult;
 }
 
 /** #257: 한 번의 동기화 실행 동안 공유하는 상태 */
@@ -195,58 +210,6 @@ export class SyncEngine {
   }
 
   /**
-   * KST (UTC+9) 타임스탬프를 ISO 8601 형식으로 포맷
-   * @param date - Date 객체
-   * @returns "2024-02-01T21:34:56+09:00" 형식의 문자열
-   */
-  private formatKstTimestamp(date: Date): string {
-    const kstOffset = 9 * 60; // +9시간 (분 단위)
-    const utcTime = date.getTime() + date.getTimezoneOffset() * 60 * 1000;
-    const kstTime = new Date(utcTime + kstOffset * 60 * 1000);
-
-    const year = kstTime.getFullYear();
-    const month = String(kstTime.getMonth() + 1).padStart(2, '0');
-    const day = String(kstTime.getDate()).padStart(2, '0');
-    const hours = String(kstTime.getHours()).padStart(2, '0');
-    const minutes = String(kstTime.getMinutes()).padStart(2, '0');
-    const seconds = String(kstTime.getSeconds()).padStart(2, '0');
-
-    return `${year}-${month}-${day}T${hours}:${minutes}:${seconds}+09:00`;
-  }
-
-  /**
-   * Sheets의 싱크 상태 필드 업데이트 (배치 업데이트)
-   * @param rowNumber - 행 번호
-   * @param status - 'success' | 'fail'
-   * @param orderId - DB의 order ID (선택)
-   * @throws 업데이트 실패 시 에러 throw (호출자가 처리)
-   */
-  private async updateSheetSyncStatus(
-    rowNumber: number,
-    status: 'success' | 'fail',
-    orderId?: number
-  ): Promise<void> {
-    // KST (UTC+9) 시간으로 ISO 8601 형식 저장
-    // 형식: "2024-02-01T21:34:56+09:00"
-    const syncTime = this.formatKstTimestamp(new Date());
-
-    const updates: Record<string, string> = {
-      DB_SYNC_STATUS: status,
-      DB_SYNC_AT: syncTime,
-    };
-
-    // DB_SYNC_ID 설정 (성공 시만, 실패 시는 빈 문자열)
-    if (status === 'success' && orderId !== undefined) {
-      updates.DB_SYNC_ID = String(orderId);
-    } else if (status === 'fail') {
-      updates.DB_SYNC_ID = '';
-    }
-
-    // 배치 업데이트로 한 번에 처리 (3개 API 호출 → 1개로 감소)
-    await this.sheetService.updateRowCells(rowNumber, updates);
-  }
-
-  /**
    * 단일 행 동기화
    * @param row - SheetRow 데이터
    * @returns 성공 여부, order ID, 에러 메시지, 충돌 여부
@@ -335,48 +298,17 @@ export class SyncEngine {
 
       this.logger?.debug({ rowNumber, orderId: order.id, attemptCount }, 'DB upsert successful');
 
-      try {
-        // Sheets 싱크 필드 업데이트
-        await this.updateSheetSyncStatus(rowNumber, 'success', order.id);
-        this.logger?.debug({ rowNumber }, 'Sheets sync status updated');
-
-        return { success: true, orderId: order.id, newOrderNotice };
-      } catch (sheetError) {
-        // DB upsert 성공, Sheets 업데이트 실패
-        const sheetMessage = sheetError instanceof Error ? sheetError.message : String(sheetError);
-        this.logger?.error(
-          { rowNumber, orderId: order.id, error: sheetMessage },
-          'DB upsert succeeded but Sheets update failed'
-        );
-
-        // DB 에는 만들어졌으므로 알림 표시도 남아 있다 — 건수에 넣는다
-        return {
-          success: false,
-          orderId: order.id,
-          error: `Sheets update failed: ${sheetMessage}`,
-          newOrderNotice,
-        };
-      }
+      // #261: 시트 상태 칸은 performSync 가 묶어 행 확인 뒤 쓴다(쓰기 실패는 그때 이 행의 실패로 바뀐다)
+      return { success: true, orderId: order.id, newOrderNotice, statusWrite: { status: 'success', orderId: order.id } };
     } catch (dbError) {
       // DB upsert 실패
       const dbMessage = dbError instanceof Error ? dbError.message : String(dbError);
       this.logger?.error({ rowNumber, error: dbMessage }, 'DB upsert failed');
 
-      try {
-        // Sheets에 fail 상태 기록
-        await this.updateSheetSyncStatus(rowNumber, 'fail');
-      } catch (sheetError) {
-        // Sheets 업데이트도 실패
-        const sheetMessage = sheetError instanceof Error ? sheetError.message : String(sheetError);
-        this.logger?.error(
-          { rowNumber, error: sheetMessage },
-          'Failed to update Sheets with fail status'
-        );
-      }
-
       // #260: 행 정체성 문제(안전 정지)는 결과에 따로 모아 알림이 쓰게 한다
       const identityConflict = dbError instanceof RowIdentityConflictError || dbError instanceof RowReplacementLimitError;
-      return { success: false, error: `DB upsert failed: ${dbMessage}`, identityConflict };
+      // 시트에 fail 기록 — #261: 이것도 묶어 행 확인 뒤 쓴다
+      return { success: false, error: `DB upsert failed: ${dbMessage}`, identityConflict, statusWrite: { status: 'fail' } };
     }
   }
 
@@ -386,7 +318,7 @@ export class SyncEngine {
    *   아무것도 쓰지 않고 실패(안전 정지 · 재정렬은 사람이 — 런북)
    * - 예전 주문이 시트 어디에도 없으면(정말 지워짐) → 예전 주문 분리·삭제 처리 + 새 주문 생성(한 트랜잭션)
    * - 교체는 한 번의 동기화에서 MAX_ROW_REPLACEMENTS_PER_SYNC 건까지 — 넘으면 동기화 전체를 멈춘다
-   * 실패는 syncRow 의 기존 catch(시트 DB_SYNC_STATUS=fail)로 간다. 차단기 오류만 위로 올라간다.
+   * 실패는 syncRow 의 기존 catch(시트 DB_SYNC_STATUS=fail)로 간다.
    */
   private async replaceReusedRow(
     existing: { id: number; timestamp: Date; timestampRaw: string | null; version: number | null; deletedAt: Date | null },
@@ -422,14 +354,13 @@ export class SyncEngine {
       'Sheet row reused by a different order — detached the old order and created a new one (#257)'
     );
 
-    try {
-      await this.updateSheetSyncStatus(rowNumber, 'success', order.id);
-      return { success: true, orderId: order.id, newOrderNotice, replaced: true };
-    } catch (sheetError) {
-      const sheetMessage = sheetError instanceof Error ? sheetError.message : String(sheetError);
-      this.logger?.error({ rowNumber, orderId: order.id, error: sheetMessage }, 'DB replace succeeded but Sheets update failed');
-      return { success: false, orderId: order.id, error: `Sheets update failed: ${sheetMessage}`, newOrderNotice, replaced: true };
-    }
+    return {
+      success: true,
+      orderId: order.id,
+      newOrderNotice,
+      replaced: true,
+      statusWrite: { status: 'success', orderId: order.id },
+    };
   }
 
   /** #257: 이 시트 행의 주문이 DB 다른 행에 이미 있으면 그 id */
@@ -477,6 +408,85 @@ export class SyncEngine {
     );
   }
 
+  /** 행 결과를 실행 결과에 센다 */
+  private recordRowResult(result: SyncResult, rowNumber: number, rowResult: SyncRowResult): void {
+    const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced, identityConflict } = rowResult;
+    if (newOrderNotice) result.newOrderNotices++;
+    if (replaced) result.replaced++;
+    if (identityConflict) result.identityConflictRows.push(rowNumber);
+
+    if (conflict && orderId) {
+      // 충돌 감지 - 별도 카운트
+      result.conflicts++;
+      result.conflictDetails.push({
+        rowNumber,
+        orderId,
+        reason: conflictReason || 'Web modification detected',
+      });
+    } else if (success) {
+      result.success++;
+    } else {
+      result.failed++;
+      result.errors.push({
+        rowNumber,
+        error: error || 'Unknown error',
+      });
+    }
+  }
+
+  /**
+   * #261: 모아 둔 상태 칸을 행 확인 뒤 쓰고 그 행들의 결과를 확정한다.
+   * @returns false = 시트 행이 스냅샷과 달라(행 밀림) 쓰지 않았다 — 호출자는 이번 실행을 멈춘다
+   */
+  private async flushSyncStatuses(batch: readonly PendingRow[], result: SyncResult): Promise<boolean> {
+    if (batch.length === 0) return true;
+    const rows = batch.map((p) => p.entry.rowNumber);
+    const outcome = await verifyAndWriteSyncStatuses(
+      this.sheetService,
+      batch.map((p) => p.entry)
+    );
+
+    if (outcome.kind === 'written') {
+      this.logger?.debug({ rows }, 'Sheets sync status updated');
+      batch.forEach((p) => this.recordRowResult(result, p.entry.rowNumber, p.rowResult));
+      return true;
+    }
+
+    if (outcome.kind === 'failed') {
+      // 지금까지의 시트 쓰기 실패와 같다 — DB 는 반영됐고 상태 칸만 못 썼다(다음 증분 동기화가 다시 처리)
+      this.logger?.error({ rows, error: outcome.error }, 'DB sync done but Sheets sync status update failed');
+      batch.forEach((p) =>
+        this.recordRowResult(
+          result,
+          p.entry.rowNumber,
+          p.rowResult.success
+            ? { ...p.rowResult, success: false, error: `Sheets update failed: ${outcome.error}` }
+            : p.rowResult
+        )
+      );
+      return true;
+    }
+
+    const reason =
+      `Sheet row ${outcome.mismatchedRows[0]} no longer matches this sync's snapshot — rows shifted during sync? ` +
+      'DB_SYNC_* not written, sync stopped (#261)';
+    this.logger?.error(
+      { rows, mismatchedRows: outcome.mismatchedRows },
+      'Row identity conflict before writing sync status: sheet rows shifted — not writing, stopping this sync (#261)'
+    );
+    batch.forEach((p) =>
+      this.recordRowResult(result, p.entry.rowNumber, {
+        ...p.rowResult,
+        success: false,
+        conflict: false,
+        identityConflict: true,
+        error: p.rowResult.success ? reason : `${p.rowResult.error}; ${reason}`,
+      })
+    );
+    result.rowShiftDetected = true;
+    return false;
+  }
+
   /**
    * 공통 동기화 로직
    * @param skipSynced - true면 이미 동기화된 행 스킵 (증분), false면 모두 재동기화 (전체)
@@ -497,6 +507,7 @@ export class SyncEngine {
       replaced: 0,
       replacementLimitHit: false,
       identityConflictRows: [],
+      rowShiftDetected: false,
     };
 
     try {
@@ -514,7 +525,9 @@ export class SyncEngine {
 
       this.logger?.info({ total: result.total }, 'Fetched rows from Google Sheets');
 
-      // 각 행 동기화
+      // 각 행 동기화 — #261: 상태 칸은 SYNC_STATUS_BATCH_SIZE 행씩 모아 행 확인 뒤 쓴다
+      let pending: PendingRow[] = [];
+      let shifted = false;
       for (const row of allRows) {
         const rowNumber = row._rowNumber;
 
@@ -534,33 +547,35 @@ export class SyncEngine {
         }
 
         // 행 동기화
-        const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced, identityConflict } =
-          await this.syncRow(row, ctx);
-        if (newOrderNotice) result.newOrderNotices++;
-        if (replaced) result.replaced++;
-        if (identityConflict) result.identityConflictRows.push(rowNumber);
-
-        if (conflict && orderId) {
-          // 충돌 감지 - 별도 카운트
-          result.conflicts++;
-          result.conflictDetails.push({
-            rowNumber,
-            orderId,
-            reason: conflictReason || 'Web modification detected',
-          });
-        } else if (success) {
-          result.success++;
+        const rowResult = await this.syncRow(row, ctx);
+        if (rowResult.statusWrite) {
+          pending = [
+            ...pending,
+            {
+              entry: { rowNumber, ...rowResult.statusWrite, snapshotTimestamp: String(row['타임스탬프'] ?? '') },
+              rowResult,
+            },
+          ];
         } else {
-          result.failed++;
-          result.errors.push({
-            rowNumber,
-            error: error || 'Unknown error',
-          });
+          this.recordRowResult(result, rowNumber, rowResult);
+        }
+
+        if (pending.length >= SYNC_STATUS_BATCH_SIZE) {
+          const batch = pending;
+          pending = [];
+          if (!(await this.flushSyncStatuses(batch, result))) {
+            shifted = true;
+            break;
+          }
         }
 
         // Rate limiting: Google Sheets API quota 준수를 위해 1초 대기
         // (60 requests/minute 제한을 초과하지 않도록)
         await new Promise(resolve => setTimeout(resolve, 1000));
+      }
+
+      if (!shifted) {
+        await this.flushSyncStatuses(pending, result);
       }
 
       result.replacementLimitHit = ctx.replacementLimitHit;

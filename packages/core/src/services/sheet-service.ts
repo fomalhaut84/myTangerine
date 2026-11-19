@@ -600,35 +600,51 @@ export class SheetService {
    */
   async updateRowCells(row: number, updates: Record<string, string>): Promise<void> {
     try {
-      const spreadsheetId = await this.getSpreadsheetId();
-      const sheetName = await this.getFirstSheetName();
-      const headers = await this.getHeaders();
-
-      // 각 컬럼명을 컬럼 레터로 변환하여 범위 생성
-      const data: Array<{ range: string; values: string[][] }> = [];
-
-      for (const [columnName, value] of Object.entries(updates)) {
-        const colIndex = headers.findIndex(h => h === columnName);
-        if (colIndex === -1) {
-          throw new Error(`Column '${columnName}' not found in headers`);
-        }
-        const colLetter = this.columnToLetter(colIndex + 1); // 1-based
-        const range = `${this.quoteSheetName(sheetName)}!${colLetter}${row}`;
-        data.push({ range, values: [[value]] });
-      }
-
-      // 배치 업데이트 실행
-      await this.sheets.spreadsheets.values.batchUpdate({
-        spreadsheetId,
-        requestBody: {
-          valueInputOption: 'RAW',
-          data,
-        },
-      });
+      await this.writeCells([{ row, updates }]);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to update row cells: ${message}`);
     }
+  }
+
+  /**
+   * #261: 여러 행의 칸을 batchUpdate 1회로 쓴다 — 동기화 상태 칸 묶음 쓰기용.
+   * 열 이름이 하나라도 없으면 아무것도 쓰지 않고 던진다. 빈 목록이면 호출하지 않는다.
+   */
+  async updateRowsCells(rows: ReadonlyArray<{ row: number; updates: Record<string, string> }>): Promise<void> {
+    if (rows.length === 0) return;
+    try {
+      await this.writeCells(rows);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to update cells for rows ${rows.map((r) => r.row).join(', ')}: ${message}`);
+    }
+  }
+
+  /** 행 · 열 이름 → 셀 범위로 바꿔 batchUpdate 1회 */
+  private async writeCells(rows: ReadonlyArray<{ row: number; updates: Record<string, string> }>): Promise<void> {
+    const spreadsheetId = await this.getSpreadsheetId();
+    const sheetName = await this.getFirstSheetName();
+    const headers = await this.getHeaders();
+
+    const data = rows.flatMap(({ row, updates }) =>
+      Object.entries(updates).map(([columnName, value]) => {
+        const colIndex = headers.findIndex((h) => h === columnName);
+        if (colIndex === -1) {
+          throw new Error(`Column '${columnName}' not found in headers`);
+        }
+        const colLetter = this.columnToLetter(colIndex + 1); // 1-based
+        return { range: `${this.quoteSheetName(sheetName)}!${colLetter}${row}`, values: [[value]] };
+      })
+    );
+
+    await this.sheets.spreadsheets.values.batchUpdate({
+      spreadsheetId,
+      requestBody: {
+        valueInputOption: 'RAW',
+        data,
+      },
+    });
   }
 
   /**

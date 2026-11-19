@@ -66,7 +66,22 @@ function engine(opts: {
   const rows = opts.rows ?? [sheetRow()];
   const physical =
     opts.physicalRows ?? rows.map((r) => ({ _rowNumber: r._rowNumber as number, 타임스탬프: r['타임스탬프'] as string }));
-  const sheetService = { getAllRowsSnapshot: vi.fn().mockResolvedValue({ rows, physical }) };
+  // #261: 상태 칸은 확인 읽기(스냅샷과 같은 값) 뒤 묶어 쓴다 — 쓴 내용을 (행, 상태, id) 로 sheetStatus 에 남긴다
+  const sheetStatus = vi.fn();
+  const sheetService = {
+    getAllRowsSnapshot: vi.fn().mockResolvedValue({ rows, physical }),
+    getTimestampsByRows: vi.fn().mockImplementation(async (nums: number[]) => {
+      const { physical: current } = await sheetService.getAllRowsSnapshot();
+      const byRow = new Map(current.map((p: { _rowNumber: number; 타임스탬프: string }) => [p._rowNumber, p.타임스탬프]));
+      return new Map(nums.map((n) => [n, byRow.get(n) ?? '']));
+    }),
+    updateRowsCells: vi.fn().mockImplementation(async (batch: Array<{ row: number; updates: Record<string, string> }>) => {
+      for (const { row, updates } of batch) {
+        if (updates.DB_SYNC_STATUS === 'success') sheetStatus(row, 'success', Number(updates.DB_SYNC_ID));
+        else sheetStatus(row, updates.DB_SYNC_STATUS);
+      }
+    }),
+  };
   const databaseService = {
     getRawOrderByRowNumber: vi.fn().mockImplementation(async (n: number) =>
       opts.existing ? { ...opts.existing, sheetRowNumber: n } : null
@@ -83,9 +98,6 @@ function engine(opts: {
     undefined,
     opts.notice ? { newOrderNotice: opts.notice } : {}
   );
-  const sheetStatus = vi
-    .spyOn(e as unknown as { updateSheetSyncStatus: (...a: unknown[]) => Promise<void> }, 'updateSheetSyncStatus')
-    .mockResolvedValue();
   return { e, databaseService, sheetStatus };
 }
 
