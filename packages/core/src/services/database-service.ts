@@ -9,6 +9,7 @@
 
 import type { PrismaClient, Prisma } from '@prisma/client';
 import { createPrismaClient } from './prisma-client-factory.js';
+import { shouldFlagNewOrderNotice, type NewOrderNoticePolicy, type NewOrderNoticeStatus } from './new-order-notice.js';
 import type { SheetRow, OrderStatus } from '../types/order.js';
 import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normalizeOrderStatus, parseOrderType } from '../types/order.js';
 import type { Config } from '../config/config.js';
@@ -795,11 +796,18 @@ export class DatabaseService {
    *
    * 주의: syncStatus, syncAttemptCount는 호출자(SyncEngine)가 관리
    */
-  async upsertOrder(row: SheetRow, syncMeta?: {
-    syncStatus: 'pending' | 'success' | 'failed';
-    syncAttemptCount?: number;
-    syncErrorMessage?: string;
-  }): Promise<PrismaOrder> {
+  async upsertOrder(
+    row: SheetRow,
+    syncMeta?: {
+      syncStatus: 'pending' | 'success' | 'failed';
+      syncAttemptCount?: number;
+      syncErrorMessage?: string;
+    },
+    options?: {
+      /** #251: 있으면 새로 만드는 주문에만 알림 대기 표시(create 쪽만 — 기존 주문은 건드리지 않는다) */
+      newOrderNotice?: NewOrderNoticePolicy;
+    }
+  ): Promise<PrismaOrder> {
     try {
       const data = this.sheetRowToPrismaOrderData(row);
 
@@ -830,6 +838,7 @@ export class DatabaseService {
           ...data,
           ...syncData,
           syncedAt: new Date(),
+          ...(shouldFlagNewOrderNotice(data, options?.newOrderNotice) ? { newOrderNotice: 'pending' } : {}),
         },
         update: updateData,
       });
@@ -840,6 +849,34 @@ export class DatabaseService {
       const rowNum = row._rowNumber || 'unknown';
       throw new Error(`Failed to upsert order (row: ${rowNum}): ${message}`);
     }
+  }
+
+  /**
+   * #251: 알림 대기 주문 — pending · 삭제 안 됨 · 시트 행 있음 · 오래된 것부터
+   */
+  async getPendingNewOrderNotices(limit: number): Promise<Array<{ id: number; sheetRowNumber: number }>> {
+    const rows = await this._prisma.order.findMany({
+      where: { newOrderNotice: 'pending', deletedAt: null, sheetRowNumber: { not: null } },
+      select: { id: true, sheetRowNumber: true },
+      orderBy: { id: 'asc' },
+      take: limit,
+    });
+    return rows.filter(hasSheetRow);
+  }
+
+  /**
+   * #251: 알림 결과 기록 — pending 일 때만 바꾼다(두 번 기록되지 않게). 바꿨으면 true
+   */
+  async setNewOrderNoticeResult(
+    id: number,
+    status: Exclude<NewOrderNoticeStatus, 'pending'>,
+    at: Date = new Date()
+  ): Promise<boolean> {
+    const { count } = await this._prisma.order.updateMany({
+      where: { id, newOrderNotice: 'pending' },
+      data: { newOrderNotice: status, newOrderNoticeAt: at },
+    });
+    return count > 0;
   }
 
   /**
