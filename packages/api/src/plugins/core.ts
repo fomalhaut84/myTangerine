@@ -12,6 +12,7 @@ import {
   LabelFormatter,
   type DataSourceMode,
 } from '@mytangerine/core';
+import { resolveDataSourceMode } from './data-source-mode.js';
 
 /**
  * Core 서비스 인터페이스
@@ -50,10 +51,7 @@ export interface CorePluginOptions {
  */
 const corePlugin: FastifyPluginAsync<CorePluginOptions> = async (fastify, options) => {
   // 데이터 소스 모드 결정 (옵션 > 환경변수 > 기본값)
-  const dataSourceMode: DataSourceMode =
-    options.dataSource ||
-    (process.env.DATA_SOURCE as DataSourceMode) ||
-    'sheets';
+  const dataSourceMode: DataSourceMode = resolveDataSourceMode(options.dataSource);
 
   // Config 인스턴스 생성
   const config = new Config();
