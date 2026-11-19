@@ -95,8 +95,12 @@ export function QuickActions() {
       }
     } catch (error) {
       setSyncMessage('데이터 동기화 중 오류가 발생했습니다.');
+      // 요청 자체 실패 — 정지가 아니므로 5초 뒤 함께 지운다
       setSyncSummary({ tone: 'error', details: [] });
-      syncTimeoutRef.current = setTimeout(() => setSyncMessage(null), 5000);
+      syncTimeoutRef.current = setTimeout(() => {
+        setSyncMessage(null);
+        setSyncSummary(null);
+      }, 5000);
     }
   };
 
