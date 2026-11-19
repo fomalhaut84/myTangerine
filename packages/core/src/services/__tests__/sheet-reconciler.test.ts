@@ -185,12 +185,23 @@ describe('SheetReconciler.reconcile', () => {
     expect(result.reconciled).toEqual([10]);
   });
 
-  it('헤더에 없는 칸은 쓰지 않고 보고한다(다른 칸은 맞춘다)', async () => {
-    const headers = HEADERS.filter((h) => h !== '주문유형');
-    const { reconciler, writes } = setup([order(10, { orderType: 'gift' })], { headers });
+  it('헤더에 없는 칸에 써야 할 값이 있으면 다른 칸은 맞추되 실패 표시를 남긴다 (회귀: PR #285 Codex P2)', async () => {
+    const headers = HEADERS.filter((h) => h !== '송장번호');
+    const { reconciler, db, writes } = setup([order(10)], { headers });
     const result = await reconciler.reconcile();
-    expect(writes[0].updates).not.toHaveProperty('주문유형');
-    expect(result.missingColumns).toEqual(['주문유형']);
+    expect(writes[0].updates).not.toHaveProperty('송장번호');
+    expect(writes[0].updates).toHaveProperty('비고', '배송완료');
+    expect(result.missingColumns).toEqual(['송장번호']);
+    expect(result.reconciled).toEqual([]);
+    expect(result.failed).toEqual([{ rowNumber: 10, error: expect.stringContaining('송장번호') }]);
+    expect(db.clearSheetSyncFailureIfUnchanged).not.toHaveBeenCalled();
+  });
+
+  it('헤더에 없는 칸이어도 써야 할 값이 빈 칸이면(잃을 것 없음) 표시를 지운다', async () => {
+    const headers = HEADERS.filter((h) => h !== '삭제됨');
+    const { reconciler } = setup([order(10)], { headers }); // deletedAt null → 삭제됨 ''
+    const result = await reconciler.reconcile();
+    expect(result.missingColumns).toEqual(['삭제됨']);
     expect(result.reconciled).toEqual([10]);
   });
 

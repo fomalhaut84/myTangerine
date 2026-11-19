@@ -116,6 +116,8 @@ type Target = ReconcileOrder & { sheetRowNumber: number };
 interface PlannedWrite {
   order: Target;
   updates: Record<string, string>;
+  /** 시트에 열이 없어 쓰지 못한, 비어 있지 않은 값의 칸 — 있으면 표시를 지우지 않는다(PR #285 Codex P2) */
+  unapplied: string[];
 }
 
 function emptyResult(): ReconcileResult {
@@ -205,10 +207,19 @@ export class SheetReconciler {
     }
 
     // 5: 주문이 그대로일 때만 표시를 지운다 — 주문마다 따로(한 건의 오류가 다른 결과를 버리지 않게)
-    for (const { order, updates } of plans) {
+    for (const { order, updates, unapplied } of plans) {
       const cells = Object.keys(updates).length;
       if (cells > 0 && !matchesSheetRow(order, after.get(order.sheetRowNumber))) {
         result.shiftedAfterWrite.push({ rowNumber: order.sheetRowNumber, cells });
+        this.deferOrder(order.id);
+        continue;
+      }
+      // 시트에 열이 없어 반영하지 못한 값이 있으면 표시를 남긴다 — 열이 돌아오면 다음 시도가 마저 맞춘다
+      if (unapplied.length > 0) {
+        result.failed.push({
+          rowNumber: order.sheetRowNumber,
+          error: `columns missing in sheet header, values not applied: ${unapplied.join(', ')}`,
+        });
         this.deferOrder(order.id);
         continue;
       }
@@ -243,16 +254,15 @@ export class SheetReconciler {
         this.deferOrder(order.id);
         continue;
       }
+      const desired = Object.entries(buildReconcileCells(order));
+      const absent = desired.filter(([column]) => !headerSet.has(column));
+      absent.forEach(([column]) => missing.add(column));
       const updates = Object.fromEntries(
-        Object.entries(buildReconcileCells(order)).filter(([column, value]) => {
-          if (!headerSet.has(column)) {
-            missing.add(column);
-            return false;
-          }
-          return (sheetRow[column] ?? '') !== value;
-        })
+        desired.filter(([column, value]) => headerSet.has(column) && (sheetRow[column] ?? '') !== value)
       );
-      plans.push({ order, updates });
+      // 빈 값은 열이 없어도 잃을 것이 없다
+      const unapplied = absent.filter(([, value]) => value !== '').map(([column]) => column);
+      plans.push({ order, updates, unapplied });
     }
     result.missingColumns = [...missing];
     return plans;
