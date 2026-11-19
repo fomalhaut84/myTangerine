@@ -6,10 +6,10 @@
  */
 
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { createPrismaClient, type DataSourceMode } from '@mytangerine/core';
+import { createPrismaClient } from '@mytangerine/core';
 import fp from 'fastify-plugin';
 import type { FastifyInstance } from 'fastify';
-import { resolveDataSourceMode } from './data-source-mode.js';
+import { resolveDataSourceMode, type DataSourceModeName } from './data-source-mode.js';
 
 /**
  * sheets 모드에서 DB 가 설정되지 않았는데 DB 를 쓰려 할 때 던진다.
@@ -54,7 +54,7 @@ export function createUnconfiguredPrismaClient(): PrismaClient {
 }
 
 export interface PrismaPluginOptions {
-  dataSource?: DataSourceMode;
+  dataSource?: DataSourceModeName;
 }
 
 /**
