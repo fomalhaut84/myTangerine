@@ -18,6 +18,11 @@ describe('normalizeTimestampRaw', () => {
     expect(normalizeTimestampRaw('2026. 11. 19 오전 10:26:32')).toBe(normalizeTimestampRaw(RAW));
     expect(normalizeTimestampRaw(undefined)).toBe('');
   });
+
+  it('날짜 칸 경계를 지킨다 — 1월 11일과 11월 1일은 다르다 (Codex P2)', () => {
+    expect(normalizeTimestampRaw('2026. 1. 11. 오전 10:26:32')).not.toBe(normalizeTimestampRaw('2026. 11. 1. 오전 10:26:32'));
+    expect(normalizeTimestampRaw('2026. 01. 07 오후 7:49:40')).toBe(normalizeTimestampRaw('2026. 1. 7. 오후 7:49:40'));
+  });
 });
 
 describe('isSameOrder', () => {

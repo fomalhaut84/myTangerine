@@ -21,9 +21,16 @@ import { parseKoreanTimestamp } from '../types/order.js';
 export const MAX_ROW_REPLACEMENTS_PER_SYNC = 3;
 export const ROW_REPLACEMENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
-/** 표시 형식 차이("19 오전" · "19. 오전" · 공백)를 지운 비교용 문자열 */
+/**
+ * 표시 형식 차이("19 오전" · "19. 오전" · 공백 · 앞자리 0)를 지운 비교용 문자열.
+ * 점·공백으로 **칸을 나눠** 이어 붙인다 — 다 지우면 `2026. 1. 11.` 과 `2026. 11. 1.` 이 같아진다(Codex P2)
+ */
 export function normalizeTimestampRaw(raw: string | null | undefined): string {
-  return (raw ?? '').replace(/[.\s]/g, '');
+  return (raw ?? '')
+    .split(/[.\s]+/)
+    .filter(Boolean)
+    .map((part) => (/^\d+$/.test(part) ? String(Number(part)) : part))
+    .join('|');
 }
 
 export function parseSheetTimestamp(raw: string | null | undefined): Date | null {
