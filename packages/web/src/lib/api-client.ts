@@ -15,6 +15,7 @@ import type {
   StatsResponse,
   StatsQueryParams,
 } from '@/types/api';
+import type { SyncResponse } from './sync-result';
 
 /**
  * 브라우저는 API 서버를 직접 부르지 않는다 (#220).
@@ -268,19 +269,10 @@ export async function getOrderStats(params?: StatsQueryParams): Promise<StatsRes
 
 /**
  * 수동 데이터 동기화 (Google Sheets → PostgreSQL)
- * 웹 서버 경유(BFF) — 서버 키는 웹 서버에서만 붙는다. 타임아웃 20분도 웹 서버가 처리
+ * 웹 서버 경유(BFF) — 서버 키는 웹 서버에서만 붙는다. 응답 상한 5분도 웹 서버가 처리(`lib/bff/forward.ts`)
+ * #279: 응답에 충돌 · 정지 정보가 있다 — 표시 판정은 `lib/sync-result.ts`
  */
-export async function syncData(): Promise<{
-  success: boolean;
-  message: string;
-  result: {
-    total: number;
-    success: number;
-    failed: number;
-    skipped: number;
-    errors: Array<{ rowNumber: number; error: string }>;
-  };
-}> {
+export async function syncData(): Promise<SyncResponse> {
   const response = await fetch(`${BFF_BASE}/api/sync`, {
     method: 'POST',
     headers: {

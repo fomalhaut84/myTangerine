@@ -6,6 +6,7 @@ import { FastifyPluginAsync } from 'fastify';
 import { SyncEngine, withDistributedLock, ChangeLogService } from '@mytangerine/core';
 import { requireApiKey, requireAppClient } from '../middleware/auth.js';
 import { DatabaseNotConfiguredError } from '../plugins/prisma.js';
+import { buildSyncResponse, syncResponseSchema } from './sync-response.js';
 
 /**
  * 동기화 상태 캐시
@@ -191,40 +192,13 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
     '/api/sync',
     {
       preHandler: [requireApiKey, requireAppClient(['web', 'sync-service'])],
-      // NOTE: 동기화 작업은 최대 20분 소요 가능
-      // - 분산 락 TTL: 20분
-      // - 클라이언트는 충분한 타임아웃 설정 필요 (Next.js proxy: 20분)
+      // NOTE: 분산 락 TTL 20분 · 웹 서버(BFF) 응답 상한 5분(#220 · packages/web/src/lib/bff/forward.ts) — 길어지면 #225
       schema: {
         tags: ['sync'],
         summary: '수동 데이터 동기화',
         description: 'Google Sheets의 데이터를 PostgreSQL로 동기화합니다.',
         response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' },
-              result: {
-                type: 'object',
-                properties: {
-                  total: { type: 'number', description: '전체 행 수' },
-                  success: { type: 'number', description: '성공한 행 수' },
-                  failed: { type: 'number', description: '실패한 행 수' },
-                  skipped: { type: 'number', description: '건너뛴 행 수 (이미 동기화됨)' },
-                  errors: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        rowNumber: { type: 'number' },
-                        error: { type: 'string' },
-                      },
-                    },
-                  },
-                },
-              },
-            },
-          },
+          200: syncResponseSchema(false),
           409: {
             type: 'object',
             properties: {
@@ -270,7 +244,14 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
             const syncResult = await syncEngine.incrementalSync();
 
             fastify.log.info(
-              { success: syncResult.success, failed: syncResult.failed, skipped: syncResult.skipped },
+              {
+                success: syncResult.success,
+                failed: syncResult.failed,
+                skipped: syncResult.skipped,
+                conflicts: syncResult.conflicts,
+                rowShiftDetected: syncResult.rowShiftDetected,
+                identityConflictRows: syncResult.identityConflictRows,
+              },
               'Manual sync completed'
             );
 
@@ -283,20 +264,8 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         syncStatusCache = null;
         fastify.log.debug('Sync status cache invalidated after sync');
 
-        // 에러 메시지 일반화 (내부 에러 상세 노출 방지)
-        const sanitizedErrors = result.errors.map(({ rowNumber }) => ({
-          rowNumber,
-          error: 'Sync failed for this row',
-        }));
-
-        return reply.code(200).send({
-          success: true,
-          message: `동기화 완료: ${result.success}개 성공, ${result.failed}개 실패, ${result.skipped}개 건너뜀`,
-          result: {
-            ...result,
-            errors: sanitizedErrors,
-          },
-        });
+        // #279: 충돌 · 정지 정보를 남기고 행 오류 · 충돌 사유는 일반화한다(내부 상세 노출 방지)
+        return reply.code(200).send(buildSyncResponse(result, 'incremental'));
       } catch (error) {
         // #245 sheets 모드 + DB 미설정 → 전역 에러 핸들러가 503 으로 답한다
         if (error instanceof DatabaseNotConfiguredError) throw error;
@@ -335,33 +304,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         summary: '전체 재동기화',
         description: '모든 Google Sheets 데이터를 강제로 PostgreSQL에 재동기화합니다. 초기 데이터 적재 또는 불일치 복구용으로 사용합니다.',
         response: {
-          200: {
-            type: 'object',
-            properties: {
-              success: { type: 'boolean' },
-              message: { type: 'string' },
-              result: {
-                type: 'object',
-                properties: {
-                  total: { type: 'number', description: '전체 행 수' },
-                  success: { type: 'number', description: '성공한 행 수' },
-                  failed: { type: 'number', description: '실패한 행 수' },
-                  skipped: { type: 'number', description: '건너뛴 행 수 (rowNumber 없음)' },
-                  errors: {
-                    type: 'array',
-                    items: {
-                      type: 'object',
-                      properties: {
-                        rowNumber: { type: 'number' },
-                        error: { type: 'string' },
-                      },
-                    },
-                  },
-                  duration: { type: 'number', description: '소요 시간 (초)' },
-                },
-              },
-            },
-          },
+          200: syncResponseSchema(true),
           409: {
             type: 'object',
             properties: {
@@ -426,20 +369,8 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         syncStatusCache = null;
         fastify.log.debug('Sync status cache invalidated after full resync');
 
-        // 에러 메시지 일반화 (내부 에러 상세 노출 방지)
-        const sanitizedErrors = result.errors.map(({ rowNumber }) => ({
-          rowNumber,
-          error: 'Sync failed for this row',
-        }));
-
-        return reply.code(200).send({
-          success: true,
-          message: `전체 동기화 완료: ${result.success}개 성공, ${result.failed}개 실패, ${result.skipped}개 건너뜀 (소요 시간: ${result.duration}초)`,
-          result: {
-            ...result,
-            errors: sanitizedErrors,
-          },
-        });
+        // #279: 충돌 · 정지 정보를 남기고 행 오류 · 충돌 사유는 일반화한다(내부 상세 노출 방지)
+        return reply.code(200).send(buildSyncResponse(result, 'full', result.duration));
       } catch (error) {
         // #245 sheets 모드 + DB 미설정 → 전역 에러 핸들러가 503 으로 답한다
         if (error instanceof DatabaseNotConfiguredError) throw error;
