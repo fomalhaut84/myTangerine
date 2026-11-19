@@ -33,6 +33,8 @@ ssh-keygen -t ed25519 -N '' -C mytangerine-deploy -f ./mytangerine-deploy
 
 pleiades 배포 키와 **별개**로 만든다. 키 하나가 한 저장소의 forced command 하나만 부를 수 있어야 한다.
 
+> **개인키(`mytangerine-deploy`)는 GitHub 시크릿에만 둔다.** 서버에는 공개키를 `authorized_keys` 에 등록하는 것만 필요하다 — 개인키를 서버 저장소 폴더에 두지 않는다(2026-11-19 서버 저장소에서 발견 · 공개 저장소라 `git add -A` 한 번으로 새어 나간다 · `.gitignore` 로도 막아 두었다). 등록이 끝나면 로컬 사본도 `shred -u` 로 지운다.
+
 ### 2. 서버에 공개키 등록 — forced command 로 묶는다
 
 서버 `~/.ssh/authorized_keys` 에 **한 줄** 추가 (`<계정>` 은 서버 계정):
