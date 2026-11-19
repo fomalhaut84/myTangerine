@@ -169,7 +169,7 @@ describe('DatabaseService 알림 대기 조회 · 결과 기록', () => {
 describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => {
   function engine(existing: Record<string, unknown> | null, options?: { newOrderNotice?: NewOrderNoticePolicy }) {
     const sheetService = {
-      getAllRows: vi.fn().mockResolvedValue([sheetRow()]),
+      getAllRowsSnapshot: vi.fn().mockResolvedValue({ rows: [sheetRow()], physical: [{ _rowNumber: 10, 타임스탬프: RECENT_TS }] }),
       updateCell: vi.fn(),
       updateRowCells: vi.fn().mockResolvedValue(undefined),
       updateSyncStatus: vi.fn().mockResolvedValue(undefined),

@@ -227,6 +227,17 @@ export class SheetService {
    * @param includeDeleted - Soft Delete된 주문 포함 여부 (기본: false)
    */
   async getAllRows(includeDeleted: boolean = false): Promise<SheetRow[]> {
+    return (await this.getAllRowsSnapshot(includeDeleted)).rows;
+  }
+
+  /**
+   * #264: getAllRows 와 같은 행 + 같은 응답의 **거르지 않은 물리 행 전체** 타임스탬프.
+   * 행 밀림 판정 색인은 '삭제됨' · 필수 정보 빠진 행까지 봐야 하고, 처리 대상과 **같은 시점**이어야 한다
+   * (따로 두 번 읽으면 그 사이 행이 움직여 손실 방향으로 오판할 수 있다 — 감사 ❌). 시트 읽기는 1회다.
+   */
+  async getAllRowsSnapshot(
+    includeDeleted: boolean = false
+  ): Promise<{ rows: SheetRow[]; physical: Array<{ _rowNumber: number; 타임스탬프: string }> }> {
     // 매 요청마다 로그 캐시 초기화 (수정된 데이터의 재검증을 위해)
     this.loggedInvalidRows.clear();
 
@@ -240,7 +251,7 @@ export class SheetService {
 
       const rows = response.data.values;
       if (!rows || rows.length === 0) {
-        return [];
+        return { rows: [], physical: [] };
       }
 
       // 첫 번째 행은 헤더
@@ -264,6 +275,11 @@ export class SheetService {
         rowData._rowNumber = index + 2;
         return rowData as unknown as SheetRow;
       });
+
+      const physical = allRows.map((row) => ({
+        _rowNumber: row._rowNumber as number,
+        타임스탬프: String(row['타임스탬프'] ?? ''),
+      }));
 
       // 필수 필드가 비어있는 행은 제외 (데이터 정합성 유지)
       // 타임스탬프, 받으실분 정보(이름, 주소, 전화번호)는 반드시 필요
@@ -310,7 +326,7 @@ export class SheetService {
 
       // Soft Delete 필터링 (Phase 3)
       if (!includeDeleted) {
-        return validRows.filter((row) => {
+        const activeRows = validRows.filter((row) => {
           // '삭제됨' 컬럼에 값이 있거나 _isDeleted 플래그가 true면 제외
           const deletedValue = row['삭제됨'];
           if (row._isDeleted || (deletedValue && deletedValue.trim() !== '')) {
@@ -318,9 +334,10 @@ export class SheetService {
           }
           return true;
         });
+        return { rows: activeRows, physical };
       }
 
-      return validRows;
+      return { rows: validRows, physical };
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to get all rows: ${message}`);

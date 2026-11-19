@@ -68,6 +68,7 @@ interface SyncRowResult {
 
 /** #257: 한 번의 동기화 실행 동안 공유하는 상태 */
 interface SyncRunContext {
+  /** 이번 시트 스냅샷의 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함) 정체성 색인 (#264) */
   sheetIndex: SheetIdentityIndex;
   /** 이번 실행의 교체 수 */
   replacements: number;
@@ -485,10 +486,11 @@ export class SyncEngine {
 
     try {
       // 모든 행 가져오기
-      const allRows = await this.sheetService.getAllRows();
+      // #264: 처리 대상과 행 밀림 판정 색인(거르지 않은 물리 행 전체)을 같은 응답 하나에서
+      const { rows: allRows, physical } = await this.sheetService.getAllRowsSnapshot();
       // #257: 이번 시트 스냅샷의 정체성 색인 · 교체 건수(차단기)
       const ctx: SyncRunContext = {
-        sheetIndex: buildSheetIdentityIndex(allRows),
+        sheetIndex: buildSheetIdentityIndex(physical),
         replacements: 0,
         recentReplacements: null,
         replacementLimitHit: false,

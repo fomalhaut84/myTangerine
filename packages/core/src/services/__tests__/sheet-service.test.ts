@@ -725,6 +725,36 @@ describe('SheetService', () => {
     });
   });
 
+  // #264: 처리 대상과 행 밀림 판정 색인을 같은 응답 하나에서
+  describe('getAllRowsSnapshot', () => {
+    const headers = ['타임스탬프', '비고', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
+      '받으실분 성함', '받으실분 주소 (도로명 주소로 부탁드려요)', '받으실분 연락처 (핸드폰번호)', '상품 선택', '5kg 수량', '10kg 수량', '삭제됨'];
+    const full = (ts: string, deleted = '') => [ts, '', 'a', 'b', '010', '받는이', '주소', '010-1', '5kg', '1', '', deleted];
+
+    it('rows 는 getAllRows 처럼 거르고 physical 은 같은 응답의 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함)', async () => {
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      get.mockReset();
+      get.mockResolvedValueOnce({
+        data: {
+          values: [
+            headers,
+            full('2026. 11. 19 오전 10:26:32'),
+            full('2026. 1. 7 오후 7:49:40', '2026-11-19'), // 삭제됨
+            ['2026. 1. 8 오전 9:00:00', ''], // 받는 사람 정보 없음
+          ],
+        },
+      });
+      const { rows, physical } = await service.getAllRowsSnapshot();
+      expect(get).toHaveBeenCalledTimes(1);
+      expect(rows.map((r) => r._rowNumber)).toEqual([2]);
+      expect(physical).toEqual([
+        { _rowNumber: 2, 타임스탬프: '2026. 11. 19 오전 10:26:32' },
+        { _rowNumber: 3, 타임스탬프: '2026. 1. 7 오후 7:49:40' },
+        { _rowNumber: 4, 타임스탬프: '2026. 1. 8 오전 9:00:00' },
+      ]);
+    });
+  });
+
   // #258: hybrid 쓰기 전 행 확인 — 타임스탬프 칸만 한 번에 읽는다
   describe('getTimestampsByRows', () => {
     const headers = ['비고', '타임스탬프', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
