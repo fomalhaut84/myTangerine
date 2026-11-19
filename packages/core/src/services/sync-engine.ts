@@ -15,6 +15,7 @@ import {
   appearsAtOtherRow,
   buildSheetIdentityIndex,
   MAX_ROW_REPLACEMENTS_PER_SYNC,
+  ROW_REPLACEMENT_WINDOW_MS,
   type SheetIdentityIndex,
 } from './sheet-row-identity.js';
 import type { ChangeLogService, FieldChange } from './change-log-service.js';
@@ -66,14 +67,17 @@ interface SyncRowResult {
 /** #257: 한 번의 동기화 실행 동안 공유하는 상태 */
 interface SyncRunContext {
   sheetIndex: SheetIdentityIndex;
+  /** 이번 실행의 교체 수 */
   replacements: number;
+  /** 최근 창(24시간) 동안 이전 실행들이 한 교체 수 — 첫 교체 때 한 번 읽는다 */
+  recentReplacements: number | null;
 }
 
 /** #257: 한 번의 동기화에서 행 재사용 교체가 상한을 넘었다 — 동기화 전체를 멈춘다 */
 export class RowReplacementLimitError extends Error {
   constructor(rowNumber: number) {
     super(
-      `Row replacement limit (${MAX_ROW_REPLACEMENTS_PER_SYNC}) reached at row ${rowNumber} — sync stopped to avoid mass changes (#257)`
+      `Row replacement limit (${MAX_ROW_REPLACEMENTS_PER_SYNC} per 24h) reached at row ${rowNumber} — sync stopped to avoid mass changes (#257)`
     );
     this.name = 'RowReplacementLimitError';
   }
@@ -246,6 +250,9 @@ export class SyncEngine {
       if (existingOrder && !isSameOrder(existingOrder, row['타임스탬프'])) {
         return await this.replaceReusedRow(existingOrder, row, rowNumber, ctx);
       }
+      if (!existingOrder) {
+        await this.assertNotDuplicate(row, rowNumber);
+      }
 
       const attemptCount = existingOrder ? (existingOrder.syncAttemptCount || 0) + 1 : 1;
 
@@ -373,7 +380,12 @@ export class SyncEngine {
   ): Promise<SyncRowResult> {
     await this.assertNotShifted(existing, row, rowNumber, ctx);
 
-    if (ctx.replacements >= MAX_ROW_REPLACEMENTS_PER_SYNC) {
+    if (ctx.recentReplacements === null) {
+      ctx.recentReplacements = await this.databaseService.countRecentRowReplacements(
+        new Date(Date.now() - ROW_REPLACEMENT_WINDOW_MS)
+      );
+    }
+    if (ctx.recentReplacements + ctx.replacements >= MAX_ROW_REPLACEMENTS_PER_SYNC) {
       throw new RowReplacementLimitError(rowNumber);
     }
     ctx.replacements++;
@@ -401,6 +413,28 @@ export class SyncEngine {
     }
   }
 
+  /** #257: 이 시트 행의 주문이 DB 다른 행에 이미 있으면 그 id */
+  private async findThisRowsOrderElsewhere(row: SheetRow, rowNumber: number): Promise<number | null> {
+    const raw = row['타임스탬프'];
+    if (!raw || !raw.trim()) return null;
+    return this.databaseService.findOrderAtOtherRow(raw, parseSheetTimestamp(raw), rowNumber);
+  }
+
+  /**
+   * #257: DB 에 이 행 번호의 주문이 없어 새로 만들기 전 — 같은 주문이 DB 다른 행에 있으면(밀린 행의 끝 · 전체 동기화) 중복을 만들지 않는다
+   */
+  private async assertNotDuplicate(row: SheetRow, rowNumber: number): Promise<void> {
+    const otherId = await this.findThisRowsOrderElsewhere(row, rowNumber);
+    if (otherId === null) return;
+    this.logger?.error(
+      { rowNumber, matchingOrderId: otherId },
+      'Row identity conflict: this order already exists at another row — not creating a duplicate (#257)'
+    );
+    throw new Error(
+      `Row identity conflict: row ${rowNumber}'s order already exists as DB #${otherId} at another row — sheet rows shifted? (not creating a duplicate)`
+    );
+  }
+
   /** #257: 행이 밀린 신호가 있으면 throw (쓰지 않음) */
   private async assertNotShifted(
     existing: { id: number; timestampRaw: string | null },
@@ -409,8 +443,7 @@ export class SyncEngine {
     ctx: SyncRunContext
   ): Promise<void> {
     const oldStillInSheet = appearsAtOtherRow(ctx.sheetIndex, existing.timestampRaw, rowNumber);
-    const rowTime = parseSheetTimestamp(row['타임스탬프']);
-    const movedId = rowTime ? await this.databaseService.findSyncedOrderIdByTimestamp(rowTime, rowNumber) : null;
+    const movedId = await this.findThisRowsOrderElsewhere(row, rowNumber);
     if (!oldStillInSheet && movedId === null) return;
 
     this.logger?.error(
@@ -449,7 +482,11 @@ export class SyncEngine {
       // 모든 행 가져오기
       const allRows = await this.sheetService.getAllRows();
       // #257: 이번 시트 스냅샷의 정체성 색인 · 교체 건수(차단기)
-      const ctx: SyncRunContext = { sheetIndex: buildSheetIdentityIndex(allRows), replacements: 0 };
+      const ctx: SyncRunContext = {
+        sheetIndex: buildSheetIdentityIndex(allRows),
+        replacements: 0,
+        recentReplacements: null,
+      };
       result.total = allRows.length;
 
       this.logger?.info({ total: result.total }, 'Fetched rows from Google Sheets');
@@ -508,6 +545,11 @@ export class SyncEngine {
 
       return result;
     } catch (error) {
+      // #257 차단기는 그대로 올린다(타입 보존 — 호출자가 구분할 수 있게)
+      if (error instanceof RowReplacementLimitError) {
+        this.logger?.error({ error: error.message }, `${mode} sync stopped by row replacement limit`);
+        throw error;
+      }
       const message = error instanceof Error ? error.message : String(error);
       this.logger?.error({ error: message }, `${mode} sync failed`);
       throw new Error(`${mode} sync failed: ${message}`);

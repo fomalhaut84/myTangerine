@@ -864,15 +864,37 @@ export class DatabaseService {
   }
 
   /**
-   * #257: 같은 주문 시각의 주문이 DB 의 **다른** 행 번호에 있는지 — 시트 행이 밀린 경우를 가린다
+   * #257: 이 시트 행의 주문(원문 타임스탬프 또는 해석한 시각이 같은 주문)이 DB 의 **다른** 행 번호에 있는지.
+   * 시트 행이 밀린 경우를 가린다. 원문 비교가 시간대와 무관하고, 시각 비교는 원문 형식이 다른 옛 행을 덮는다.
    */
-  async findSyncedOrderIdByTimestamp(timestamp: Date, excludeRowNumber: number): Promise<number | null> {
-    // `not: N` 은 SQL `<> N` 이라 시트 행이 없는(NULL) 주문도 함께 빠진다
+  async findOrderAtOtherRow(
+    timestampRaw: string,
+    timestamp: Date | null,
+    excludeRowNumber: number
+  ): Promise<number | null> {
+    // `not: N` 은 SQL `<> N` 이라 시트 행이 없는(NULL) 주문 — DB 전용 배송사고 — 도 함께 빠진다
     const found = await this._prisma.order.findFirst({
-      where: { timestamp, sheetRowNumber: { not: excludeRowNumber } },
+      where: {
+        sheetRowNumber: { not: excludeRowNumber },
+        OR: [{ timestampRaw }, ...(timestamp ? [{ timestamp }] : [])],
+      },
       select: { id: true },
     });
     return found?.id ?? null;
+  }
+
+  /**
+   * #257: 최근 동기화가 "행 재사용 교체"를 몇 번 했는지 — 차단기가 실행을 넘어 누적으로 판단하게
+   */
+  async countRecentRowReplacements(since: Date): Promise<number> {
+    return this._prisma.orderChangeLog.count({
+      where: {
+        changedBy: 'sync',
+        action: 'delete',
+        changedAt: { gte: since },
+        fieldChanges: { path: ['reason', 'new'], equals: 'sheet_row_reused' },
+      },
+    });
   }
 
   /**

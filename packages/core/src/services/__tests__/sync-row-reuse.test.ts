@@ -59,13 +59,15 @@ function engine(opts: {
   movedId?: number | null;
   notice?: NewOrderNoticePolicy;
   rows?: SheetRow[];
+  recentReplacements?: number;
 }) {
   const sheetService = { getAllRows: vi.fn().mockResolvedValue(opts.rows ?? [sheetRow()]) };
   const databaseService = {
     getRawOrderByRowNumber: vi.fn().mockImplementation(async (n: number) =>
       opts.existing ? { ...opts.existing, sheetRowNumber: n } : null
     ),
-    findSyncedOrderIdByTimestamp: vi.fn().mockResolvedValue(opts.movedId ?? null),
+    findOrderAtOtherRow: vi.fn().mockResolvedValue(opts.movedId ?? null),
+    countRecentRowReplacements: vi.fn().mockResolvedValue(opts.recentReplacements ?? 0),
     upsertOrder: vi.fn().mockResolvedValue({ id: 1487, newOrderNotice: null }),
     replaceOrderAtRow: vi.fn().mockResolvedValue({ id: 1500, newOrderNotice: opts.notice ? 'pending' : null }),
   };
@@ -95,7 +97,7 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     const result = await run(e);
 
     expect(databaseService.upsertOrder).not.toHaveBeenCalled();
-    expect(databaseService.findSyncedOrderIdByTimestamp).toHaveBeenCalledWith(parseKoreanTimestamp(NEW_TS), 391);
+    expect(databaseService.findOrderAtOtherRow).toHaveBeenCalledWith(NEW_TS, parseKoreanTimestamp(NEW_TS), 391);
     expect(databaseService.upsertOrder).not.toHaveBeenCalled();
     const [existingArg, rowArg, metaArg, optArg] = databaseService.replaceOrderAtRow.mock.calls[0];
     expect(existingArg).toMatchObject({ id: 1487, version: 2 });
@@ -149,10 +151,32 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     const { e, databaseService } = engine({ existing: OLD_ORDER, rows });
     vi.useFakeTimers();
     const p = e.incrementalSync();
-    const assertion = expect(p).rejects.toThrow('Row replacement limit (3)');
+    const assertion = expect(p).rejects.toThrow('Row replacement limit (3 per 24h)');
     await vi.runAllTimersAsync();
     await assertion;
     expect(databaseService.replaceOrderAtRow).toHaveBeenCalledTimes(3);
+  });
+
+  it('차단기는 이전 실행의 교체(최근 24시간 이력)까지 센다 — cron 이 매분 3건씩 이어 가지 않는다', async () => {
+    const { e, databaseService } = engine({ existing: OLD_ORDER, recentReplacements: 3 });
+    vi.useFakeTimers();
+    const p = e.incrementalSync();
+    const assertion = expect(p).rejects.toThrow('Row replacement limit (3 per 24h)');
+    await vi.runAllTimersAsync();
+    await assertion;
+    expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
+    expect(databaseService.countRecentRowReplacements).toHaveBeenCalledTimes(1);
+  });
+
+  it('DB 에 이 행 번호가 없어도 같은 주문이 DB 다른 행에 있으면(밀린 행의 끝 · 전체 동기화) 중복을 만들지 않는다', async () => {
+    const { e, databaseService, sheetStatus } = engine({ existing: null, movedId: 1487 });
+    vi.useFakeTimers();
+    const p = e.fullResync();
+    await vi.runAllTimersAsync();
+    const result = await p;
+    expect(databaseService.upsertOrder).not.toHaveBeenCalled();
+    expect(result.errors[0].error).toContain('already exists as DB #1487');
+    expect(sheetStatus).toHaveBeenCalledWith(391, 'fail');
   });
 
   it('타임스탬프가 같으면 지금처럼 갱신(upsert)', async () => {
@@ -162,7 +186,7 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     await run(e);
     expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
-    expect(databaseService.findSyncedOrderIdByTimestamp).not.toHaveBeenCalled();
+    expect(databaseService.findOrderAtOtherRow).not.toHaveBeenCalled();
   });
 
   it('시트 타임스탬프를 읽을 수 없으면 판정하지 않고 지금처럼 갱신', async () => {
@@ -175,9 +199,10 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
   });
 
-  it('DB 에 주문이 없으면 지금처럼 upsert(새로 만들기)', async () => {
+  it('DB 에 주문이 없고 다른 행에도 없으면 지금처럼 upsert(새로 만들기)', async () => {
     const { e, databaseService } = engine({ existing: null });
     await run(e);
+    expect(databaseService.findOrderAtOtherRow).toHaveBeenCalledWith(NEW_TS, parseKoreanTimestamp(NEW_TS), 391);
     expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
   });
@@ -265,20 +290,38 @@ describe('DatabaseService.replaceOrderAtRow — 한 트랜잭션', () => {
   });
 });
 
-describe('DatabaseService.findSyncedOrderIdByTimestamp', () => {
-  it('같은 시각 · 시트 행이 있고 · 이 행 번호가 아닌 주문', async () => {
+describe('DatabaseService.findOrderAtOtherRow', () => {
+  it('원문 또는 시각이 같고 · 이 행 번호가 아닌(시트 행 있는) 주문', async () => {
     const { root, service } = dbSetup();
     root.order.findFirst.mockResolvedValue({ id: 1490 });
     const ts = parseKoreanTimestamp(NEW_TS);
-    expect(await service.findSyncedOrderIdByTimestamp(ts, 391)).toBe(1490);
+    expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBe(1490);
     expect(root.order.findFirst).toHaveBeenCalledWith({
-      where: { timestamp: ts, sheetRowNumber: { not: 391 } },
+      where: { sheetRowNumber: { not: 391 }, OR: [{ timestampRaw: NEW_TS }, { timestamp: ts }] },
       select: { id: true },
     });
   });
 
-  it('없으면 null', async () => {
-    const { service } = dbSetup();
-    expect(await service.findSyncedOrderIdByTimestamp(new Date(), 391)).toBeNull();
+  it('시각을 못 읽었으면 원문으로만 · 없으면 null', async () => {
+    const { root, service } = dbSetup();
+    expect(await service.findOrderAtOtherRow(NEW_TS, null, 391)).toBeNull();
+    expect(root.order.findFirst.mock.calls[0][0].where.OR).toEqual([{ timestampRaw: NEW_TS }]);
+  });
+});
+
+describe('DatabaseService.countRecentRowReplacements', () => {
+  it('sync 의 delete 이력 중 사유 sheet_row_reused · 기간 안', async () => {
+    const { root, service } = dbSetup();
+    (root.orderChangeLog as unknown as { count: ReturnType<typeof vi.fn> }).count = vi.fn().mockResolvedValue(2);
+    const since = new Date('2026-11-18T00:00:00Z');
+    expect(await service.countRecentRowReplacements(since)).toBe(2);
+    expect((root.orderChangeLog as unknown as { count: ReturnType<typeof vi.fn> }).count).toHaveBeenCalledWith({
+      where: {
+        changedBy: 'sync',
+        action: 'delete',
+        changedAt: { gte: since },
+        fieldChanges: { path: ['reason', 'new'], equals: 'sheet_row_reused' },
+      },
+    });
   });
 });

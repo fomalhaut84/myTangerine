@@ -176,6 +176,7 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
     };
     const databaseService = {
       getRawOrderByRowNumber: vi.fn().mockResolvedValue(existing),
+      findOrderAtOtherRow: vi.fn().mockResolvedValue(null),
       upsertOrder: vi.fn().mockResolvedValue({ id: 5, newOrderNotice: existing ? null : 'pending' }),
     };
     const e = new SyncEngine(

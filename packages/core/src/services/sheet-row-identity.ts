@@ -14,8 +14,12 @@
 
 import { parseKoreanTimestamp } from '../types/order.js';
 
-/** 한 번의 동기화에서 "행 재사용 교체"를 이만큼까지만 한다 — 넘으면 동기화를 멈춘다(오판이 대량 변경으로 번지지 않게) */
+/**
+ * "행 재사용 교체"는 최근 ROW_REPLACEMENT_WINDOW_MS 동안 이만큼까지만 한다 — 넘으면 동기화를 멈춘다(오판이 대량 변경으로 번지지 않게).
+ * 실행마다 세면 cron 이 1분마다 3건씩 계속 진행하므로 변경 이력으로 누적해 센다.
+ */
 export const MAX_ROW_REPLACEMENTS_PER_SYNC = 3;
+export const ROW_REPLACEMENT_WINDOW_MS = 24 * 60 * 60 * 1000;
 
 /** 표시 형식 차이("19 오전" · "19. 오전" · 공백)를 지운 비교용 문자열 */
 export function normalizeTimestampRaw(raw: string | null | undefined): string {
