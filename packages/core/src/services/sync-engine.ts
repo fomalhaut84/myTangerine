@@ -9,6 +9,15 @@
 import type { SheetService } from './sheet-service.js';
 import type { DatabaseService } from './database-service.js';
 import type { SheetRow } from '../types/order.js';
+import {
+  isSameOrder,
+  parseSheetTimestamp,
+  appearsAtOtherRow,
+  buildSheetIdentityIndex,
+  MAX_ROW_REPLACEMENTS_PER_SYNC,
+  ROW_REPLACEMENT_WINDOW_MS,
+  type SheetIdentityIndex,
+} from './sheet-row-identity.js';
 import type { ChangeLogService, FieldChange } from './change-log-service.js';
 import type { NewOrderNoticePolicy } from './new-order-notice.js';
 
@@ -40,6 +49,42 @@ export interface SyncResult {
   conflictDetails: Array<{ rowNumber: number; orderId: number; reason: string }>;
   /** #251: 이번 동기화에서 알림 대기로 표시한 새 주문 수 (정책이 없으면 늘 0) */
   newOrderNotices: number;
+  /** #257: 행 번호가 다른 주문에 재사용돼 예전 주문을 분리하고 새로 만든 수 */
+  replaced: number;
+  /** #257: 교체 상한에 걸려 교체하지 못한 행이 있었다(그 행들은 errors 에 있다) */
+  replacementLimitHit: boolean;
+}
+
+/** 행 하나의 동기화 결과 */
+interface SyncRowResult {
+  success: boolean;
+  orderId?: number;
+  error?: string;
+  conflict?: boolean;
+  conflictReason?: string;
+  newOrderNotice?: boolean;
+  replaced?: boolean;
+}
+
+/** #257: 한 번의 동기화 실행 동안 공유하는 상태 */
+interface SyncRunContext {
+  sheetIndex: SheetIdentityIndex;
+  /** 이번 실행의 교체 수 */
+  replacements: number;
+  /** 최근 창(24시간) 동안 이전 실행들이 한 교체 수 — 첫 교체 때 한 번 읽는다 */
+  recentReplacements: number | null;
+  /** 이번 실행에서 상한 때문에 교체하지 못한 행이 있었다 */
+  replacementLimitHit: boolean;
+}
+
+/** #257: 행 재사용 교체가 상한(최근 24시간)을 넘었다 — 그 행은 교체하지 않고 실패로 남긴다 */
+export class RowReplacementLimitError extends Error {
+  constructor(rowNumber: number) {
+    super(
+      `Row replacement limit (${MAX_ROW_REPLACEMENTS_PER_SYNC} per 24h) reached at row ${rowNumber} — not replacing to avoid mass changes (#257)`
+    );
+    this.name = 'RowReplacementLimitError';
+  }
 }
 
 /** SyncEngine 옵션 */
@@ -193,14 +238,7 @@ export class SyncEngine {
    * @param row - SheetRow 데이터
    * @returns 성공 여부, order ID, 에러 메시지, 충돌 여부
    */
-  private async syncRow(row: SheetRow): Promise<{
-    success: boolean;
-    orderId?: number;
-    error?: string;
-    conflict?: boolean;
-    conflictReason?: string;
-    newOrderNotice?: boolean;
-  }> {
+  private async syncRow(row: SheetRow, ctx: SyncRunContext): Promise<SyncRowResult> {
     const rowNumber = row._rowNumber;
 
     if (!rowNumber) {
@@ -211,6 +249,15 @@ export class SyncEngine {
     try {
       // Phase 2: Raw Prisma Order 조회 (충돌 감지에 필요한 메타 필드 포함)
       const existingOrder = await this.databaseService.getRawOrderByRowNumber(rowNumber);
+
+      // #257: 같은 행 번호의 DB 주문이 다른 주문이면(시트 행 삭제 뒤 번호 재사용) 덮어쓰지 않는다
+      if (existingOrder && !isSameOrder(existingOrder, row['타임스탬프'])) {
+        return await this.replaceReusedRow(existingOrder, row, rowNumber, ctx);
+      }
+      if (!existingOrder) {
+        await this.assertNotDuplicate(row, rowNumber);
+      }
+
       const attemptCount = existingOrder ? (existingOrder.syncAttemptCount || 0) + 1 : 1;
 
       // 충돌 감지: DB가 'web'에서 수정되었고, 시트보다 최신인 경우
@@ -319,6 +366,103 @@ export class SyncEngine {
   }
 
   /**
+   * #257: 같은 행 번호의 DB 주문이 다른 주문일 때(시트 행 번호가 바뀜).
+   * - 예전 주문이 이번 시트의 **다른 행에 아직 있거나**, 이 행의 주문이 DB 다른 행에 이미 있으면 → 행이 밀렸다.
+   *   아무것도 쓰지 않고 실패(안전 정지 · 재정렬은 사람이 — 런북)
+   * - 예전 주문이 시트 어디에도 없으면(정말 지워짐) → 예전 주문 분리·삭제 처리 + 새 주문 생성(한 트랜잭션)
+   * - 교체는 한 번의 동기화에서 MAX_ROW_REPLACEMENTS_PER_SYNC 건까지 — 넘으면 동기화 전체를 멈춘다
+   * 실패는 syncRow 의 기존 catch(시트 DB_SYNC_STATUS=fail)로 간다. 차단기 오류만 위로 올라간다.
+   */
+  private async replaceReusedRow(
+    existing: { id: number; timestamp: Date; timestampRaw: string | null; version: number | null; deletedAt: Date | null },
+    row: SheetRow,
+    rowNumber: number,
+    ctx: SyncRunContext
+  ): Promise<SyncRowResult> {
+    await this.assertNotShifted(existing, row, rowNumber, ctx);
+
+    if (ctx.recentReplacements === null) {
+      ctx.recentReplacements = await this.databaseService.countRecentRowReplacements(
+        new Date(Date.now() - ROW_REPLACEMENT_WINDOW_MS)
+      );
+    }
+    if (ctx.recentReplacements + ctx.replacements >= MAX_ROW_REPLACEMENTS_PER_SYNC) {
+      // 이 행만 교체하지 않고 실패로 남긴다 — 다른 행(일반 신규 주문)은 계속 동기화된다
+      ctx.replacementLimitHit = true;
+      this.logger?.error({ rowNumber, existingOrderId: existing.id }, 'Row replacement limit reached — not replacing (#257)');
+      throw new RowReplacementLimitError(rowNumber);
+    }
+    ctx.replacements++;
+
+    const policy = this.options.newOrderNotice;
+    const order = await this.databaseService.replaceOrderAtRow(
+      { id: existing.id, version: existing.version, deletedAt: existing.deletedAt },
+      row,
+      { syncStatus: 'success', syncAttemptCount: 1 },
+      policy ? { newOrderNotice: policy } : undefined
+    );
+    const newOrderNotice = Boolean(policy) && order.newOrderNotice === 'pending';
+    this.logger?.warn(
+      { rowNumber, detachedOrderId: existing.id, newOrderId: order.id },
+      'Sheet row reused by a different order — detached the old order and created a new one (#257)'
+    );
+
+    try {
+      await this.updateSheetSyncStatus(rowNumber, 'success', order.id);
+      return { success: true, orderId: order.id, newOrderNotice, replaced: true };
+    } catch (sheetError) {
+      const sheetMessage = sheetError instanceof Error ? sheetError.message : String(sheetError);
+      this.logger?.error({ rowNumber, orderId: order.id, error: sheetMessage }, 'DB replace succeeded but Sheets update failed');
+      return { success: false, orderId: order.id, error: `Sheets update failed: ${sheetMessage}`, newOrderNotice, replaced: true };
+    }
+  }
+
+  /** #257: 이 시트 행의 주문이 DB 다른 행에 이미 있으면 그 id */
+  private async findThisRowsOrderElsewhere(row: SheetRow, rowNumber: number): Promise<number | null> {
+    const raw = row['타임스탬프'];
+    if (!raw || !raw.trim()) return null;
+    return this.databaseService.findOrderAtOtherRow(raw, parseSheetTimestamp(raw), rowNumber);
+  }
+
+  /**
+   * #257: DB 에 이 행 번호의 주문이 없어 새로 만들기 전 — 같은 주문이 DB 다른 행에 있으면(밀린 행의 끝 · 전체 동기화) 중복을 만들지 않는다
+   */
+  private async assertNotDuplicate(row: SheetRow, rowNumber: number): Promise<void> {
+    const otherId = await this.findThisRowsOrderElsewhere(row, rowNumber);
+    if (otherId === null) return;
+    this.logger?.error(
+      { rowNumber, matchingOrderId: otherId },
+      'Row identity conflict: this order already exists at another row — not creating a duplicate (#257)'
+    );
+    throw new Error(
+      `Row identity conflict: row ${rowNumber}'s order already exists as DB #${otherId} at another row — sheet rows shifted? (not creating a duplicate)`
+    );
+  }
+
+  /** #257: 행이 밀린 신호가 있으면 throw (쓰지 않음) */
+  private async assertNotShifted(
+    existing: { id: number; timestampRaw: string | null },
+    row: SheetRow,
+    rowNumber: number,
+    ctx: SyncRunContext
+  ): Promise<void> {
+    const oldStillInSheet = appearsAtOtherRow(ctx.sheetIndex, existing.timestampRaw, rowNumber);
+    const movedId = await this.findThisRowsOrderElsewhere(row, rowNumber);
+    if (!oldStillInSheet && movedId === null) return;
+
+    this.logger?.error(
+      { rowNumber, existingOrderId: existing.id, oldStillInSheet, matchingOrderId: movedId },
+      'Row identity conflict: sheet rows look shifted — not writing (#257)'
+    );
+    throw new Error(
+      `Row identity conflict: row ${rowNumber} no longer holds DB #${existing.id}` +
+        (oldStillInSheet ? ' (that order is at another sheet row)' : '') +
+        (movedId !== null ? ` (this row's order is DB #${movedId})` : '') +
+        ' — sheet rows shifted?'
+    );
+  }
+
+  /**
    * 공통 동기화 로직
    * @param skipSynced - true면 이미 동기화된 행 스킵 (증분), false면 모두 재동기화 (전체)
    * @param mode - 로그용 모드 이름
@@ -335,11 +479,20 @@ export class SyncEngine {
       errors: [],
       conflictDetails: [],
       newOrderNotices: 0,
+      replaced: 0,
+      replacementLimitHit: false,
     };
 
     try {
       // 모든 행 가져오기
       const allRows = await this.sheetService.getAllRows();
+      // #257: 이번 시트 스냅샷의 정체성 색인 · 교체 건수(차단기)
+      const ctx: SyncRunContext = {
+        sheetIndex: buildSheetIdentityIndex(allRows),
+        replacements: 0,
+        recentReplacements: null,
+        replacementLimitHit: false,
+      };
       result.total = allRows.length;
 
       this.logger?.info({ total: result.total }, 'Fetched rows from Google Sheets');
@@ -364,8 +517,9 @@ export class SyncEngine {
         }
 
         // 행 동기화
-        const { success, error, conflict, conflictReason, orderId, newOrderNotice } = await this.syncRow(row);
+        const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced } = await this.syncRow(row, ctx);
         if (newOrderNotice) result.newOrderNotices++;
+        if (replaced) result.replaced++;
 
         if (conflict && orderId) {
           // 충돌 감지 - 별도 카운트
@@ -389,6 +543,8 @@ export class SyncEngine {
         // (60 requests/minute 제한을 초과하지 않도록)
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
+
+      result.replacementLimitHit = ctx.replacementLimitHit;
 
       this.logger?.info(
         { success: result.success, failed: result.failed, skipped: result.skipped, conflicts: result.conflicts },
