@@ -46,16 +46,25 @@ sudo -u postgres psql -d mytangerine -c "SELECT sheet_row_number AS row, id, tim
 폼 영역 밖 행(예: 1월 7일 시트 모드 시절 웹이 추가한 배송사고 행)을 **응답 시트 밖으로 뺀다.** 그 행이 남아 있는 한 폼 응답마다 다시 밀린다.
 
 1. 밀린 행 위에 끼워진 새 주문들이 안전 정지됐다면 — 그 주문들은 정리 뒤 동기화가 다시 들여온다
-2. 밀린 행이 **DB 전용으로 가야 하는 주문**(배송사고)이면:
-   1. 시트 그 행의 `DB_SYNC_STATUS` · `DB_SYNC_ID` 를 비워 동기화가 새로 만들게 하고 1~2분 기다린다
-   2. `pm2 stop myTangerineSync`
-   3. 백업 → 그 주문을 시트에서 뗀다:
-      ```bash
-      sudo -u postgres pg_dump -Fc mytangerine > ~/mytangerine-$(date +%Y%m%d-%H%M)-before-detach.dump
-      sudo -u postgres psql -d mytangerine -c "UPDATE orders SET sheet_row_number = NULL WHERE sheet_row_number = <행> AND id = <id> AND order_type = 'claim';"   # UPDATE 1
-      ```
-   4. 시트에서 그 행을 잘라 별도 탭(예: `배송사고_이전`)에 붙이고 응답 시트에서 삭제한다(맨 마지막 행일 때만 — 아니면 B 처럼 다룬다)
-   5. `pm2 start myTangerineSync`
+2. 밀린 행이 **DB 전용으로 가야 하는 주문**(배송사고)이면 — 먼저 그 주문의 DB 레코드가 있는지 본다(시트 `타임스탬프` 원문으로):
+   ```bash
+   sudo -u postgres psql -d mytangerine -c "SELECT id, sheet_row_number, order_type, status, deleted_at IS NOT NULL AS deleted FROM orders WHERE timestamp_raw = '<시트 타임스탬프 원문>';"
+   ```
+   원문 표기가 조금 달라(점 · 공백) 안 나오면 날짜로 좁혀 본다: `… WHERE timestamp >= '<날짜>' AND timestamp < '<다음 날>' AND order_type = 'claim'` (#266)
+   - **레코드가 있으면(보통 — v2.4.0 이후는 덮어쓰지 않는다):** 다시 만들 필요 없다. 그 id 를 **DB 에 기록된 행 번호 그대로** 분리한다.
+     동기화 칸을 비워 다시 만들게 하지 않는다 — 같은 주문이 DB 에 있어 중복 방지로 멈춘다
+     1. `pm2 stop myTangerineSync`
+     2. 백업 → 분리:
+        ```bash
+        sudo -u postgres pg_dump -Fc mytangerine > ~/mytangerine-$(date +%Y%m%d-%H%M)-before-detach.dump
+        sudo -u postgres psql -d mytangerine -c "UPDATE orders SET sheet_row_number = NULL WHERE id = <id> AND sheet_row_number = <DB 에 기록된 행> AND order_type = 'claim';"   # UPDATE 1 이어야 한다
+        ```
+   - **레코드가 없으면(v2.4.0 이전 사고로 덮어써짐 — 2026-11-19 사례):** 시트 원본으로 다시 만든 뒤 분리한다
+     1. 시트 그 행의 `DB_SYNC_STATUS` · `DB_SYNC_ID` 를 비우고 1~2분 기다린다 → 위 조회로 새 id 와 행 번호(= 지금 시트 행)를 확인
+     2. `pm2 stop myTangerineSync` → 백업 → 위 UPDATE 를 새 id · 지금 시트 행으로 실행(UPDATE 1)
+   - 이어서(두 경우 공통):
+     1. 시트에서 그 행을 잘라 별도 탭(예: `배송사고_이전`)에 붙이고 응답 시트에서 삭제한다(맨 마지막 행일 때만 — 아니면 B 처럼 다룬다)
+     2. `pm2 start myTangerineSync` — 그 행 번호에 막혀 있던 새 주문들이 다음 회차에 들어온다
 3. 잘못 덮어써진 DB 주문이 있으면(v2.4.0 이전 사고) 시트 원본으로 되살린다 — 사례: 테스트 주문은 웹에서 삭제, 실제 주문은 위 2 처럼 다시 만들기
 
 ## 정리 B — 중간 행이 지워진 경우
