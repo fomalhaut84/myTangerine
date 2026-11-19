@@ -735,14 +735,28 @@ describe('SheetService', () => {
       get.mockReset();
       get
         .mockResolvedValueOnce({ data: { values: [headers] } })
-        .mockResolvedValueOnce({ data: { values: [['2026. 1. 7 오후 7:49:40'], [], ['2026. 11. 19 오전 10:26:32']] } });
+        .mockResolvedValueOnce({
+          data: { values: [['타임스탬프'], ['2026. 1. 7 오후 7:49:40'], [], ['2026. 11. 19 오전 10:26:32']] },
+        });
       const rows = await service.getAllRowTimestamps();
-      expect(get).toHaveBeenLastCalledWith(expect.objectContaining({ range: "'감귤 주문서(응답)'!B2:B" }));
+      expect(get).toHaveBeenLastCalledWith(expect.objectContaining({ range: "'감귤 주문서(응답)'!B1:B" }));
       expect(rows).toEqual([
         { _rowNumber: 2, 타임스탬프: '2026. 1. 7 오후 7:49:40' },
         { _rowNumber: 3, 타임스탬프: '' },
         { _rowNumber: 4, 타임스탬프: '2026. 11. 19 오전 10:26:32' },
       ]);
+    });
+
+    it('캐시된 헤더와 실제 1행이 다르면(실행 중 열 삽입) 캐시를 비우고 실패 — 다른 열로 판정하지 않는다', async () => {
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      get.mockReset();
+      get
+        .mockResolvedValueOnce({ data: { values: [headers] } })
+        .mockResolvedValueOnce({ data: { values: [['새 열'], ['x']] } })
+        .mockResolvedValueOnce({ data: { values: [headers] } }); // 캐시를 비웠으므로 다음 호출은 헤더를 다시 읽는다
+      await expect(service.getAllRowTimestamps()).rejects.toThrow('Header cache is stale');
+      get.mockResolvedValueOnce({ data: { values: [['타임스탬프'], ['y']] } });
+      expect(await service.getAllRowTimestamps()).toEqual([{ _rowNumber: 2, 타임스탬프: 'y' }]);
     });
   });
 

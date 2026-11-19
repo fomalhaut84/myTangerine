@@ -155,11 +155,17 @@ export class SheetService {
       if (col < 0) throw new Error("Column '타임스탬프' not found");
       const letter = this.columnToLetter(col + 1);
 
+      // 1행(헤더)부터 함께 읽어 그 열이 정말 `타임스탬프` 인지 본다 — 헤더 캐시는 프로세스 수명 동안 유지되므로
+      // 실행 중 열이 삽입되면 다른 열을 읽어 판정이 교체 쪽으로 열린다(사전 리뷰 major). 다르면 캐시를 비우고 실패
       const response = await this.sheets.spreadsheets.values.get({
         spreadsheetId,
-        range: `${this.quoteSheetName(sheetName)}!${letter}2:${letter}`,
+        range: `${this.quoteSheetName(sheetName)}!${letter}1:${letter}`,
       });
-      const values = response.data.values ?? [];
+      const [headerCell, ...values] = response.data.values ?? [];
+      if (String(headerCell?.[0] ?? '') !== '타임스탬프') {
+        this.headers = null;
+        throw new Error(`Header cache is stale — column ${letter} is no longer '타임스탬프'`);
+      }
       return values.map((cells, i) => ({ _rowNumber: i + 2, 타임스탬프: String(cells?.[0] ?? '') }));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
