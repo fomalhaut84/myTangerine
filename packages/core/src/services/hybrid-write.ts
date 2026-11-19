@@ -73,17 +73,3 @@ export class SheetRowMismatchError extends Error {
     this.name = 'SheetRowMismatchError';
   }
 }
-
-/** #258: 시트 행을 읽지 못해 확인할 수 없었다 — 쓰지 않았다(503 · 일반 문구) */
-export class SheetRowCheckError extends Error {
-  readonly statusCode = 503;
-  readonly publicMessage = DB_WRITE_FAILED_MESSAGE;
-
-  constructor(
-    readonly operation: string,
-    readonly cause: unknown
-  ) {
-    super(`Hybrid ${operation}: could not verify sheet rows — nothing was written: ${describeError(cause)}`);
-    this.name = 'SheetRowCheckError';
-  }
-}

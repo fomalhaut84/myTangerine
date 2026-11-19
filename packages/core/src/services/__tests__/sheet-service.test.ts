@@ -14,7 +14,6 @@ vi.mock('googleapis', () => {
       values: {
         get: vi.fn(),
         update: vi.fn(),
-        batchGet: vi.fn(),
       },
     },
   };
@@ -731,30 +730,44 @@ describe('SheetService', () => {
     const headers = ['비고', '타임스탬프', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
       '받으실분 성함', '받으실분 주소 (도로명 주소로 부탁드려요)', '받으실분 연락처 (핸드폰번호)', '상품 선택', '5kg 수량', '10kg 수량'];
 
-    it('헤더에서 타임스탬프 열을 찾아(A 열이라고 가정하지 않음) batchGet 1회로 읽는다 · 빈 칸은 빈 문자열', async () => {
-      mockGoogleAPI.sheets.spreadsheets.values.get.mockResolvedValue({ data: { values: [headers] } });
-      mockGoogleAPI.sheets.spreadsheets.values.batchGet.mockResolvedValue({
-        data: { valueRanges: [{ values: [['2026. 11. 19 오전 10:26:32']] }, {}] },
-      });
+    it('헤더에서 타임스탬프 열을 찾아(A 열이라고 가정하지 않음) 연속 범위 하나를 1회로 읽는다 · 빈 칸은 빈 문자열', async () => {
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      get.mockReset();
+      get
+        .mockResolvedValueOnce({ data: { values: [headers] } }) // 헤더
+        .mockResolvedValueOnce({ data: { values: [['2026. 11. 19 오전 10:26:32'], [], ['2026. 1. 7 오후 7:49:40']] } });
 
-      const result = await service.getTimestampsByRows([391, 392]);
+      const result = await service.getTimestampsByRows([393, 391, 392]);
 
-      expect(mockGoogleAPI.sheets.spreadsheets.values.batchGet).toHaveBeenCalledTimes(1);
-      expect(mockGoogleAPI.sheets.spreadsheets.values.batchGet).toHaveBeenCalledWith(
-        expect.objectContaining({ ranges: ["'감귤 주문서(응답)'!B391", "'감귤 주문서(응답)'!B392"] })
+      expect(get).toHaveBeenCalledTimes(2);
+      expect(get).toHaveBeenLastCalledWith(expect.objectContaining({ range: "'감귤 주문서(응답)'!B391:B393" }));
+      expect(result).toEqual(
+        new Map([
+          [393, '2026. 1. 7 오후 7:49:40'],
+          [391, '2026. 11. 19 오전 10:26:32'],
+          [392, ''],
+        ])
       );
-      expect(result).toEqual(new Map([[391, '2026. 11. 19 오전 10:26:32'], [392, '']]));
+    });
+
+    it('범위 끝이 시트보다 짧게 오면(뒤쪽 빈 행) 빈 문자열', async () => {
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      get.mockReset();
+      get.mockResolvedValueOnce({ data: { values: [headers] } }).mockResolvedValueOnce({ data: { values: [['x']] } });
+      expect(await service.getTimestampsByRows([10, 12])).toEqual(new Map([[10, 'x'], [12, '']]));
     });
 
     it('빈 목록이면 읽지 않는다', async () => {
-      mockGoogleAPI.sheets.spreadsheets.values.batchGet.mockClear();
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      get.mockReset();
       expect(await service.getTimestampsByRows([])).toEqual(new Map());
-      expect(mockGoogleAPI.sheets.spreadsheets.values.batchGet).not.toHaveBeenCalled();
+      expect(get).not.toHaveBeenCalled();
     });
 
     it('읽기 실패는 행 번호를 담아 던진다', async () => {
-      mockGoogleAPI.sheets.spreadsheets.values.get.mockResolvedValue({ data: { values: [headers] } });
-      mockGoogleAPI.sheets.spreadsheets.values.batchGet.mockRejectedValue(new Error('quota'));
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      get.mockReset();
+      get.mockResolvedValueOnce({ data: { values: [headers] } }).mockRejectedValueOnce(new Error('quota'));
       await expect(service.getTimestampsByRows([391])).rejects.toThrow('Failed to read timestamps for rows 391: quota');
     });
   });

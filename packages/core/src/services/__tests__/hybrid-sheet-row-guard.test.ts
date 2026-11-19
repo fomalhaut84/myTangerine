@@ -4,14 +4,14 @@
  * DB 는 주문을 시트 행 번호로 기억한다. 시트 행이 밀리면(중간 행 삭제 · 폼이 위에 끼워 넣기) 웹 수정이
  * 지금 그 번호에 있는 **다른 고객 주문**의 시트 행을 바꾼다. 그래서 DB 를 쓰기 전에 대상 행들의 시트
  * `타임스탬프` 를 한 번에 읽어 DB 주문과 같은지 본다. 하나라도 다르면 요청 전체를 거절한다(사용자 결정 2026-11-19):
- * DB · 시트 모두 바꾸지 않고 409.
+ * DB · 시트 모두 바꾸지 않고 409. 시트를 읽지 못하면 DB 만 쓰고 시트는 건너뛴다(부분 저장 · 사용자 결정 2026-11-19).
  *
  * SheetService · DatabaseService 는 mock 이다(S-4).
  */
 
 import { describe, it, expect, vi } from 'vitest';
 import { HybridDataService } from '../hybrid-data-service.js';
-import { SheetRowMismatchError, SheetRowCheckError } from '../hybrid-write.js';
+import { SheetRowMismatchError, SHEET_SYNC_WARNING } from '../hybrid-write.js';
 import type { SheetService } from '../sheet-service.js';
 import type { DatabaseService } from '../database-service.js';
 import { parseKoreanTimestamp } from '../../types/order.js';
@@ -95,20 +95,23 @@ describe('hybrid 쓰기 전 시트 행 확인 (#258)', () => {
     expect(db.updateOrderStatus).not.toHaveBeenCalled();
   });
 
-  it('시트를 읽지 못하면 확인할 수 없으므로 쓰지 않고 503', async () => {
+  it('시트를 읽지 못하면 DB 만 쓰고 시트는 쓰지 않는다 — 부분 저장 경고 · 실패 표시', async () => {
     const { service, sheet, db } = setup({ sheet: { 391: A }, db: { 391: A }, sheetReadFails: true });
-    const error = await service.updateOrderStatus(391, '입금확인').catch((e: unknown) => e);
-    expect(error).toBeInstanceOf(SheetRowCheckError);
-    expect((error as SheetRowCheckError).statusCode).toBe(503);
-    expect((error as SheetRowCheckError).publicMessage).toContain('변경된 내용은 없습니다');
-    expect(db.updateOrderStatus).not.toHaveBeenCalled();
+    const outcome = await service.updateOrderStatus(391, '입금확인');
+    expect(outcome).toEqual({ partial: true, warnings: [SHEET_SYNC_WARNING] });
+    expect(db.updateOrderStatus).toHaveBeenCalledTimes(1);
     expect(sheet.updateOrderStatus).not.toHaveBeenCalled();
+    expect(db.markSheetSyncFailed).toHaveBeenCalledWith([391], expect.stringContaining('could not verify sheet rows'));
   });
 
-  it('DB 에 그 행 번호의 주문이 없으면 확인 대상이 아니다(기존 흐름 — DB 쓰기가 판단)', async () => {
-    const { service, db } = setup({ sheet: { 391: B }, db: {} });
-    await service.updateOrderStatus(391, '입금확인');
-    expect(db.updateOrderStatus).toHaveBeenCalledTimes(1);
+  it('DB 에 그 행 번호의 주문이 없으면 불일치 — 일괄 쓰기가 확인 안 된 행에 시트를 쓰지 않는다 (사전 리뷰 M-1)', async () => {
+    const { service, sheet, db } = setup({ sheet: { 390: A, 391: B }, db: { 390: A } });
+    const error = await service.markDelivered([390, 391], 'T-1').catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(SheetRowMismatchError);
+    expect((error as SheetRowMismatchError).rows).toEqual([391]);
+    expect(sheet.getTimestampsByRows).toHaveBeenCalledWith([390]);
+    expect(db.markDelivered).not.toHaveBeenCalled();
+    expect(sheet.markDelivered).not.toHaveBeenCalled();
   });
 
   it('sheets 모드는 비교할 DB 가 없으므로 확인하지 않는다', async () => {
