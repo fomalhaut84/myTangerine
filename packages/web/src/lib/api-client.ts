@@ -55,6 +55,22 @@ export function handleUnauthorized(response: Response): void {
   if (response.status === 401) redirectToLogin();
 }
 
+/**
+ * 쓰기가 409 로 거절되면 서버 문구를 보여 준다 (#258) — 시트 행 순서가 DB 와 맞지 않아 아무것도 저장하지 않은 경우.
+ * 화면들은 실패 시 일반 문구("… 중 오류가 발생했습니다")만 띄우므로, 원인과 "변경 없음"을 알 수 있게 따로 띄운다.
+ */
+export async function notifyWriteConflict(method: string, response: Response): Promise<void> {
+  if (method === 'GET' || method === 'HEAD' || response.status !== 409) return;
+  if (!(response.headers.get('content-type') ?? '').includes('application/json')) return;
+  try {
+    const body: unknown = await response.clone().json();
+    const message = (body as { error?: unknown } | null)?.error;
+    if (typeof message === 'string' && message) toast.error(message, { duration: 15_000 });
+  } catch {
+    // 본문이 JSON 이 아니면 문구도 없다
+  }
+}
+
 export const api = ky.create({
   prefixUrl: BFF_BASE,
   headers: {
@@ -71,6 +87,7 @@ export const api = ky.create({
       async (request, _options, response) => {
         handleUnauthorized(response);
         await notifyWriteWarnings(request.method, response);
+        await notifyWriteConflict(request.method, response);
       },
     ],
   },

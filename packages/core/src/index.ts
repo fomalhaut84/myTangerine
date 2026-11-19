@@ -28,6 +28,7 @@ export {
 } from './services/hybrid-data-service.js';
 export {
   HybridWriteError,
+  SheetRowMismatchError,
   SHEET_SYNC_WARNING,
   type WriteOutcome,
 } from './services/hybrid-write.js';

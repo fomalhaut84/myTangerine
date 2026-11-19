@@ -834,12 +834,7 @@ export class DatabaseService {
 
       const result = await this._prisma.order.upsert({
         where: { sheetRowNumber: data.sheetRowNumber },
-        create: {
-          ...data,
-          ...syncData,
-          syncedAt: new Date(),
-          ...(shouldFlagNewOrderNotice(data, options?.newOrderNotice) ? { newOrderNotice: 'pending' } : {}),
-        },
+        create: this.buildSyncCreateData(data, syncData, options),
         update: updateData,
       });
 
@@ -849,6 +844,132 @@ export class DatabaseService {
       const rowNum = row._rowNumber || 'unknown';
       throw new Error(`Failed to upsert order (row: ${rowNum}): ${message}`);
     }
+  }
+
+  /**
+   * 동기화로 새 주문을 만들 때의 create 데이터 — upsert · 행 재사용 교체가 같이 쓴다
+   * #251: 정책이 있으면(cron) 알림 대기 표시
+   */
+  private buildSyncCreateData(
+    data: ReturnType<DatabaseService['sheetRowToPrismaOrderData']>,
+    syncData: Record<string, unknown>,
+    options?: { newOrderNotice?: NewOrderNoticePolicy }
+  ) {
+    return {
+      ...data,
+      ...syncData,
+      syncedAt: new Date(),
+      ...(shouldFlagNewOrderNotice(data, options?.newOrderNotice) ? { newOrderNotice: 'pending' } : {}),
+    };
+  }
+
+  /**
+   * #258: 행 번호들의 DB 주문 시각 — hybrid 쓰기 전 시트 행 확인용
+   */
+  async getOrderTimestampsByRows(
+    rowNumbers: number[]
+  ): Promise<Map<number, { timestamp: Date; timestampRaw: string | null }>> {
+    const orders = await this._prisma.order.findMany({
+      where: { sheetRowNumber: { in: rowNumbers } },
+      select: { sheetRowNumber: true, timestamp: true, timestampRaw: true },
+    });
+    return new Map(
+      orders.filter(hasSheetRow).map((o) => [o.sheetRowNumber, { timestamp: o.timestamp, timestampRaw: o.timestampRaw }])
+    );
+  }
+
+  /**
+   * #257: 이 시트 행의 주문(원문 타임스탬프 또는 해석한 시각이 같은 주문)이 DB 의 **다른** 행 번호에 있는지.
+   * 시트 행이 밀린 경우를 가린다. 원문 비교가 시간대와 무관하고, 시각 비교는 원문 형식이 다른 옛 행을 덮는다.
+   */
+  async findOrderAtOtherRow(
+    timestampRaw: string,
+    timestamp: Date | null,
+    excludeRowNumber: number
+  ): Promise<number | null> {
+    // `not: N` 은 SQL `<> N` 이라 시트 행이 없는(NULL) 주문 — DB 전용 배송사고 — 도 함께 빠진다.
+    // 원문은 그대로(=) 비교한다 — 표시 형식이 다른 옛 행은 시각 조건이 받는다(isSameOrder 의 정규화 비교와 다름)
+    const found = await this._prisma.order.findFirst({
+      where: {
+        sheetRowNumber: { not: excludeRowNumber },
+        OR: [{ timestampRaw }, ...(timestamp ? [{ timestamp }] : [])],
+      },
+      select: { id: true },
+    });
+    return found?.id ?? null;
+  }
+
+  /**
+   * #257: 최근 동기화가 "행 재사용 교체"를 몇 번 했는지 — 차단기가 실행을 넘어 누적으로 판단하게
+   */
+  async countRecentRowReplacements(since: Date): Promise<number> {
+    return this._prisma.orderChangeLog.count({
+      where: {
+        changedBy: 'sync',
+        action: 'delete',
+        changedAt: { gte: since },
+        fieldChanges: { path: ['reason', 'new'], equals: 'sheet_row_reused' },
+      },
+    });
+  }
+
+  /**
+   * #257: 시트 행 번호가 다른 주문에 재사용됐을 때 — 한 트랜잭션으로
+   * 1) 예전 주문을 시트 행에서 분리(sheetRowNumber=null)하고 삭제 처리(이미 삭제됐으면 그 시각 유지) — 레코드·이력은 보존
+   * 2) 변경 이력(sync · delete · 사유 sheet_row_reused)
+   * 3) 그 행의 새 주문 create (cron 이면 알림 대기 표시)
+   * 어느 단계든 실패하면 전부 롤백된다.
+   */
+  async replaceOrderAtRow(
+    existing: { id: number; version: number | null; deletedAt: Date | null },
+    row: SheetRow,
+    syncMeta: { syncStatus: 'pending' | 'success' | 'failed'; syncAttemptCount?: number },
+    options?: { newOrderNotice?: NewOrderNoticePolicy }
+  ): Promise<PrismaOrder> {
+    const data = this.sheetRowToPrismaOrderData(row);
+    const rowNumber = data.sheetRowNumber;
+    const deletedAt = existing.deletedAt ?? new Date();
+
+    try {
+      return await this.replaceOrderAtRowTx(existing, data, rowNumber, deletedAt, syncMeta, options);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to replace order at reused row (row: ${rowNumber}, old #${existing.id}): ${message}`);
+    }
+  }
+
+  private replaceOrderAtRowTx(
+    existing: { id: number; version: number | null; deletedAt: Date | null },
+    data: ReturnType<DatabaseService['sheetRowToPrismaOrderData']>,
+    rowNumber: number,
+    deletedAt: Date,
+    syncMeta: Record<string, unknown>,
+    options?: { newOrderNotice?: NewOrderNoticePolicy }
+  ): Promise<PrismaOrder> {
+    return this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+      await db.order.update({
+        where: { id: existing.id },
+        data: { sheetRowNumber: null, deletedAt },
+      });
+
+      await this.changeLogService.logChange(
+        {
+          orderId: existing.id,
+          sheetRowNumber: rowNumber,
+          changedBy: 'sync',
+          action: 'delete',
+          fieldChanges: {
+            sheetRowNumber: { old: rowNumber, new: null },
+            ...(existing.deletedAt ? {} : { deletedAt: { old: null, new: deletedAt.toISOString() } }),
+            reason: { old: null, new: 'sheet_row_reused' },
+          },
+          previousVersion: existing.version ?? 1,
+        },
+        db
+      );
+
+      return db.order.create({ data: this.buildSyncCreateData(data, syncMeta, options) });
+    }, WRITE_TX_OPTIONS);
   }
 
   /**

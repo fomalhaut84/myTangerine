@@ -129,6 +129,8 @@ export class PollingScheduler {
           failed: result.failed,
           skipped: result.skipped,
           newOrderNotices: result.newOrderNotices,
+          replaced: result.replaced,
+          replacementLimitHit: result.replacementLimitHit,
         },
         'Scheduled sync completed'
       );

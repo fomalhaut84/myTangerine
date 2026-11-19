@@ -169,13 +169,14 @@ describe('DatabaseService 알림 대기 조회 · 결과 기록', () => {
 describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => {
   function engine(existing: Record<string, unknown> | null, options?: { newOrderNotice?: NewOrderNoticePolicy }) {
     const sheetService = {
-      getAllRows: vi.fn().mockResolvedValue([sheetRow()]),
+      getAllRowsSnapshot: vi.fn().mockResolvedValue({ rows: [sheetRow()], physical: [{ _rowNumber: 10, 타임스탬프: RECENT_TS }] }),
       updateCell: vi.fn(),
       updateRowCells: vi.fn().mockResolvedValue(undefined),
       updateSyncStatus: vi.fn().mockResolvedValue(undefined),
     };
     const databaseService = {
       getRawOrderByRowNumber: vi.fn().mockResolvedValue(existing),
+      findOrderAtOtherRow: vi.fn().mockResolvedValue(null),
       upsertOrder: vi.fn().mockResolvedValue({ id: 5, newOrderNotice: existing ? null : 'pending' }),
     };
     const e = new SyncEngine(
@@ -207,7 +208,7 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
   it('DB 에 이미 있는 행 → 정책을 넘기지 않는다', async () => {
     vi.useFakeTimers();
     try {
-      const { e, databaseService } = engine({ id: 5, syncAttemptCount: 1, lastModifiedBy: 'sync' }, { newOrderNotice: POLICY });
+      const { e, databaseService } = engine({ id: 5, syncAttemptCount: 1, lastModifiedBy: 'sync', timestamp: parseKoreanTimestamp(RECENT_TS) }, { newOrderNotice: POLICY });
       const p = e.incrementalSync();
       await vi.runAllTimersAsync();
       const result = await p;
