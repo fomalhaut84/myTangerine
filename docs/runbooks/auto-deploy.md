@@ -33,6 +33,8 @@ ssh-keygen -t ed25519 -N '' -C mytangerine-deploy -f ./mytangerine-deploy
 
 pleiades 배포 키와 **별개**로 만든다. 키 하나가 한 저장소의 forced command 하나만 부를 수 있어야 한다.
 
+> **개인키(`mytangerine-deploy`)는 GitHub 시크릿에만 둔다.** 서버에는 공개키를 `authorized_keys` 에 등록하는 것만 필요하다 — 개인키를 서버 저장소 폴더에 두지 않는다(2026-11-19 서버 저장소에서 발견 · 공개 저장소라 `git add -A` 한 번으로 새어 나간다 · `.gitignore` 로도 막아 두었다). 등록이 끝나면 로컬 사본도 `shred -u` 로 지운다.
+
 ### 2. 서버에 공개키 등록 — forced command 로 묶는다
 
 서버 `~/.ssh/authorized_keys` 에 **한 줄** 추가 (`<계정>` 은 서버 계정):
@@ -203,6 +205,7 @@ sudo -u postgres psql -d mytangerine -c "SELECT has_schema_privilege('mytangerin
 1. sync-service 정지: `pm2 stop myTangerineSync`
 2. 백업: `sudo -u postgres pg_dump -Fc mytangerine > ~/mytangerine-$(date +%Y%m%d-%H%M).dump`
 3. `git fetch --tags && git checkout vX.Y.Z` → `CI=true pnpm install --frozen-lockfile` → `pnpm prisma:generate`(DB 접속 없음 · install 이 건너뛰어도 client 를 만든다) → `pnpm exec prisma migrate status`(저장소 루트) → **up to date 가 아닐 때만** `pnpm prisma:deploy` → 4개 패키지 빌드 → `pm2 restart …`
+   - `prisma:generate` 는 `--no-hints` 로 돈다(v2.6.0 이후). 이전 태그에서 "Prisma agent skills 를 설치할까요?" 질문이 뜨면 **No** — 30초 뒤 기본값 Yes 로 저장소에 `.agents/` · `.claude/skills/prisma-*` 가 생긴다(배포는 막지 않지만 지운다: `rm -rf .agents .claude/skills/prisma-*`)
 4. sync-service 재개: `pm2 start myTangerineSync` — 다음 단계의 헬스 확인은 pm2 앱 3개가 **모두 online** 이어야 통과하므로 먼저 켠다
 5. `deploy/release-inplace.sh vX.Y.Z --yes --confirm-manual` — 헬스 확인 뒤 이 태그를 성공으로 기록한다(`손 배포 확인`). 이걸 하지 않으면 다음 자동 배포 · 재실행이 "성공으로 끝나지 않았다"(rc 4)로 멈춘다
 

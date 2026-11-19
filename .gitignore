@@ -176,3 +176,14 @@ logs/
 # 보안 위험 목록이 든 분석 문서 — 저장소가 공개라 로컬에만 둔다 (#192 · API 보안 조치 뒤 재검토)
 docs/research/project-analysis.md
 .vscode/
+
+# 서버 저장소에 남으면 안 되는 것 (#289 · 2026-11-19 운영 서버에서 발견)
+# 배포 SSH 키 — 개인키는 GitHub 시크릿에만 둔다(런북 auto-deploy 1회 설정 1번 · S-1)
+mytangerine-deploy
+mytangerine-deploy.pub
+# 도구가 만드는 파일 — 이 저장소는 pnpm · Prisma agent skills 설치물
+package-lock.json
+skills-lock.json
+.agents/
+.windsurf/
+.claude/skills/prisma-*/
