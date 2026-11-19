@@ -896,7 +896,15 @@ export class DatabaseService {
           updateData as Record<string, unknown>,
           current as unknown as Record<string, unknown>
         );
-        const order = await db.order.update({ where: { id: existing.id }, data: updateData });
+        // 확인한 version 을 조건으로 건다 — 확인과 쓰기 사이에 커밋된 웹 수정도 덮지 않는다
+        const { count } = await db.order.updateMany({
+          where: { id: existing.id, version: expectedVersion },
+          data: updateData,
+        });
+        if (count === 0) {
+          throw new Error(`order #${existing.id} changed concurrently while overwriting — not overwritten`);
+        }
+        const order = await db.order.findUniqueOrThrow({ where: { id: existing.id } });
 
         if (Object.keys(fieldChanges).length > 0) {
           await this.changeLogService.logChange(

@@ -10,6 +10,7 @@ import type { FieldChange } from './change-log-service.js';
 /** 시트 우선 가져오기가 덮어쓰고 이력에 남기는 필드 (`sheetRowToPrismaOrderData` 결과 기준) */
 export const SHEET_FIRST_COMPARED_FIELDS = [
   'timestampRaw',
+  'timestamp',
   'status',
   'trackingNumber',
   'deletedAt',

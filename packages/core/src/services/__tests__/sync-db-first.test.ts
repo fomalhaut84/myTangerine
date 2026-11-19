@@ -203,7 +203,8 @@ describe('DatabaseService — 새 주문에 최초 입력값 저장 (#281)', () 
     const tx = {
       order: {
         findUnique: vi.fn().mockResolvedValue(current),
-        update: vi.fn().mockResolvedValue({ id: 5 }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 5 }),
       },
       orderChangeLog: { create: vi.fn().mockResolvedValue({}) },
     };
@@ -218,8 +219,9 @@ describe('DatabaseService — 새 주문에 최초 입력값 저장 (#281)', () 
     const { tx, service, logChange } = txDb(current);
     const { fieldChanges } = await service.overwriteOrderFromSheet({ id: 5, version: 3 }, sheetRow(), { syncStatus: 'success', syncAttemptCount: 2 });
 
-    expect(tx.order.update).toHaveBeenCalledTimes(1);
-    expect(tx.order.update.mock.calls[0][0].data).not.toHaveProperty('originalInput');
+    expect(tx.order.updateMany).toHaveBeenCalledTimes(1);
+    expect(tx.order.updateMany.mock.calls[0][0].where).toEqual({ id: 5, version: 3 });
+    expect(tx.order.updateMany.mock.calls[0][0].data).not.toHaveProperty('originalInput');
     expect(fieldChanges).toMatchObject({
       status: { old: '배송완료', new: '신규주문' },
       trackingNumber: { old: '777', new: null },
@@ -236,7 +238,17 @@ describe('DatabaseService — 새 주문에 최초 입력값 저장 (#281)', () 
     await expect(
       service.overwriteOrderFromSheet({ id: 5, version: 3 }, sheetRow(), { syncStatus: 'success' })
     ).rejects.toThrow('changed concurrently');
-    expect(tx.order.update).not.toHaveBeenCalled();
+    expect(tx.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('overwriteOrderFromSheet: 확인 뒤 쓰기 직전에 커밋된 웹 수정이 있으면(조건 갱신 0건) 이력 없이 던진다', async () => {
+    const current = { ...EXISTING };
+    const { tx, service, logChange } = txDb(current);
+    tx.order.updateMany.mockResolvedValue({ count: 0 });
+    await expect(
+      service.overwriteOrderFromSheet({ id: 5, version: 3 }, sheetRow(), { syncStatus: 'success' })
+    ).rejects.toThrow('changed concurrently while overwriting');
+    expect(logChange).not.toHaveBeenCalled();
   });
 
   it('overwriteOrderFromSheet: 주문이 사라졌으면 쓰지 않고 던진다', async () => {

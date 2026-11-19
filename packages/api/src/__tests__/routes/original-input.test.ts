@@ -54,6 +54,9 @@ describe('#281 최초 입력값 · 시트 우선 가져오기', () => {
     ]);
     const res = await server.inject({ method: 'GET', url: '/api/labels/grouped?status=all', headers: AUTH_HEADERS });
     expect(res.statusCode).toBe(200);
+    // 행이 실제로 응답에 실렸는지 먼저 본다(빈 응답이면 아래 단정이 의미 없다)
+    const rows = res.json().data.flatMap((g: { orders: unknown[] }) => g.orders);
+    expect(rows.length).toBeGreaterThan(0);
     expect(res.payload).not.toContain('originalInput');
     expect(res.payload).not.toContain('처음 받는이');
   });
