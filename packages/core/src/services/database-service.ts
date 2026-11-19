@@ -14,6 +14,13 @@ import type { SheetRow, OrderStatus } from '../types/order.js';
 import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normalizeOrderStatus, parseOrderType } from '../types/order.js';
 import type { Config } from '../config/config.js';
 import { ChangeLogService, type FieldChange } from './change-log-service.js';
+import { normalizeTimestampRaw } from './sheet-row-identity.js';
+
+/**
+ * #266: findOrderAtOtherRow 후보 창 — 해석한 시각 기준 ±27시간.
+ * 옛 주문이 다른 프로세스 시간대로 해석됐을 수 있다(UTC-12 ~ UTC+14 → 최대 26시간 차이)
+ */
+const FIND_OTHER_ROW_WINDOW_MS = 27 * 60 * 60 * 1000;
 
 /**
  * 쓰기 트랜잭션 옵션 (#197) — 변경 전 조회 · 업데이트 · 변경 이력을 한 트랜잭션으로.
@@ -879,8 +886,10 @@ export class DatabaseService {
   }
 
   /**
-   * #257: 이 시트 행의 주문(원문 타임스탬프 또는 해석한 시각이 같은 주문)이 DB 의 **다른** 행 번호에 있는지.
-   * 시트 행이 밀린 경우를 가린다. 원문 비교가 시간대와 무관하고, 시각 비교는 원문 형식이 다른 옛 행을 덮는다.
+   * #257: 이 시트 행의 주문(원문 · 정규화 원문 · 해석한 시각 중 하나가 같은 주문)이 DB 의 **다른** 행 번호에 있는지.
+   * 시트 행이 밀린 경우를 가린다. 원문 비교가 시간대와 무관하고, 정규화 원문은 표시 형식 차이를(#266),
+   * 시각 비교는 원문 형식이 달라 정규화로도 맞지 않는 옛 행을 덮는다. 여럿이면 id 가 가장 작은 주문.
+   * 시트 원문을 시각으로 해석하지 못하면 후보 창을 만들 수 없어 원문 정확 일치만 본다.
    */
   async findOrderAtOtherRow(
     timestampRaw: string,
@@ -888,14 +897,35 @@ export class DatabaseService {
     excludeRowNumber: number
   ): Promise<number | null> {
     // `not: N` 은 SQL `<> N` 이라 시트 행이 없는(NULL) 주문 — DB 전용 배송사고 — 도 함께 빠진다.
-    // 원문은 그대로(=) 비교한다 — 표시 형식이 다른 옛 행은 시각 조건이 받는다(isSameOrder 의 정규화 비교와 다름)
-    const found = await this._prisma.order.findFirst({
+    // #266: isSameOrder · 시트 색인과 같은 기준(정규화 원문)으로 본다. 다른 시간대로 해석돼 시각이 어긋나고
+    // 표시 형식만 다른 옛 주문은 원문 = 도 시각 = 도 실패하므로, 해석한 시각 ±FIND_OTHER_ROW_WINDOW_MS 의 후보를 읽어 앱에서 비교한다
+    const key = normalizeTimestampRaw(timestampRaw);
+    const candidates = await this._prisma.order.findMany({
       where: {
         sheetRowNumber: { not: excludeRowNumber },
-        OR: [{ timestampRaw }, ...(timestamp ? [{ timestamp }] : [])],
+        OR: [
+          { timestampRaw },
+          ...(timestamp
+            ? [
+                {
+                  timestamp: {
+                    gte: new Date(timestamp.getTime() - FIND_OTHER_ROW_WINDOW_MS),
+                    lte: new Date(timestamp.getTime() + FIND_OTHER_ROW_WINDOW_MS),
+                  },
+                },
+              ]
+            : []),
+        ],
       },
-      select: { id: true },
+      select: { id: true, timestampRaw: true, timestamp: true },
+      orderBy: { id: 'asc' },
     });
+    const found = candidates.find(
+      (c) =>
+        c.timestampRaw === timestampRaw ||
+        (key !== '' && normalizeTimestampRaw(c.timestampRaw) === key) ||
+        (timestamp !== null && c.timestamp.getTime() === timestamp.getTime())
+    );
     return found?.id ?? null;
   }
 

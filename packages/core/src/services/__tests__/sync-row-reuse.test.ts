@@ -66,7 +66,22 @@ function engine(opts: {
   const rows = opts.rows ?? [sheetRow()];
   const physical =
     opts.physicalRows ?? rows.map((r) => ({ _rowNumber: r._rowNumber as number, 타임스탬프: r['타임스탬프'] as string }));
-  const sheetService = { getAllRowsSnapshot: vi.fn().mockResolvedValue({ rows, physical }) };
+  // #261: 상태 칸은 확인 읽기(스냅샷과 같은 값) 뒤 묶어 쓴다 — 쓴 내용을 (행, 상태, id) 로 sheetStatus 에 남긴다
+  const sheetStatus = vi.fn();
+  const sheetService = {
+    getAllRowsSnapshot: vi.fn().mockResolvedValue({ rows, physical }),
+    getTimestampsByRows: vi.fn().mockImplementation(async (nums: number[]) => {
+      const { physical: current } = await sheetService.getAllRowsSnapshot();
+      const byRow = new Map(current.map((p: { _rowNumber: number; 타임스탬프: string }) => [p._rowNumber, p.타임스탬프]));
+      return new Map(nums.map((n) => [n, byRow.get(n) ?? '']));
+    }),
+    updateRowsCells: vi.fn().mockImplementation(async (batch: Array<{ row: number; updates: Record<string, string> }>) => {
+      for (const { row, updates } of batch) {
+        if (updates.DB_SYNC_STATUS === 'success') sheetStatus(row, 'success', Number(updates.DB_SYNC_ID));
+        else sheetStatus(row, updates.DB_SYNC_STATUS);
+      }
+    }),
+  };
   const databaseService = {
     getRawOrderByRowNumber: vi.fn().mockImplementation(async (n: number) =>
       opts.existing ? { ...opts.existing, sheetRowNumber: n } : null
@@ -83,9 +98,6 @@ function engine(opts: {
     undefined,
     opts.notice ? { newOrderNotice: opts.notice } : {}
   );
-  const sheetStatus = vi
-    .spyOn(e as unknown as { updateSheetSyncStatus: (...a: unknown[]) => Promise<void> }, 'updateSheetSyncStatus')
-    .mockResolvedValue();
   return { e, databaseService, sheetStatus };
 }
 
@@ -245,6 +257,7 @@ function dbSetup() {
   const root = {
     order: {
       findFirst: vi.fn().mockResolvedValue(null),
+      findMany: vi.fn().mockResolvedValue([]),
       update: vi.fn(),
       create: vi.fn(),
     },
@@ -317,21 +330,72 @@ describe('DatabaseService.replaceOrderAtRow — 한 트랜잭션', () => {
 });
 
 describe('DatabaseService.findOrderAtOtherRow', () => {
-  it('원문 또는 시각이 같고 · 이 행 번호가 아닌(시트 행 있는) 주문', async () => {
+  const H = 60 * 60 * 1000;
+
+  it('원문이 같거나 해석한 시각 ±27시간 안의 후보를 읽고 · 이 행 번호가 아닌(시트 행 있는) 주문', async () => {
     const { root, service } = dbSetup();
-    root.order.findFirst.mockResolvedValue({ id: 1490 });
+    root.order.findMany.mockResolvedValue([{ id: 1490, timestampRaw: NEW_TS, timestamp: parseKoreanTimestamp(NEW_TS) }]);
     const ts = parseKoreanTimestamp(NEW_TS);
     expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBe(1490);
-    expect(root.order.findFirst).toHaveBeenCalledWith({
-      where: { sheetRowNumber: { not: 391 }, OR: [{ timestampRaw: NEW_TS }, { timestamp: ts }] },
-      select: { id: true },
+    expect(root.order.findMany).toHaveBeenCalledWith({
+      where: {
+        sheetRowNumber: { not: 391 },
+        OR: [
+          { timestampRaw: NEW_TS },
+          { timestamp: { gte: new Date(ts.getTime() - 27 * H), lte: new Date(ts.getTime() + 27 * H) } },
+        ],
+      },
+      select: { id: true, timestampRaw: true, timestamp: true },
+      orderBy: { id: 'asc' },
     });
+  });
+
+  it('#266: 다른 시간대로 해석돼 시각이 다르고 표시 형식만 다른 옛 주문도 정규화 원문으로 찾는다', async () => {
+    const { root, service } = dbSetup();
+    const ts = parseKoreanTimestamp(NEW_TS);
+    root.order.findMany.mockResolvedValue([
+      // 근처 다른 주문(무관)
+      { id: 1400, timestampRaw: '2026. 11. 19. 오전 9:00:00', timestamp: new Date(ts.getTime() - 2 * H) },
+      // 같은 주문 — 원문은 점 하나 빠짐 · 9시간 어긋나게 해석됨
+      { id: 1487, timestampRaw: '2026. 11. 19 오전 10:26:32', timestamp: new Date(ts.getTime() + 9 * H) },
+    ]);
+    expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBe(1487);
+  });
+
+  it('후보가 있어도 원문 · 정규화 원문 · 시각이 모두 다르면 null', async () => {
+    const { root, service } = dbSetup();
+    const ts = parseKoreanTimestamp(NEW_TS);
+    root.order.findMany.mockResolvedValue([
+      { id: 1400, timestampRaw: '2026. 11. 19. 오전 9:00:00', timestamp: new Date(ts.getTime() - 2 * H) },
+    ]);
+    expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBeNull();
+  });
+
+  it('원문 형식이 달라 정규화로도 맞지 않는 옛 주문은 해석한 시각이 같을 때만', async () => {
+    const { root, service } = dbSetup();
+    const ts = parseKoreanTimestamp(NEW_TS);
+    root.order.findMany.mockResolvedValue([
+      { id: 1401, timestampRaw: '2026-11-19 10:26:32', timestamp: new Date(ts.getTime() + H) },
+      { id: 1402, timestampRaw: '2026-11-19 10:26:32', timestamp: ts },
+    ]);
+    expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBe(1402);
+  });
+
+  it('정규화 원문이 맞는 후보와 시각만 맞는 후보가 함께 있으면 id 가 작은 쪽(조회 순서)', async () => {
+    const { root, service } = dbSetup();
+    const ts = parseKoreanTimestamp(NEW_TS);
+    root.order.findMany.mockResolvedValue([
+      { id: 1403, timestampRaw: '2026-11-19 10:26:32', timestamp: ts },
+      { id: 1404, timestampRaw: '2026. 11. 19 오전 10:26:32', timestamp: new Date(ts.getTime() + 9 * H) },
+    ]);
+    expect(await service.findOrderAtOtherRow(NEW_TS, ts, 391)).toBe(1403);
   });
 
   it('시각을 못 읽었으면 원문으로만 · 없으면 null', async () => {
     const { root, service } = dbSetup();
+    root.order.findMany.mockResolvedValue([]);
     expect(await service.findOrderAtOtherRow(NEW_TS, null, 391)).toBeNull();
-    expect(root.order.findFirst.mock.calls[0][0].where.OR).toEqual([{ timestampRaw: NEW_TS }]);
+    expect(root.order.findMany.mock.calls[0][0].where.OR).toEqual([{ timestampRaw: NEW_TS }]);
   });
 });
 

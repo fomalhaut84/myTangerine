@@ -170,9 +170,9 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
   function engine(existing: Record<string, unknown> | null, options?: { newOrderNotice?: NewOrderNoticePolicy }) {
     const sheetService = {
       getAllRowsSnapshot: vi.fn().mockResolvedValue({ rows: [sheetRow()], physical: [{ _rowNumber: 10, 타임스탬프: RECENT_TS }] }),
-      updateCell: vi.fn(),
-      updateRowCells: vi.fn().mockResolvedValue(undefined),
-      updateSyncStatus: vi.fn().mockResolvedValue(undefined),
+      // #261: 상태 칸 쓰기 전 확인 — 스냅샷과 같은 값
+      getTimestampsByRows: vi.fn().mockResolvedValue(new Map([[10, RECENT_TS]])),
+      updateRowsCells: vi.fn().mockResolvedValue(undefined),
     };
     const databaseService = {
       getRawOrderByRowNumber: vi.fn().mockResolvedValue(existing),
@@ -186,8 +186,6 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
       undefined,
       options
     );
-    // 행 사이 1초 대기와 시트 상태 쓰기는 이 테스트의 관심 밖
-    vi.spyOn(e as unknown as { updateSheetSyncStatus: () => Promise<void> }, 'updateSheetSyncStatus').mockResolvedValue();
     return { e, databaseService };
   }
 

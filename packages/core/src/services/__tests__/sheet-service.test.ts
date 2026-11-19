@@ -14,6 +14,7 @@ vi.mock('googleapis', () => {
       values: {
         get: vi.fn(),
         update: vi.fn(),
+        batchUpdate: vi.fn(),
       },
     },
   };
@@ -799,6 +800,54 @@ describe('SheetService', () => {
       get.mockReset();
       get.mockResolvedValueOnce({ data: { values: [headers] } }).mockRejectedValueOnce(new Error('quota'));
       await expect(service.getTimestampsByRows([391])).rejects.toThrow('Failed to read timestamps for rows 391: quota');
+    });
+  });
+
+  // #261: 동기화 상태 칸을 여러 행 한 번에 쓴다
+  describe('updateRowsCells', () => {
+    const headers = ['비고', '타임스탬프', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
+      '받으실분 성함', '받으실분 주소 (도로명 주소로 부탁드려요)', '받으실분 연락처 (핸드폰번호)', '상품 선택', '5kg 수량', '10kg 수량',
+      'DB_SYNC_STATUS', 'DB_SYNC_AT', 'DB_SYNC_ID'];
+
+    it('여러 행의 칸을 batchUpdate 1회로 쓴다 · 헤더에서 열을 찾는다', async () => {
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      const batchUpdate = mockGoogleAPI.sheets.spreadsheets.values.batchUpdate;
+      get.mockReset();
+      batchUpdate.mockReset();
+      get.mockResolvedValueOnce({ data: { values: [headers] } });
+      batchUpdate.mockResolvedValue({});
+
+      await service.updateRowsCells([
+        { row: 10, updates: { DB_SYNC_STATUS: 'success', DB_SYNC_ID: '5' } },
+        { row: 12, updates: { DB_SYNC_STATUS: 'fail' } },
+      ]);
+
+      expect(batchUpdate).toHaveBeenCalledTimes(1);
+      expect(batchUpdate.mock.calls[0][0].requestBody).toEqual({
+        valueInputOption: 'RAW',
+        data: [
+          { range: "'감귤 주문서(응답)'!L10", values: [['success']] },
+          { range: "'감귤 주문서(응답)'!N10", values: [['5']] },
+          { range: "'감귤 주문서(응답)'!L12", values: [['fail']] },
+        ],
+      });
+    });
+
+    it('빈 목록이면 쓰지 않는다', async () => {
+      const batchUpdate = mockGoogleAPI.sheets.spreadsheets.values.batchUpdate;
+      batchUpdate.mockReset();
+      await service.updateRowsCells([]);
+      expect(batchUpdate).not.toHaveBeenCalled();
+    });
+
+    it('없는 열이면 아무것도 쓰지 않고 던진다', async () => {
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      const batchUpdate = mockGoogleAPI.sheets.spreadsheets.values.batchUpdate;
+      get.mockReset();
+      batchUpdate.mockReset();
+      get.mockResolvedValueOnce({ data: { values: [headers] } });
+      await expect(service.updateRowsCells([{ row: 10, updates: { 없는열: 'x' } }])).rejects.toThrow("Column '없는열' not found");
+      expect(batchUpdate).not.toHaveBeenCalled();
     });
   });
 });
