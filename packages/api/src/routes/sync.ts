@@ -301,8 +301,16 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
       preHandler: [requireApiKey, requireAppClient(['web', 'sync-service'])],
       schema: {
         tags: ['sync'],
-        summary: '전체 재동기화',
-        description: '모든 Google Sheets 데이터를 강제로 PostgreSQL에 재동기화합니다. 초기 데이터 적재 또는 불일치 복구용으로 사용합니다.',
+        summary: '시트 우선 전체 가져오기 (운영자 복구)',
+        description:
+          '#281 hybrid 정본은 DB 다. 이 동작은 DB 장애 · sheets 모드 운영 뒤 DB 를 시트에 맞추는 복구용으로, ' +
+          '기존 주문도 시트 값으로 덮어쓴다(변경 이력 기록 · 시트 반영 실패 주문과 웹 수정 충돌은 제외 · 최초 입력값은 유지). ' +
+          '실수 실행을 막기 위해 본문에 {"confirm":"sheet-first"} 가 있어야 한다.',
+        body: {
+          type: 'object',
+          required: ['confirm'],
+          properties: { confirm: { type: 'string', enum: ['sheet-first'] } },
+        },
         response: {
           200: syncResponseSchema(true),
           409: {

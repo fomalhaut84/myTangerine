@@ -314,6 +314,12 @@ export async function createServer(env: Env): Promise<FastifyInstance> {
         description: '주문자 이메일',
         example: 'hong@example.com',
       },
+      // #281: 최초 입력값 — 주문이 처음 들어올 때의 폼 입력(시트 헤더 → 값). 주문 상세에서만 채운다
+      originalInput: {
+        type: 'object',
+        additionalProperties: { type: 'string' },
+        description: '최초 입력값 (주문 상세 전용 · 이 기능 이전 주문은 없음)',
+      },
       // Issue #165: claim 주문 식별용 필드
       dbId: {
         type: 'integer',

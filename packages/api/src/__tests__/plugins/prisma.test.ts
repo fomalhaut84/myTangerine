@@ -126,15 +126,17 @@ describe('prisma plugin', () => {
       });
 
       it.each([
-        ['GET', '/api/sync/status'],
-        ['POST', '/api/sync'],
-        ['POST', '/api/sync/full'],
-      ] as const)('%s %s → 503', async (method, url) => {
+        ['GET', '/api/sync/status', undefined],
+        ['POST', '/api/sync', undefined],
+        // #281: 시트 우선 가져오기는 확인값이 있어야 핸들러까지 간다
+        ['POST', '/api/sync/full', { confirm: 'sheet-first' }],
+      ] as const)('%s %s → 503', async (method, url, payload) => {
         server = await buildWithSync();
         const res = await server.inject({
           method,
           url,
           headers: { 'x-api-key': SYNC_KEY, 'x-app-client': 'web' },
+          ...(payload ? { payload } : {}),
         });
         expect(res.statusCode).toBe(503);
         expect(JSON.parse(res.payload).error).toContain('데이터베이스가 설정되지 않았습니다');

@@ -44,6 +44,8 @@ export interface Order {
   dbId?: number;
   /** Issue #165 · #199: 주문 식별자 타입 (시트 행이 없는 DB 전용 claim 만 'dbId', 그 외는 'rowNumber') */
   idType?: 'rowNumber' | 'dbId';
+  /** #281: 최초 입력값 (주문 상세 응답에만 · 이 기능 이전 주문은 없음) */
+  originalInput?: Record<string, string>;
 }
 
 export interface ProductSummary {

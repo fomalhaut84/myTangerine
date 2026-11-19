@@ -1176,6 +1176,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           dbId: order.dbId,
           // Issue #168: 프론트엔드에서 어떤 ID를 사용해야 하는지 명시
           idType: responseIdType,
+          // #281: 최초 입력값 — 상세에서만 돌려준다(목록 · 보고서에는 싣지 않는다)
+          originalInput: order.originalInput,
         },
       };
     }

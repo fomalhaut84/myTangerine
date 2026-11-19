@@ -15,6 +15,7 @@ import { parseKoreanTimestamp, validateProductSelection, extractQuantity, normal
 import type { Config } from '../config/config.js';
 import { ChangeLogService, type FieldChange } from './change-log-service.js';
 import { normalizeTimestampRaw } from './sheet-row-identity.js';
+import { buildOriginalInput, type OriginalInput } from './original-input.js';
 
 /**
  * #266: findOrderAtOtherRow 후보 창 — 해석한 시각 기준 ±27시간.
@@ -117,6 +118,8 @@ export class DatabaseService {
       _orderType: (order.orderType as 'customer' | 'gift' | 'claim') || 'customer',
       // Issue #165: DB ID (claim 주문 식별용)
       _dbId: order.id,
+      // #281: 최초 입력값 (이 기능 이전 주문은 null → 없음)
+      _originalInput: (order.originalInput as Record<string, string> | null) ?? undefined,
     };
   }
 
@@ -841,7 +844,8 @@ export class DatabaseService {
 
       const result = await this._prisma.order.upsert({
         where: { sheetRowNumber: data.sheetRowNumber },
-        create: this.buildSyncCreateData(data, syncData, options),
+        // #281: 최초 입력값은 만들 때만 — update(시트 우선 가져오기)는 바꾸지 않는다
+        create: this.buildSyncCreateData(data, syncData, options, buildOriginalInput(row)),
         update: updateData,
       });
 
@@ -860,12 +864,15 @@ export class DatabaseService {
   private buildSyncCreateData(
     data: ReturnType<DatabaseService['sheetRowToPrismaOrderData']>,
     syncData: Record<string, unknown>,
-    options?: { newOrderNotice?: NewOrderNoticePolicy }
+    options: { newOrderNotice?: NewOrderNoticePolicy } | undefined,
+    originalInput: OriginalInput
   ) {
     return {
       ...data,
       ...syncData,
       syncedAt: new Date(),
+      // #281: 주문자가 처음 입력한 값 — 이후 바꾸지 않는다
+      originalInput,
       ...(shouldFlagNewOrderNotice(data, options?.newOrderNotice) ? { newOrderNotice: 'pending' } : {}),
     };
   }
@@ -961,7 +968,7 @@ export class DatabaseService {
     const deletedAt = existing.deletedAt ?? new Date();
 
     try {
-      return await this.replaceOrderAtRowTx(existing, data, rowNumber, deletedAt, syncMeta, options);
+      return await this.replaceOrderAtRowTx(existing, data, rowNumber, deletedAt, syncMeta, options, buildOriginalInput(row));
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to replace order at reused row (row: ${rowNumber}, old #${existing.id}): ${message}`);
@@ -974,7 +981,8 @@ export class DatabaseService {
     rowNumber: number,
     deletedAt: Date,
     syncMeta: Record<string, unknown>,
-    options?: { newOrderNotice?: NewOrderNoticePolicy }
+    options: { newOrderNotice?: NewOrderNoticePolicy } | undefined,
+    originalInput: OriginalInput
   ): Promise<PrismaOrder> {
     return this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
       await db.order.update({
@@ -998,7 +1006,7 @@ export class DatabaseService {
         db
       );
 
-      return db.order.create({ data: this.buildSyncCreateData(data, syncMeta, options) });
+      return db.order.create({ data: this.buildSyncCreateData(data, syncMeta, options, originalInput) });
     }, WRITE_TX_OPTIONS);
   }
 

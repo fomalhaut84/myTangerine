@@ -89,6 +89,11 @@ interface PendingRow {
 
 /** #257: 한 번의 동기화 실행 동안 공유하는 상태 */
 interface SyncRunContext {
+  /**
+   * #281: incremental = 새 주문만 만든다(기존 주문의 DB 값은 바꾸지 않는다 · hybrid 정본 = DB)
+   * full = 시트 우선 가져오기(운영자 복구) — 기존 주문도 시트 값으로 덮어쓰고 변경 이력을 남긴다
+   */
+  mode: 'incremental' | 'full';
   /** 이번 시트 스냅샷의 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함) 정체성 색인 (#264) */
   sheetIndex: SheetIdentityIndex;
   /** 이번 실행의 교체 수 */
@@ -236,6 +241,23 @@ export class SyncEngine {
         await this.assertNotDuplicate(row, rowNumber);
       }
 
+      // #281: 증분 동기화는 DB 에 있는 같은 주문을 바꾸지 않는다 — 시트 상태 칸만 쓴다
+      if (existingOrder && ctx.mode === 'incremental') {
+        return {
+          success: true,
+          orderId: existingOrder.id,
+          statusWrite: { status: 'success', orderId: existingOrder.id, syncedAt: new Date() },
+        };
+      }
+
+      // #281: 시트 우선 가져오기도 DB 에만 있는 변경(시트 반영 실패)은 덮어쓰지 않는다 — 재조정(#231) 대상
+      if (existingOrder?.syncStatus === 'failed') {
+        const conflictReason =
+          'DB has changes not yet written to the sheet (syncStatus=failed) — not overwritten by sheet-first import (#281)';
+        this.logger?.warn({ rowNumber, orderId: existingOrder.id }, conflictReason);
+        return { success: true, orderId: existingOrder.id, conflict: true, conflictReason };
+      }
+
       const attemptCount = existingOrder ? (existingOrder.syncAttemptCount || 0) + 1 : 1;
 
       // 충돌 감지: DB가 'web'에서 수정되었고, 시트보다 최신인 경우
@@ -300,6 +322,11 @@ export class SyncEngine {
 
       this.logger?.debug({ rowNumber, orderId: order.id, attemptCount }, 'DB upsert successful');
 
+      // #281: 시트 우선 가져오기가 기존 주문을 덮어썼으면 바뀐 필드를 변경 이력에 남긴다
+      if (existingOrder) {
+        await this.logSheetFirstOverwrite(existingOrder, row, rowNumber);
+      }
+
       // #261: 시트 상태 칸은 performSync 가 묶어 행 확인 뒤 쓴다(쓰기 실패는 그때 이 행의 실패로 바뀐다)
       return { success: true, orderId: order.id, newOrderNotice, statusWrite: { status: 'success', orderId: order.id, syncedAt: new Date() } };
     } catch (dbError) {
@@ -363,6 +390,35 @@ export class SyncEngine {
       replaced: true,
       statusWrite: { status: 'success', orderId: order.id, syncedAt: new Date() },
     };
+  }
+
+  /**
+   * #281: 시트 우선 가져오기가 기존 주문을 시트 값으로 덮어쓴 필드를 변경 이력(sync · update)에 남긴다.
+   * 덮어쓰기는 이미 끝났으므로 이력 기록 실패는 행을 실패로 만들지 않고 로그만 남긴다.
+   */
+  private async logSheetFirstOverwrite(
+    existing: { id: number; version: number | null } & Record<string, unknown>,
+    row: SheetRow,
+    rowNumber: number
+  ): Promise<void> {
+    if (!this.changeLogService) return;
+    const fieldChanges = this.calculateSheetDbDifferences(row, existing);
+    if (Object.keys(fieldChanges).length === 0) return;
+    try {
+      await this.changeLogService.logChange({
+        orderId: existing.id,
+        sheetRowNumber: rowNumber,
+        changedBy: 'sync',
+        action: 'update',
+        fieldChanges,
+        previousVersion: existing.version ?? 1,
+      });
+    } catch (error) {
+      this.logger?.error(
+        { rowNumber, orderId: existing.id, error: error instanceof Error ? error.message : String(error) },
+        'Sheet-first import overwrote the order but failed to record change history (#281)'
+      );
+    }
   }
 
   /** #257: 이 시트 행의 주문이 DB 다른 행에 이미 있으면 그 id */
@@ -534,6 +590,7 @@ export class SyncEngine {
       const { rows: allRows, physical } = await this.sheetService.getAllRowsSnapshot();
       // #257: 이번 시트 스냅샷의 정체성 색인 · 교체 건수(차단기)
       const ctx: SyncRunContext = {
+        mode: skipSynced ? 'incremental' : 'full',
         sheetIndex: buildSheetIdentityIndex(physical),
         replacements: 0,
         recentReplacements: null,
@@ -641,16 +698,18 @@ export class SyncEngine {
   }
 
   /**
-   * 증분 동기화 (기본 모드)
-   * DB_SYNC_STATUS가 'success'인 행은 스킵
+   * 증분 동기화 (기본 모드 · cron)
+   * DB_SYNC_STATUS가 'success'인 행은 스킵. #281: 새 주문만 만들고 기존 주문의 DB 값은 바꾸지 않는다(hybrid 정본 = DB)
    */
   async incrementalSync(): Promise<SyncResult> {
     return this.performSync(true, 'incremental');
   }
 
   /**
-   * 전체 재동기화 (복구용)
-   * 모든 행을 강제로 다시 동기화
+   * 시트 우선 전체 가져오기 (운영자 복구 · #281)
+   * 모든 행을 다시 읽어 기존 주문도 시트 값으로 덮어쓴다 — 바뀐 필드는 변경 이력에 남고,
+   * 시트 반영 실패(syncStatus=failed) · 웹 수정 충돌 주문은 덮어쓰지 않는다. 최초 입력값은 바꾸지 않는다.
+   * DB 장애 · sheets 모드 운영 뒤 DB 를 시트에 맞출 때만 쓴다.
    */
   async fullResync(): Promise<SyncResult> {
     return this.performSync(false, 'full');

@@ -90,6 +90,10 @@ model Order {
   newOrderNotice   String?   @map("new_order_notice")
   newOrderNoticeAt DateTime? @map("new_order_notice_at")              // pending 에서 다른 상태로 바뀐 시각
 
+  // #281: 최초 입력값 — 주문이 처음 들어올 때의 폼 입력(시트 헤더 → 값, 앱 칸 제외). 만든 뒤 바꾸지 않는다
+  // 이 기능 이전 주문은 NULL 로 둔다(원본을 확실히 알 수 없어 채우지 않는다 · 사용자 2026-11-19)
+  originalInput    Json?     @map("original_input")
+
   // 관계
   syncLogs         SyncLog[]
   changeLogs       OrderChangeLog[]
