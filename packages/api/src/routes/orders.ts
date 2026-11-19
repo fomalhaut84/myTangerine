@@ -21,6 +21,7 @@ import { WARNINGS_SCHEMA, warningsField } from '../utils/write-outcome.js';
 import { resolveOrderIdType } from '../utils/order-id-type.js';
 import { generatePdfBuffer } from '../utils/pdf-generator.js';
 import { generateExcelBuffer } from '../utils/excel-generator.js';
+import { DatabaseNotConfiguredError } from '../plugins/prisma.js';
 
 /**
  * 통계 데이터를 CSV 형식으로 변환
@@ -2734,6 +2735,8 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
           },
         };
       } catch (error) {
+        // #245 sheets 모드 + DB 미설정 → 전역 에러 핸들러가 503 으로 답한다
+        if (error instanceof DatabaseNotConfiguredError) throw error;
         const errorMessage = error instanceof Error ? error.message : String(error);
 
         // 9차 리뷰: 커스텀 에러 매핑 추가
