@@ -39,7 +39,7 @@ describe('메시지', () => {
     const msg = buildSyncStallMessage([391, 392, 393, 394, 395, 396, 397], 'https://admin.example.com');
     expect(msg).toEqual({
       title: '동기화 정지',
-      text: '시트 행 순서 불일치로 동기화하지 못한 행 7건 (행 391, 392, 393, 394, 395 외 2건) — 시트 행 순서를 확인해 주세요.',
+      text: '시트 행 확인(행 순서 불일치 · 교체 상한)으로 동기화하지 못한 행 7건 (행 391, 392, 393, 394, 395 외 2건) — 시트 행 순서를 확인해 주세요.',
       link: { label: '주문 목록', url: 'https://admin.example.com/orders' },
       level: 'warn',
     });

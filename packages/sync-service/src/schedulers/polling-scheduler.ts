@@ -149,7 +149,8 @@ export class PollingScheduler {
       }
 
       // #260: 행 안전 정지가 있으면 경고(하루 1회) · 연속 실패 수 초기화
-      await this.alerter?.onSyncResult(result);
+      // core dist 가 낡아 필드가 없어도 실패로 세지 않게 (core 는 타입 선언이 없어 any 로 들어온다)
+      await this.alerter?.onSyncResult({ identityConflictRows: result.identityConflictRows ?? [] });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
 

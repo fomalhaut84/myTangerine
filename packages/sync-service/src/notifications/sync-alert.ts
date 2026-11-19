@@ -30,7 +30,7 @@ export function buildSyncStallMessage(rows: readonly number[], adminWebUrl: stri
   const more = rows.length > MAX_LISTED_ROWS ? ` 외 ${rows.length - MAX_LISTED_ROWS}건` : '';
   return {
     title: '동기화 정지',
-    text: `시트 행 순서 불일치로 동기화하지 못한 행 ${rows.length}건 (행 ${listed}${more}) — 시트 행 순서를 확인해 주세요.`,
+    text: `시트 행 확인(행 순서 불일치 · 교체 상한)으로 동기화하지 못한 행 ${rows.length}건 (행 ${listed}${more}) — 시트 행 순서를 확인해 주세요.`,
     ...ordersLink(adminWebUrl),
     level: 'warn',
   };
