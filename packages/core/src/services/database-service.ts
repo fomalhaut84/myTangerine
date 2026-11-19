@@ -834,12 +834,7 @@ export class DatabaseService {
 
       const result = await this._prisma.order.upsert({
         where: { sheetRowNumber: data.sheetRowNumber },
-        create: {
-          ...data,
-          ...syncData,
-          syncedAt: new Date(),
-          ...(shouldFlagNewOrderNotice(data, options?.newOrderNotice) ? { newOrderNotice: 'pending' } : {}),
-        },
+        create: this.buildSyncCreateData(data, syncData, options),
         update: updateData,
       });
 
@@ -849,6 +844,78 @@ export class DatabaseService {
       const rowNum = row._rowNumber || 'unknown';
       throw new Error(`Failed to upsert order (row: ${rowNum}): ${message}`);
     }
+  }
+
+  /**
+   * 동기화로 새 주문을 만들 때의 create 데이터 — upsert · 행 재사용 교체가 같이 쓴다
+   * #251: 정책이 있으면(cron) 알림 대기 표시
+   */
+  private buildSyncCreateData(
+    data: ReturnType<DatabaseService['sheetRowToPrismaOrderData']>,
+    syncData: Record<string, unknown>,
+    options?: { newOrderNotice?: NewOrderNoticePolicy }
+  ) {
+    return {
+      ...data,
+      ...syncData,
+      syncedAt: new Date(),
+      ...(shouldFlagNewOrderNotice(data, options?.newOrderNotice) ? { newOrderNotice: 'pending' } : {}),
+    };
+  }
+
+  /**
+   * #257: 같은 주문 시각의 주문이 DB 의 **다른** 행 번호에 있는지 — 시트 행이 밀린 경우를 가린다
+   */
+  async findSyncedOrderIdByTimestamp(timestamp: Date, excludeRowNumber: number): Promise<number | null> {
+    // `not: N` 은 SQL `<> N` 이라 시트 행이 없는(NULL) 주문도 함께 빠진다
+    const found = await this._prisma.order.findFirst({
+      where: { timestamp, sheetRowNumber: { not: excludeRowNumber } },
+      select: { id: true },
+    });
+    return found?.id ?? null;
+  }
+
+  /**
+   * #257: 시트 행 번호가 다른 주문에 재사용됐을 때 — 한 트랜잭션으로
+   * 1) 예전 주문을 시트 행에서 분리(sheetRowNumber=null)하고 삭제 처리(이미 삭제됐으면 그 시각 유지) — 레코드·이력은 보존
+   * 2) 변경 이력(sync · delete · 사유 sheet_row_reused)
+   * 3) 그 행의 새 주문 create (cron 이면 알림 대기 표시)
+   * 어느 단계든 실패하면 전부 롤백된다.
+   */
+  async replaceOrderAtRow(
+    existing: { id: number; version: number | null; deletedAt: Date | null },
+    row: SheetRow,
+    syncMeta: { syncStatus: 'pending' | 'success' | 'failed'; syncAttemptCount?: number },
+    options?: { newOrderNotice?: NewOrderNoticePolicy }
+  ): Promise<PrismaOrder> {
+    const data = this.sheetRowToPrismaOrderData(row);
+    const rowNumber = data.sheetRowNumber;
+    const deletedAt = existing.deletedAt ?? new Date();
+
+    return this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
+      await db.order.update({
+        where: { id: existing.id },
+        data: { sheetRowNumber: null, deletedAt },
+      });
+
+      await this.changeLogService.logChange(
+        {
+          orderId: existing.id,
+          sheetRowNumber: rowNumber,
+          changedBy: 'sync',
+          action: 'delete',
+          fieldChanges: {
+            sheetRowNumber: { old: rowNumber, new: null },
+            ...(existing.deletedAt ? {} : { deletedAt: { old: null, new: deletedAt.toISOString() } }),
+            reason: { old: null, new: 'sheet_row_reused' },
+          },
+          previousVersion: existing.version ?? 1,
+        },
+        db
+      );
+
+      return db.order.create({ data: this.buildSyncCreateData(data, syncMeta, options) });
+    }, WRITE_TX_OPTIONS);
   }
 
   /**

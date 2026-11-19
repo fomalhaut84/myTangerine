@@ -8,7 +8,7 @@
 
 import type { SheetService } from './sheet-service.js';
 import type { DatabaseService } from './database-service.js';
-import type { SheetRow } from '../types/order.js';
+import { parseKoreanTimestamp, type SheetRow } from '../types/order.js';
 import type { ChangeLogService, FieldChange } from './change-log-service.js';
 import type { NewOrderNoticePolicy } from './new-order-notice.js';
 
@@ -40,6 +40,8 @@ export interface SyncResult {
   conflictDetails: Array<{ rowNumber: number; orderId: number; reason: string }>;
   /** #251: 이번 동기화에서 알림 대기로 표시한 새 주문 수 (정책이 없으면 늘 0) */
   newOrderNotices: number;
+  /** #257: 행 번호가 다른 주문에 재사용돼 예전 주문을 분리하고 새로 만든 수 */
+  replaced: number;
 }
 
 /** SyncEngine 옵션 */
@@ -200,6 +202,7 @@ export class SyncEngine {
     conflict?: boolean;
     conflictReason?: string;
     newOrderNotice?: boolean;
+    replaced?: boolean;
   }> {
     const rowNumber = row._rowNumber;
 
@@ -211,6 +214,12 @@ export class SyncEngine {
     try {
       // Phase 2: Raw Prisma Order 조회 (충돌 감지에 필요한 메타 필드 포함)
       const existingOrder = await this.databaseService.getRawOrderByRowNumber(rowNumber);
+
+      // #257: 같은 행 번호의 DB 주문이 다른 주문이면(시트 행 삭제 뒤 번호 재사용) 덮어쓰지 않는다
+      if (existingOrder && this.isDifferentOrder(existingOrder, row)) {
+        return await this.replaceReusedRow(existingOrder, row, rowNumber);
+      }
+
       const attemptCount = existingOrder ? (existingOrder.syncAttemptCount || 0) + 1 : 1;
 
       // 충돌 감지: DB가 'web'에서 수정되었고, 시트보다 최신인 경우
@@ -319,6 +328,73 @@ export class SyncEngine {
   }
 
   /**
+   * #257: 시트 행과 같은 행 번호의 DB 주문이 다른 주문인지 — 주문 시각으로 가린다(웹은 타임스탬프를 바꾸지 않는다).
+   * 시트 시각을 읽을 수 없으면 판정하지 않는다(false — 기존처럼 갱신).
+   */
+  private isDifferentOrder(existing: { timestamp: Date }, row: SheetRow): boolean {
+    const rowTime = this.parseRowTimestamp(row);
+    if (!rowTime) return false;
+    return existing.timestamp.getTime() !== rowTime.getTime();
+  }
+
+  private parseRowTimestamp(row: SheetRow): Date | null {
+    const raw = row['타임스탬프'];
+    if (!raw) return null;
+    try {
+      const parsed = parseKoreanTimestamp(raw);
+      return Number.isNaN(parsed.getTime()) ? null : parsed;
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * #257: 재사용된 행 처리.
+   * - 그 시각의 주문이 DB 다른 행에 이미 있으면(행이 밀림) 쓰지 않고 실패 — 안전 정지(재정렬은 범위 밖)
+   * - 없으면 예전 주문을 분리·삭제 처리하고 새 주문을 만든다(한 트랜잭션) → 시트에 새 id 로 성공 기록
+   * 실패는 syncRow 의 기존 catch(시트 DB_SYNC_STATUS=fail)로 간다.
+   */
+  private async replaceReusedRow(
+    existing: { id: number; timestamp: Date; version: number | null; deletedAt: Date | null },
+    row: SheetRow,
+    rowNumber: number
+  ): Promise<{ success: boolean; orderId?: number; error?: string; newOrderNotice?: boolean; replaced?: boolean }> {
+    const rowTime = this.parseRowTimestamp(row) as Date; // isDifferentOrder 가 확인했다
+    const movedId = await this.databaseService.findSyncedOrderIdByTimestamp(rowTime, rowNumber);
+    if (movedId !== null) {
+      this.logger?.error(
+        { rowNumber, existingOrderId: existing.id, matchingOrderId: movedId },
+        'Row identity conflict: sheet rows look shifted — not writing (#257)'
+      );
+      throw new Error(
+        `Row identity conflict: row ${rowNumber} holds the order of DB #${movedId}, not #${existing.id} (sheet rows shifted?)`
+      );
+    }
+
+    const policy = this.options.newOrderNotice;
+    const order = await this.databaseService.replaceOrderAtRow(
+      { id: existing.id, version: existing.version, deletedAt: existing.deletedAt },
+      row,
+      { syncStatus: 'success', syncAttemptCount: 1 },
+      policy ? { newOrderNotice: policy } : undefined
+    );
+    const newOrderNotice = Boolean(policy) && order.newOrderNotice === 'pending';
+    this.logger?.warn(
+      { rowNumber, detachedOrderId: existing.id, newOrderId: order.id },
+      'Sheet row reused by a different order — detached the old order and created a new one (#257)'
+    );
+
+    try {
+      await this.updateSheetSyncStatus(rowNumber, 'success', order.id);
+      return { success: true, orderId: order.id, newOrderNotice, replaced: true };
+    } catch (sheetError) {
+      const sheetMessage = sheetError instanceof Error ? sheetError.message : String(sheetError);
+      this.logger?.error({ rowNumber, orderId: order.id, error: sheetMessage }, 'DB replace succeeded but Sheets update failed');
+      return { success: false, orderId: order.id, error: `Sheets update failed: ${sheetMessage}`, newOrderNotice, replaced: true };
+    }
+  }
+
+  /**
    * 공통 동기화 로직
    * @param skipSynced - true면 이미 동기화된 행 스킵 (증분), false면 모두 재동기화 (전체)
    * @param mode - 로그용 모드 이름
@@ -335,6 +411,7 @@ export class SyncEngine {
       errors: [],
       conflictDetails: [],
       newOrderNotices: 0,
+      replaced: 0,
     };
 
     try {
@@ -364,8 +441,9 @@ export class SyncEngine {
         }
 
         // 행 동기화
-        const { success, error, conflict, conflictReason, orderId, newOrderNotice } = await this.syncRow(row);
+        const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced } = await this.syncRow(row);
         if (newOrderNotice) result.newOrderNotices++;
+        if (replaced) result.replaced++;
 
         if (conflict && orderId) {
           // 충돌 감지 - 별도 카운트

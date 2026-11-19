@@ -207,7 +207,7 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
   it('DB 에 이미 있는 행 → 정책을 넘기지 않는다', async () => {
     vi.useFakeTimers();
     try {
-      const { e, databaseService } = engine({ id: 5, syncAttemptCount: 1, lastModifiedBy: 'sync' }, { newOrderNotice: POLICY });
+      const { e, databaseService } = engine({ id: 5, syncAttemptCount: 1, lastModifiedBy: 'sync', timestamp: parseKoreanTimestamp(RECENT_TS) }, { newOrderNotice: POLICY });
       const p = e.incrementalSync();
       await vi.runAllTimersAsync();
       const result = await p;
