@@ -143,6 +143,31 @@ export class SheetService {
   }
 
   /**
+   * #264: 거르지 않은 **물리 행 전체**의 `타임스탬프` — 2행부터 끝까지 values.get 1회.
+   * getAllRows 는 '삭제됨' 행과 받는 사람 정보가 빠진 행을 거르므로 행 밀림 판정 색인에 쓰면 그런 행으로 밀린 주문을 놓친다.
+   */
+  async getAllRowTimestamps(): Promise<Array<{ _rowNumber: number; 타임스탬프: string }>> {
+    try {
+      const spreadsheetId = await this.getSpreadsheetId();
+      const sheetName = await this.getFirstSheetName();
+      const headers = await this.getHeaders();
+      const col = headers.indexOf('타임스탬프');
+      if (col < 0) throw new Error("Column '타임스탬프' not found");
+      const letter = this.columnToLetter(col + 1);
+
+      const response = await this.sheets.spreadsheets.values.get({
+        spreadsheetId,
+        range: `${this.quoteSheetName(sheetName)}!${letter}2:${letter}`,
+      });
+      const values = response.data.values ?? [];
+      return values.map((cells, i) => ({ _rowNumber: i + 2, 타임스탬프: String(cells?.[0] ?? '') }));
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      throw new Error(`Failed to read all row timestamps: ${message}`);
+    }
+  }
+
+  /**
    * #258: 행 번호들의 `타임스탬프` 칸을 한 번에 읽는다 — hybrid 쓰기 전 행 확인용.
    * 가장 작은 행 ~ 가장 큰 행의 **연속 범위 하나**를 values.get 1회로 읽는다 — 행마다 범위를 넣는 batchGet 은
    * 일괄 확인이 많으면 요청 URL 이 길어져 거절될 수 있다(감사 ❓). 빈 칸은 ''.

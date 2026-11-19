@@ -725,6 +725,27 @@ describe('SheetService', () => {
     });
   });
 
+  // #264: 행 밀림 판정 색인 — getAllRows 와 달리 거르지 않은 물리 행 전체
+  describe('getAllRowTimestamps', () => {
+    const headers = ['비고', '타임스탬프', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',
+      '받으실분 성함', '받으실분 주소 (도로명 주소로 부탁드려요)', '받으실분 연락처 (핸드폰번호)', '상품 선택', '5kg 수량', '10kg 수량'];
+
+    it('타임스탬프 열 2행부터 끝까지 한 번에 읽고 행 번호를 붙인다 · 빈 칸도 행으로 남긴다', async () => {
+      const get = mockGoogleAPI.sheets.spreadsheets.values.get;
+      get.mockReset();
+      get
+        .mockResolvedValueOnce({ data: { values: [headers] } })
+        .mockResolvedValueOnce({ data: { values: [['2026. 1. 7 오후 7:49:40'], [], ['2026. 11. 19 오전 10:26:32']] } });
+      const rows = await service.getAllRowTimestamps();
+      expect(get).toHaveBeenLastCalledWith(expect.objectContaining({ range: "'감귤 주문서(응답)'!B2:B" }));
+      expect(rows).toEqual([
+        { _rowNumber: 2, 타임스탬프: '2026. 1. 7 오후 7:49:40' },
+        { _rowNumber: 3, 타임스탬프: '' },
+        { _rowNumber: 4, 타임스탬프: '2026. 11. 19 오전 10:26:32' },
+      ]);
+    });
+  });
+
   // #258: hybrid 쓰기 전 행 확인 — 타임스탬프 칸만 한 번에 읽는다
   describe('getTimestampsByRows', () => {
     const headers = ['비고', '타임스탬프', '보내는분 성함', '보내는분 주소 (도로명 주소로 부탁드려요)', '보내는분 연락처 (핸드폰번호)',

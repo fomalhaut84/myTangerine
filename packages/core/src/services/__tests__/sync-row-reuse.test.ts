@@ -60,8 +60,19 @@ function engine(opts: {
   notice?: NewOrderNoticePolicy;
   rows?: SheetRow[];
   recentReplacements?: number;
+  /** #264: 거르지 않은 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함) — 없으면 rows 와 같다 */
+  physicalRows?: Array<{ _rowNumber: number; 타임스탬프: string }>;
+  physicalReadFails?: boolean;
 }) {
-  const sheetService = { getAllRows: vi.fn().mockResolvedValue(opts.rows ?? [sheetRow()]) };
+  const rows = opts.rows ?? [sheetRow()];
+  const sheetService = {
+    getAllRows: vi.fn().mockResolvedValue(rows),
+    getAllRowTimestamps: opts.physicalReadFails
+      ? vi.fn().mockRejectedValue(new Error('quota'))
+      : vi.fn().mockResolvedValue(
+          opts.physicalRows ?? rows.map((r) => ({ _rowNumber: r._rowNumber as number, 타임스탬프: r['타임스탬프'] as string }))
+        ),
+  };
   const databaseService = {
     getRawOrderByRowNumber: vi.fn().mockImplementation(async (n: number) =>
       opts.existing ? { ...opts.existing, sheetRowNumber: n } : null
@@ -134,6 +145,32 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
     expect(result.errors.find((x) => x.rowNumber === 391)?.error).toContain('that order is at another sheet row');
     expect(sheetStatus).toHaveBeenCalledWith(391, 'fail');
+  });
+
+  it('예전 주문이 getAllRows 가 거르는 행(삭제됨 · 필수 정보 빠짐)으로 밀려 있어도 찾아서 쓰지 않는다 (릴리즈 PR Codex P1)', async () => {
+    const { e, databaseService } = engine({
+      existing: OLD_ORDER,
+      rows: [sheetRow()], // 393 행은 걸러져 getAllRows 에 없다
+      physicalRows: [
+        { _rowNumber: 391, 타임스탬프: NEW_TS },
+        { _rowNumber: 393, 타임스탬프: OLD_TS },
+      ],
+    });
+    const result = await run(e);
+    expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
+    expect(result.errors[0].error).toContain('that order is at another sheet row');
+  });
+
+  it('물리 행을 읽지 못하면 판정할 수 없으므로 교체하지 않는다 · 일반 신규 주문은 계속', async () => {
+    const fresh = { ...sheetRow('2026. 11. 19. 오전 10:40:00'), _rowNumber: 395 } as SheetRow;
+    const { e, databaseService } = engine({ existing: OLD_ORDER, rows: [sheetRow(), fresh], physicalReadFails: true });
+    databaseService.getRawOrderByRowNumber.mockImplementation(async (n: number) =>
+      n === 395 ? null : { ...OLD_ORDER, sheetRowNumber: n }
+    );
+    const result = await run(e);
+    expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
+    expect(result.errors[0].error).toContain('could not read all sheet rows');
+    expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);
   });
 
   it('원문이 같으면 해석한 시각이 달라도(시간대 차이) 같은 주문 → 갱신', async () => {
