@@ -407,9 +407,14 @@ export class DatabaseService {
    * #231 재조정 대상 — 시트 반영 실패 표시가 있고 시트 행이 있는 주문, 오래된 것부터.
    * (DB 전용 claim 은 시트 행이 없어 대상이 아니다)
    */
-  async getSheetSyncFailedOrders(limit: number): Promise<PrismaOrder[]> {
+  async getSheetSyncFailedOrders(limit: number, excludeIds: readonly number[] = []): Promise<PrismaOrder[]> {
     return this._prisma.order.findMany({
-      where: { syncStatus: 'failed', sheetRowNumber: { not: null } },
+      where: {
+        syncStatus: 'failed',
+        sheetRowNumber: { not: null },
+        // 재조정기가 미뤄 둔(백오프) 주문은 빼고 읽는다 — 막힌 주문이 앞자리를 차지해 뒤 주문을 가리지 않게
+        ...(excludeIds.length > 0 ? { id: { notIn: [...excludeIds] } } : {}),
+      },
       orderBy: { updatedAt: 'asc' },
       take: limit,
     });

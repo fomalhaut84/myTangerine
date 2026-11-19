@@ -162,7 +162,8 @@ export class SheetReconciler {
 
   private async run(limit: number, result: ReconcileResult): Promise<void> {
     const now = this.now();
-    const candidates: Target[] = (await this.databaseService.getSheetSyncFailedOrders(limit * RECONCILE_CANDIDATE_FACTOR)).flatMap(
+    const coolingIds = [...this.backoff].filter(([, b]) => b.until > now).map(([id]) => id);
+    const candidates: Target[] = (await this.databaseService.getSheetSyncFailedOrders(limit * RECONCILE_CANDIDATE_FACTOR, coolingIds)).flatMap(
       (o) => (o.sheetRowNumber === null ? [] : [{ ...o, sheetRowNumber: o.sheetRowNumber }])
     );
     const ready = candidates.filter((o) => (this.backoff.get(o.id)?.until ?? 0) <= now);

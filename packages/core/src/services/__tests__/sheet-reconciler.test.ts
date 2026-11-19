@@ -162,7 +162,7 @@ describe('SheetReconciler.reconcile', () => {
     const { reconciler, sheet, db, writes } = setup([order(10), order(11)]);
     const result = await reconciler.reconcile();
 
-    expect(db.getSheetSyncFailedOrders).toHaveBeenCalledWith(RECONCILE_BATCH_LIMIT * RECONCILE_CANDIDATE_FACTOR);
+    expect(db.getSheetSyncFailedOrders).toHaveBeenCalledWith(RECONCILE_BATCH_LIMIT * RECONCILE_CANDIDATE_FACTOR, []);
     expect(sheet.getRowsWithHeaders).toHaveBeenCalledWith([10, 11]);
     expect(sheet.updateRowsCells).toHaveBeenCalledTimes(1);
     // 같은 칸(보내는분 · 받으실분 · 상품 · 수량 · 주문유형 등)은 쓰지 않는다
@@ -253,7 +253,7 @@ describe('SheetReconciler.reconcile', () => {
     let now = 0;
     const blocked = Array.from({ length: RECONCILE_BATCH_LIMIT }, (_, i) => order(10 + i));
     const waiting = order(50);
-    const { reconciler, sheet } = setup([...blocked, waiting], {
+    const { reconciler, sheet, db } = setup([...blocked, waiting], {
       sheet: (o) => (o === waiting ? sheetRowOf(o) : sheetRowOf(o, { 타임스탬프: ts(99) })),
       now: () => now,
     });
@@ -261,8 +261,9 @@ describe('SheetReconciler.reconcile', () => {
     expect(first.skippedIdentity).toHaveLength(RECONCILE_BATCH_LIMIT);
     expect(first.deferred).toBe(1);
 
-    now += 1000; // 백오프 안
+    now += 1000; // 백오프 안 — 미룬 주문은 조회에서 뺀다(막힌 주문이 아무리 많아도 뒤 주문이 처리된다)
     const second = await reconciler.reconcile();
+    expect(db.getSheetSyncFailedOrders.mock.lastCall?.[1]).toHaveLength(RECONCILE_BATCH_LIMIT);
     expect(sheet.getRowsWithHeaders).toHaveBeenLastCalledWith([50]);
     expect(second.reconciled).toEqual([50]);
 
@@ -283,6 +284,8 @@ describe('DatabaseService 재조정 쿼리', () => {
       orderBy: { updatedAt: 'asc' },
       take: 10,
     });
+    await svc.getSheetSyncFailedOrders(10, [3, 4]);
+    expect(findMany.mock.lastCall?.[0].where).toMatchObject({ id: { notIn: [3, 4] } });
   });
 
   it('해제: 읽은 updatedAt 과 같고 아직 실패 표시인 주문만 · 지운 건수를 돌려준다', async () => {
