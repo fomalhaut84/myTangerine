@@ -11,6 +11,7 @@ import {
   SheetService,
   DatabaseService,
   ChangeLogService,
+  SheetReconciler,
   isWithinNoticeWindow,
   NEW_ORDER_NOTICE_WINDOW_MS,
   type SyncEngineOptions,
@@ -108,7 +109,9 @@ async function main() {
         enabled: syncEnabled,
       },
       notifier,
-      notifications?.alerter
+      notifications?.alerter,
+      // #231 hybrid 시트 반영 실패 자동 재조정 (DB 우선 #281) — 실패 표시가 없으면 아무것도 하지 않는다
+      new SheetReconciler(sheetService, databaseService, logger)
     );
 
     scheduler.start();

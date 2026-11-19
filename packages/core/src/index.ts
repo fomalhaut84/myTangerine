@@ -41,6 +41,11 @@ export {
   type Logger,
 } from './services/sync-engine.js';
 export {
+  SheetReconciler,
+  RECONCILE_BATCH_LIMIT,
+  type ReconcileResult,
+} from './services/sheet-reconciler.js';
+export {
   shouldFlagNewOrderNotice,
   isWithinNoticeWindow,
   NEW_ORDER_NOTICE_WINDOW_MS,
