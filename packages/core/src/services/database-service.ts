@@ -872,7 +872,8 @@ export class DatabaseService {
     timestamp: Date | null,
     excludeRowNumber: number
   ): Promise<number | null> {
-    // `not: N` 은 SQL `<> N` 이라 시트 행이 없는(NULL) 주문 — DB 전용 배송사고 — 도 함께 빠진다
+    // `not: N` 은 SQL `<> N` 이라 시트 행이 없는(NULL) 주문 — DB 전용 배송사고 — 도 함께 빠진다.
+    // 원문은 그대로(=) 비교한다 — 표시 형식이 다른 옛 행은 시각 조건이 받는다(isSameOrder 의 정규화 비교와 다름)
     const found = await this._prisma.order.findFirst({
       where: {
         sheetRowNumber: { not: excludeRowNumber },

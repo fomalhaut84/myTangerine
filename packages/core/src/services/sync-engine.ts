@@ -51,6 +51,8 @@ export interface SyncResult {
   newOrderNotices: number;
   /** #257: 행 번호가 다른 주문에 재사용돼 예전 주문을 분리하고 새로 만든 수 */
   replaced: number;
+  /** #257: 교체 상한에 걸려 교체하지 못한 행이 있었다(그 행들은 errors 에 있다) */
+  replacementLimitHit: boolean;
 }
 
 /** 행 하나의 동기화 결과 */
@@ -71,13 +73,15 @@ interface SyncRunContext {
   replacements: number;
   /** 최근 창(24시간) 동안 이전 실행들이 한 교체 수 — 첫 교체 때 한 번 읽는다 */
   recentReplacements: number | null;
+  /** 이번 실행에서 상한 때문에 교체하지 못한 행이 있었다 */
+  replacementLimitHit: boolean;
 }
 
-/** #257: 한 번의 동기화에서 행 재사용 교체가 상한을 넘었다 — 동기화 전체를 멈춘다 */
+/** #257: 행 재사용 교체가 상한(최근 24시간)을 넘었다 — 그 행은 교체하지 않고 실패로 남긴다 */
 export class RowReplacementLimitError extends Error {
   constructor(rowNumber: number) {
     super(
-      `Row replacement limit (${MAX_ROW_REPLACEMENTS_PER_SYNC} per 24h) reached at row ${rowNumber} — sync stopped to avoid mass changes (#257)`
+      `Row replacement limit (${MAX_ROW_REPLACEMENTS_PER_SYNC} per 24h) reached at row ${rowNumber} — not replacing to avoid mass changes (#257)`
     );
     this.name = 'RowReplacementLimitError';
   }
@@ -341,9 +345,6 @@ export class SyncEngine {
         };
       }
     } catch (dbError) {
-      // #257 차단기는 행 실패가 아니라 동기화 중단이다
-      if (dbError instanceof RowReplacementLimitError) throw dbError;
-
       // DB upsert 실패
       const dbMessage = dbError instanceof Error ? dbError.message : String(dbError);
       this.logger?.error({ rowNumber, error: dbMessage }, 'DB upsert failed');
@@ -386,6 +387,9 @@ export class SyncEngine {
       );
     }
     if (ctx.recentReplacements + ctx.replacements >= MAX_ROW_REPLACEMENTS_PER_SYNC) {
+      // 이 행만 교체하지 않고 실패로 남긴다 — 다른 행(일반 신규 주문)은 계속 동기화된다
+      ctx.replacementLimitHit = true;
+      this.logger?.error({ rowNumber, existingOrderId: existing.id }, 'Row replacement limit reached — not replacing (#257)');
       throw new RowReplacementLimitError(rowNumber);
     }
     ctx.replacements++;
@@ -476,6 +480,7 @@ export class SyncEngine {
       conflictDetails: [],
       newOrderNotices: 0,
       replaced: 0,
+      replacementLimitHit: false,
     };
 
     try {
@@ -486,6 +491,7 @@ export class SyncEngine {
         sheetIndex: buildSheetIdentityIndex(allRows),
         replacements: 0,
         recentReplacements: null,
+        replacementLimitHit: false,
       };
       result.total = allRows.length;
 
@@ -538,6 +544,8 @@ export class SyncEngine {
         await new Promise(resolve => setTimeout(resolve, 1000));
       }
 
+      result.replacementLimitHit = ctx.replacementLimitHit;
+
       this.logger?.info(
         { success: result.success, failed: result.failed, skipped: result.skipped, conflicts: result.conflicts },
         `${mode} sync completed`
@@ -545,11 +553,6 @@ export class SyncEngine {
 
       return result;
     } catch (error) {
-      // #257 차단기는 그대로 올린다(타입 보존 — 호출자가 구분할 수 있게)
-      if (error instanceof RowReplacementLimitError) {
-        this.logger?.error({ error: error.message }, `${mode} sync stopped by row replacement limit`);
-        throw error;
-      }
       const message = error instanceof Error ? error.message : String(error);
       this.logger?.error({ error: message }, `${mode} sync failed`);
       throw new Error(`${mode} sync failed: ${message}`);

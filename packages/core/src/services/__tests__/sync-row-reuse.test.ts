@@ -144,28 +144,31 @@ describe('SyncEngine — 행 번호 재사용 판정', () => {
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
   });
 
-  it('한 번의 동기화에서 교체가 3건을 넘으면 동기화 전체를 멈춘다(차단기)', async () => {
-    const rows = [391, 392, 393, 394].map(
+  it('한 번의 동기화에서 교체가 3건을 넘으면 그 행부터 교체하지 않고 실패로 남긴다 · 다른 신규 주문은 계속 들어온다', async () => {
+    const reused = [391, 392, 393, 394].map(
       (n, i) => ({ ...sheetRow(`2026. 11. 19. 오전 10:2${i}:00`), _rowNumber: n }) as SheetRow
     );
-    const { e, databaseService } = engine({ existing: OLD_ORDER, rows });
-    vi.useFakeTimers();
-    const p = e.incrementalSync();
-    const assertion = expect(p).rejects.toThrow('Row replacement limit (3 per 24h)');
-    await vi.runAllTimersAsync();
-    await assertion;
+    const fresh = { ...sheetRow('2026. 11. 19. 오전 10:40:00'), _rowNumber: 395 } as SheetRow;
+    const { e, databaseService } = engine({ existing: OLD_ORDER, rows: [...reused, fresh] });
+    // 395 행은 DB 에 없다 → 일반 신규 주문
+    databaseService.getRawOrderByRowNumber.mockImplementation(async (n: number) =>
+      n === 395 ? null : { ...OLD_ORDER, sheetRowNumber: n }
+    );
+    const result = await run(e);
     expect(databaseService.replaceOrderAtRow).toHaveBeenCalledTimes(3);
+    expect(result).toMatchObject({ replaced: 3, replacementLimitHit: true, failed: 1 });
+    expect(result.errors[0]).toMatchObject({ rowNumber: 394 });
+    expect(result.errors[0].error).toContain('Row replacement limit (3 per 24h)');
+    expect(databaseService.upsertOrder).toHaveBeenCalledTimes(1);
+    expect(databaseService.upsertOrder.mock.calls[0][0]._rowNumber).toBe(395);
   });
 
   it('차단기는 이전 실행의 교체(최근 24시간 이력)까지 센다 — cron 이 매분 3건씩 이어 가지 않는다', async () => {
     const { e, databaseService } = engine({ existing: OLD_ORDER, recentReplacements: 3 });
-    vi.useFakeTimers();
-    const p = e.incrementalSync();
-    const assertion = expect(p).rejects.toThrow('Row replacement limit (3 per 24h)');
-    await vi.runAllTimersAsync();
-    await assertion;
+    const result = await run(e);
     expect(databaseService.replaceOrderAtRow).not.toHaveBeenCalled();
     expect(databaseService.countRecentRowReplacements).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ replaced: 0, replacementLimitHit: true, failed: 1 });
   });
 
   it('DB 에 이 행 번호가 없어도 같은 주문이 DB 다른 행에 있으면(밀린 행의 끝 · 전체 동기화) 중복을 만들지 않는다', async () => {
