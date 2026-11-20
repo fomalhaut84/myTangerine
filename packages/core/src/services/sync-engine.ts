@@ -18,7 +18,6 @@ import {
   ROW_REPLACEMENT_WINDOW_MS,
   type SheetIdentityIndex,
 } from './sheet-row-identity.js';
-import type { ChangeLogService, FieldChange } from './change-log-service.js';
 import type { NewOrderNoticePolicy } from './new-order-notice.js';
 import { diffSheetFirstOverwrite } from './sheet-first-diff.js';
 import {
@@ -50,9 +49,7 @@ export interface SyncResult {
   success: number;
   failed: number;
   skipped: number;
-  conflicts: number;
   errors: Array<{ rowNumber: number; error: string }>;
-  conflictDetails: Array<{ rowNumber: number; orderId: number; reason: string }>;
   /** #251: 이번 동기화에서 알림 대기로 표시한 새 주문 수 (정책이 없으면 늘 0) */
   newOrderNotices: number;
   /** #257: 행 번호가 다른 주문에 재사용돼 예전 주문을 분리하고 새로 만든 수 */
@@ -69,6 +66,11 @@ export interface SyncResult {
   unchanged: number;
   /** #281: 시트 값이 DB 와 달랐지만 DB 를 유지한 행 번호(hybrid 정본 = DB) */
   sheetDivergedRows: number[];
+  /**
+   * #228: 시트 우선 가져오기가 덮어쓰지 않은 행 번호 — DB 에만 있는 변경(시트 반영 실패 · syncStatus=failed)이 있어
+   * 재조정(#231)이 DB 값을 시트에 쓸 때까지 둔다. 증분 동기화에서는 늘 비어 있다
+   */
+  pendingReconcileRows: number[];
 }
 
 /** 행 하나의 동기화 결과 */
@@ -76,8 +78,8 @@ interface SyncRowResult {
   success: boolean;
   orderId?: number;
   error?: string;
-  conflict?: boolean;
-  conflictReason?: string;
+  /** #228: DB 에만 있는 변경이 있어 덮어쓰지 않았다(재조정 대기) */
+  pendingReconcile?: boolean;
   newOrderNotice?: boolean;
   replaced?: boolean;
   /** #260: 행 정체성 충돌 · 교체 상한으로 쓰지 않았다 */
@@ -103,6 +105,11 @@ interface SyncRunContext {
    * full = 시트 우선 가져오기(운영자 복구) — 기존 주문도 시트 값으로 덮어쓰고 변경 이력을 남긴다
    */
   mode: 'incremental' | 'full';
+  /**
+   * #228: 시트 스냅샷을 읽기 시작한 시각 — 시트 우선 가져오기는 이보다 나중에 sync 가 아닌 쪽(웹 · api)이 고친 주문을
+   * 낡은 스냅샷 값으로 덮지 않는다(운영자가 "시트가 정답" 이라고 확인한 것은 실행 시작 시점의 시트다)
+   */
+  snapshotReadAt: Date;
   /** 이번 시트 스냅샷의 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함) 정체성 색인 (#264) */
   sheetIndex: SheetIdentityIndex;
   /** 이번 실행의 교체 수 */
@@ -112,6 +119,12 @@ interface SyncRunContext {
   /** 이번 실행에서 상한 때문에 교체하지 못한 행이 있었다 */
   replacementLimitHit: boolean;
 }
+
+/**
+ * #228: 시트 우선 가져오기가 "방금 고친" 주문으로 보고 덮지 않는 여유 — 스냅샷을 읽기 이 시간 전부터의 웹 · api 수정.
+ * 웹 쓰기는 DB 커밋 뒤 시트에 쓰므로(재시도 포함) 스냅샷이 그 시트 쓰기보다 먼저 읽혔을 수 있다
+ */
+export const SHEET_FIRST_RECENT_EDIT_MARGIN_MS = 10 * 60 * 1000;
 
 /** #257 · #260: 시트 행과 DB 주문의 정체성이 맞지 않아 그 행을 쓰지 않았다(행 밀림 · 중복 방지) */
 export class RowIdentityConflictError extends Error {
@@ -142,93 +155,20 @@ export interface SyncEngineOptions {
  */
 export class SyncEngine {
   private logger?: Logger;
-  private changeLogService?: ChangeLogService;
 
   constructor(
     private sheetService: SheetService,
     private databaseService: DatabaseService,
     logger?: Logger,
-    changeLogService?: ChangeLogService,
     private readonly options: SyncEngineOptions = {}
   ) {
     this.logger = logger;
-    this.changeLogService = changeLogService;
-  }
-
-  /**
-   * KST ISO 8601 타임스탬프 파싱
-   * @param timestamp - "2024-02-01T21:34:56+09:00" 형식
-   * @returns Date 객체 또는 null
-   */
-  private parseKstTimestamp(timestamp: string | undefined | null): Date | null {
-    if (!timestamp) return null;
-
-    try {
-      const date = new Date(timestamp);
-      return isNaN(date.getTime()) ? null : date;
-    } catch {
-      return null;
-    }
-  }
-
-  /**
-   * 시트 데이터와 DB 데이터의 차이 계산
-   */
-  private calculateSheetDbDifferences(
-    sheetRow: SheetRow,
-    dbOrder: Record<string, unknown>
-  ): Record<string, FieldChange> {
-    const changes: Record<string, FieldChange> = {};
-
-    // 비교할 필드 매핑 (시트 컬럼명 → Prisma Order 필드명)
-    // 5차 리뷰: address → recipientAddress 수정 (Prisma 스키마와 일치)
-    const fieldMapping: Record<string, string> = {
-      '받으실분 성함': 'recipientName',
-      '받으실분 연락처 (핸드폰번호)': 'recipientPhone',
-      '받으실분 주소 (도로명 주소로 부탁드려요)': 'recipientAddress',
-      '보내는분 성함': 'senderName',
-      '보내는분 연락처 (핸드폰번호)': 'senderPhone',
-      '보내는분 주소 (도로명 주소로 부탁드려요)': 'senderAddress',
-      '5kg 수량': 'quantity5kg',
-      '10kg 수량': 'quantity10kg',
-    };
-
-    for (const [sheetCol, dbField] of Object.entries(fieldMapping)) {
-      const sheetValue = sheetRow[sheetCol];
-      const dbValue = dbOrder[dbField];
-
-      // 9차 + 10차 리뷰: quantity 필드는 '', '0', 0, null, undefined를 동등하게 처리
-      // DB는 '0'으로 저장하고 Sheets는 ''로 저장할 수 있으므로 정규화 필요
-      // 10차 리뷰: 숫자 타입도 문자열로 정규화하여 타입 차이로 인한 false positive 방지
-      const isQuantityField = dbField === 'quantity5kg' || dbField === 'quantity10kg';
-
-      let normalizedSheet = sheetValue === undefined || sheetValue === '' ? null : sheetValue;
-      let normalizedDb = dbValue === undefined || dbValue === '' ? null : dbValue;
-
-      // quantity 필드에서 '0', 0도 null로 처리하고, 숫자는 문자열로 변환
-      if (isQuantityField) {
-        if (normalizedSheet === '0' || normalizedSheet === 0) normalizedSheet = null;
-        else if (typeof normalizedSheet === 'number') normalizedSheet = String(normalizedSheet);
-
-        if (normalizedDb === '0' || normalizedDb === 0) normalizedDb = null;
-        else if (typeof normalizedDb === 'number') normalizedDb = String(normalizedDb);
-      }
-
-      if (JSON.stringify(normalizedSheet) !== JSON.stringify(normalizedDb)) {
-        changes[dbField] = {
-          old: normalizedDb,
-          new: normalizedSheet,
-        };
-      }
-    }
-
-    return changes;
   }
 
   /**
    * 단일 행 동기화
    * @param row - SheetRow 데이터
-   * @returns 성공 여부, order ID, 에러 메시지, 충돌 여부
+   * @returns 성공 여부, order ID, 에러 메시지, 재조정 대기 여부
    */
   private async syncRow(row: SheetRow, ctx: SyncRunContext): Promise<SyncRowResult> {
     const rowNumber = row._rowNumber;
@@ -239,7 +179,7 @@ export class SyncEngine {
     }
 
     try {
-      // Phase 2: Raw Prisma Order 조회 (충돌 감지에 필요한 메타 필드 포함)
+      // Raw Prisma Order 조회 (정체성 · syncStatus · version 메타 필드 포함)
       const existingOrder = await this.databaseService.getRawOrderByRowNumber(rowNumber);
 
       // #257: 같은 행 번호의 DB 주문이 다른 주문이면(시트 행 삭제 뒤 번호 재사용) 덮어쓰지 않는다
@@ -257,66 +197,35 @@ export class SyncEngine {
 
       // #281: 시트 우선 가져오기도 DB 에만 있는 변경(시트 반영 실패)은 덮어쓰지 않는다 — 재조정(#231) 대상
       if (existingOrder?.syncStatus === 'failed') {
-        const conflictReason =
-          'DB has changes not yet written to the sheet (syncStatus=failed) — not overwritten by sheet-first import (#281)';
-        this.logger?.warn({ rowNumber, orderId: existingOrder.id }, conflictReason);
-        return { success: true, orderId: existingOrder.id, conflict: true, conflictReason };
+        this.logger?.warn(
+          { rowNumber, orderId: existingOrder.id },
+          'DB has changes not yet written to the sheet (syncStatus=failed) — not overwritten by sheet-first import; left for reconcile (#281 · #231)'
+        );
+        return { success: true, orderId: existingOrder.id, pendingReconcile: true };
+      }
+
+      // #228: 스냅샷을 읽은 뒤(또는 직전 여유 안에) 웹 · api 가 고친 주문은 낡은 시트 값으로 덮지 않는다 — 시트 상태 칸도
+      // 쓰지 않는다. (version 확인은 이 행의 DB 를 읽은 뒤의 수정만 막는다.) 다시 실행하면 그때의 시트로 판단한다
+      if (
+        existingOrder?.lastModifiedAt &&
+        existingOrder.lastModifiedBy !== 'sync' &&
+        existingOrder.lastModifiedAt.getTime() > ctx.snapshotReadAt.getTime() - SHEET_FIRST_RECENT_EDIT_MARGIN_MS
+      ) {
+        this.logger?.warn(
+          { rowNumber, orderId: existingOrder.id },
+          'Order changed after (or just before) the sheet snapshot was read — not overwritten by sheet-first import (#228)'
+        );
+        return {
+          success: false,
+          orderId: existingOrder.id,
+          error: 'Order changed after (or just before) the sheet snapshot was read — not overwritten (#228)',
+        };
       }
 
       const attemptCount = existingOrder ? (existingOrder.syncAttemptCount || 0) + 1 : 1;
 
-      // (아래 충돌 판정은 시트 우선 가져오기에서만 닿는다 — 증분은 위에서 돌아간다)
-
-      // 충돌 감지: DB가 'web'에서 수정되었고, 시트보다 최신인 경우
-      // 참고: 'api' 수정은 충돌 감지 대상이 아님 (api는 권위있는 소스로 간주하여 시트 덮어쓰기 허용)
-      if (existingOrder?.lastModifiedBy === 'web' && existingOrder.lastModifiedAt) {
-        const sheetSyncAt = this.parseKstTimestamp(row['DB_SYNC_AT'] as string);
-
-        if (sheetSyncAt && existingOrder.lastModifiedAt > sheetSyncAt) {
-          // 충돌 발생 - 덮어쓰기 중단
-          const conflictReason = `DB modified at ${existingOrder.lastModifiedAt.toISOString()} > Sheet sync at ${sheetSyncAt.toISOString()}`;
-
-          this.logger?.warn(
-            { rowNumber, orderId: existingOrder.id, conflictReason },
-            'Conflict detected: DB was modified by web after last sync'
-          );
-
-          // 11차 리뷰: 미해결 충돌 로그가 이미 있으면 중복 생성 방지
-          if (this.changeLogService) {
-            const hasUnresolvedConflict = await this.changeLogService.hasUnresolvedConflict(existingOrder.id);
-
-            if (!hasUnresolvedConflict) {
-              // Phase 2: Prisma Order를 Record로 변환하여 차이 계산
-              const fieldChanges = this.calculateSheetDbDifferences(row, existingOrder as unknown as Record<string, unknown>);
-
-              await this.changeLogService.logChange({
-                orderId: existingOrder.id,
-                sheetRowNumber: rowNumber,
-                changedBy: 'sync',
-                action: 'conflict_detected',
-                fieldChanges,
-                previousVersion: existingOrder.version ?? 1,
-                conflictDetected: true,
-                // conflictResolution은 null로 시작 (미해결 상태)
-                // API를 통해 수동으로 해결 처리 필요
-              });
-            } else {
-              this.logger?.debug(
-                { rowNumber, orderId: existingOrder.id },
-                'Skipping conflict log: unresolved conflict already exists'
-              );
-            }
-          }
-
-          return {
-            success: true, // 충돌은 정상적인 처리로 간주
-            orderId: existingOrder.id,
-            conflict: true,
-            conflictReason,
-          };
-        }
-      }
-
+      // #228: 웹-시트 "충돌" 판정은 없다 — 시트 우선 가져오기는 운영자가 시트를 정답으로 확인하고 돌리는 복구라
+      // 웹 수정 주문도 시트 값으로 덮어쓰고, 바뀐 필드는 전부 변경 이력에 남는다(version 확인 · 트랜잭션)
       // #281 시트 우선 가져오기: 기존 주문 덮어쓰기 + 바뀐 필드 전체 이력 — 한 트랜잭션 · version 확인
       if (existingOrder) {
         const { order: overwritten, fieldChanges } = await this.databaseService.overwriteOrderFromSheet(
@@ -496,21 +405,14 @@ export class SyncEngine {
 
   /** 행 결과를 실행 결과에 센다 */
   private recordRowResult(result: SyncResult, rowNumber: number, rowResult: SyncRowResult): void {
-    const { success, error, conflict, conflictReason, orderId, newOrderNotice, replaced, identityConflict, unchanged, diverged } =
-      rowResult;
+    const { success, error, pendingReconcile, newOrderNotice, replaced, identityConflict, unchanged, diverged } = rowResult;
     if (newOrderNotice) result.newOrderNotices++;
     if (diverged) result.sheetDivergedRows.push(rowNumber);
     if (replaced) result.replaced++;
     if (identityConflict) result.identityConflictRows.push(rowNumber);
 
-    if (conflict && orderId) {
-      // 충돌 감지 - 별도 카운트
-      result.conflicts++;
-      result.conflictDetails.push({
-        rowNumber,
-        orderId,
-        reason: conflictReason || 'Web modification detected',
-      });
+    if (pendingReconcile) {
+      result.pendingReconcileRows.push(rowNumber);
     } else if (success) {
       if (unchanged) result.unchanged++;
       else result.success++;
@@ -580,7 +482,7 @@ export class SyncEngine {
           this.recordRowResult(result, p.entry.rowNumber, {
             ...p.rowResult,
             success: false,
-            conflict: false,
+            pendingReconcile: false,
             identityConflict: true,
             error: p.rowResult.success ? reason : `${p.rowResult.error}; ${reason}`,
           })
@@ -604,9 +506,7 @@ export class SyncEngine {
       success: 0,
       failed: 0,
       skipped: 0,
-      conflicts: 0,
       errors: [],
-      conflictDetails: [],
       newOrderNotices: 0,
       replaced: 0,
       replacementLimitHit: false,
@@ -615,14 +515,17 @@ export class SyncEngine {
       unprocessed: 0,
       unchanged: 0,
       sheetDivergedRows: [],
+      pendingReconcileRows: [],
     };
 
     try {
       // 모든 행 가져오기
       // #264: 처리 대상과 행 밀림 판정 색인(거르지 않은 물리 행 전체)을 같은 응답 하나에서
+      const snapshotReadAt = new Date();
       const { rows: allRows, physical } = await this.sheetService.getAllRowsSnapshot();
       // #257: 이번 시트 스냅샷의 정체성 색인 · 교체 건수(차단기)
       const ctx: SyncRunContext = {
+        snapshotReadAt,
         mode: skipSynced ? 'incremental' : 'full',
         sheetIndex: buildSheetIdentityIndex(physical),
         replacements: 0,
@@ -707,7 +610,7 @@ export class SyncEngine {
             success: result.success,
             failed: result.failed,
             skipped: result.skipped,
-            conflicts: result.conflicts,
+            pendingReconcileRows: result.pendingReconcileRows,
             unprocessed: result.unprocessed,
             identityConflictRows: result.identityConflictRows,
           },
@@ -718,7 +621,7 @@ export class SyncEngine {
       result.replacementLimitHit = ctx.replacementLimitHit;
 
       this.logger?.info(
-        { success: result.success, failed: result.failed, skipped: result.skipped, conflicts: result.conflicts },
+        { success: result.success, failed: result.failed, skipped: result.skipped, pendingReconcile: result.pendingReconcileRows.length },
         `${mode} sync completed`
       );
 

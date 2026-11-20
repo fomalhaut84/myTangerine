@@ -97,7 +97,7 @@ describe('prisma plugin', () => {
       server = await build({ dataSource: 'sheets' });
       const { ChangeLogService } = await import('@mytangerine/core');
       const changeLog = new ChangeLogService(server.prisma);
-      await expect(changeLog.getConflicts()).rejects.toBeInstanceOf(DatabaseNotConfiguredError);
+      await expect(changeLog.getChangeLogs(1)).rejects.toBeInstanceOf(DatabaseNotConfiguredError);
     });
 
     describe('자체 catch 가 있는 동기화 라우트도 500 이 아니라 503 으로 답한다', () => {

@@ -27,7 +27,7 @@ export interface PendingSyncStatus {
   orderId?: number;
   /** 이번 실행 스냅샷에서 이 행의 `타임스탬프` 원문 */
   snapshotTimestamp: string;
-  /** 이 행을 DB 에 반영한 시각 — DB_SYNC_AT 값(묶음을 쓴 시각이 아니다 · 웹 수정 충돌 감지 기준) */
+  /** 이 행을 DB 에 반영한 시각 — DB_SYNC_AT 값(묶음을 쓴 시각이 아니다) */
   syncedAt: Date;
 }
 

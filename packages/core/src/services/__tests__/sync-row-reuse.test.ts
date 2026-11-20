@@ -97,7 +97,6 @@ function engine(opts: {
     sheetService as unknown as SheetService,
     databaseService as unknown as DatabaseService,
     undefined,
-    undefined,
     opts.notice ? { newOrderNotice: opts.notice } : {}
   );
   return { e, databaseService, sheetStatus };

@@ -3,7 +3,7 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { SyncEngine, withDistributedLock, ChangeLogService } from '@mytangerine/core';
+import { SyncEngine, withDistributedLock } from '@mytangerine/core';
 import { requireApiKey, requireAppClient } from '../middleware/auth.js';
 import { DatabaseNotConfiguredError } from '../plugins/prisma.js';
 import { buildSyncResponse, syncResponseSchema } from './sync-response.js';
@@ -228,15 +228,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           'sync',
           requestId,
           async () => {
-            // SyncEngine 인스턴스 생성 (Fastify logger + ChangeLogService 전달)
-            // 10차 리뷰: API 경로에서도 충돌 로그가 기록되도록 ChangeLogService 주입
-            const changeLogService = new ChangeLogService(fastify.prisma);
-            const syncEngine = new SyncEngine(
-              fastify.core.sheetService,
-              fastify.core.databaseService,
-              fastify.log,
-              changeLogService
-            );
+            const syncEngine = new SyncEngine(fastify.core.sheetService, fastify.core.databaseService, fastify.log);
 
             fastify.log.info('Starting manual sync...');
 
@@ -248,7 +240,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
                 success: syncResult.success,
                 failed: syncResult.failed,
                 skipped: syncResult.skipped,
-                conflicts: syncResult.conflicts,
+                pendingReconcileRows: syncResult.pendingReconcileRows,
                 rowShiftDetected: syncResult.rowShiftDetected,
                 identityConflictRows: syncResult.identityConflictRows,
               },
@@ -264,7 +256,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         syncStatusCache = null;
         fastify.log.debug('Sync status cache invalidated after sync');
 
-        // #279: 충돌 · 정지 정보를 남기고 행 오류 · 충돌 사유는 일반화한다(내부 상세 노출 방지)
+        // #279: 정지 · 재조정 대기 정보를 남기고 행 오류는 일반화한다(내부 상세 노출 방지)
         return reply.code(200).send(buildSyncResponse(result, 'incremental'));
       } catch (error) {
         // #245 sheets 모드 + DB 미설정 → 전역 에러 핸들러가 503 으로 답한다
@@ -304,7 +296,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         summary: '시트 우선 전체 가져오기 (운영자 복구)',
         description:
           '#281 hybrid 정본은 DB 다. 이 동작은 DB 장애 · sheets 모드 운영 뒤 DB 를 시트에 맞추는 복구용으로, ' +
-          '기존 주문도 시트 값으로 덮어쓴다(변경 이력 기록 · 시트 반영 실패 주문과 웹 수정 충돌은 제외 · 최초 입력값은 유지). ' +
+          '기존 주문도 시트 값으로 덮어쓴다(변경 이력 기록 · 웹 수정 주문 포함 · 시트 반영 실패 주문은 제외해 재조정 대기 · 최초 입력값은 유지). ' +
           '실수 실행을 막기 위해 본문에 {"confirm":"sheet-first"} 가 있어야 한다.',
         body: {
           type: 'object',
@@ -343,14 +335,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
           'sync',
           requestId,
           async () => {
-            // SyncEngine 인스턴스 생성 (10차 리뷰: ChangeLogService 주입)
-            const changeLogService = new ChangeLogService(fastify.prisma);
-            const syncEngine = new SyncEngine(
-              fastify.core.sheetService,
-              fastify.core.databaseService,
-              fastify.log,
-              changeLogService
-            );
+            const syncEngine = new SyncEngine(fastify.core.sheetService, fastify.core.databaseService, fastify.log);
 
             fastify.log.info('Starting full resync (Phase 2.2)...');
 
@@ -363,6 +348,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
                 success: syncResult.success,
                 failed: syncResult.failed,
                 skipped: syncResult.skipped,
+                pendingReconcileRows: syncResult.pendingReconcileRows,
                 duration: `${duration}s`
               },
               'Full resync completed'
@@ -377,7 +363,7 @@ const syncRoutes: FastifyPluginAsync = async (fastify) => {
         syncStatusCache = null;
         fastify.log.debug('Sync status cache invalidated after full resync');
 
-        // #279: 충돌 · 정지 정보를 남기고 행 오류 · 충돌 사유는 일반화한다(내부 상세 노출 방지)
+        // #279: 정지 · 재조정 대기 정보를 남기고 행 오류는 일반화한다(내부 상세 노출 방지)
         return reply.code(200).send(buildSyncResponse(result, 'full', result.duration));
       } catch (error) {
         // #245 sheets 모드 + DB 미설정 → 전역 에러 핸들러가 503 으로 답한다

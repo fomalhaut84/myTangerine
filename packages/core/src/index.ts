@@ -62,7 +62,6 @@ export {
   type FieldChange,
   type LogChangeParams,
   type GetChangeLogsOptions,
-  type GetConflictsOptions,
 } from './services/change-log-service.js';
 
 // Formatters
