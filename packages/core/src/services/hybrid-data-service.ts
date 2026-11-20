@@ -13,6 +13,8 @@ import { randomUUID } from 'node:crypto';
 import type { SheetService } from './sheet-service.js';
 import type { DatabaseService } from './database-service.js';
 import type { SheetRow, OrderStatus } from '../types/order.js';
+import { parseKoreanTimestamp, validateProductSelection } from '../types/order.js';
+import { pickSeasonSelection } from '../catalog/form-selection.js';
 import type { EditableProductType } from '../types/product-edit.js';
 import {
   HybridReadError,
@@ -381,17 +383,59 @@ export class HybridDataService {
       recipient?: { name?: string; phone?: string; address?: string };
       productType?: EditableProductType;
       quantity?: number;
+      /** #317 호출하는 쪽(API)이 이미 찾은 시즌 폼 문구 — 주면 다시 찾지 않는다 */
+      seasonSelection?: string | null;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     }
   ): Promise<WriteOutcome> {
+    // #317 상품 · 수량 수정이면 같은 시즌 폼 문구를 한 번 찾아 DB · 시트에 같은 값을 넘긴다
+    const seasonSelection =
+      updates.seasonSelection !== undefined ? updates.seasonSelection : await this.findSeasonSelection(rowNumber, updates);
+    // 찾지 못했으면(null) 넘기지 않는다 — 필요할 때(상품을 바꾸거나 지금 원문에 단가가 없을 때)만 resolveProductEdit 이 거절한다
+    const resolved = { ...updates, seasonSelection: typeof seasonSelection === 'string' ? seasonSelection : undefined };
     return this.write(
       'updateOrder',
       [rowNumber],
       // Web에서 호출되므로 changedBy='web'
-      () => this.databaseService.updateOrder(rowNumber, updates, 'web'),
-      () => this.sheetService!.updateOrder(rowNumber, updates)
+      () => this.databaseService.updateOrder(rowNumber, resolved, 'web'),
+      () => this.sheetService!.updateOrder(rowNumber, resolved)
     );
+  }
+
+  /**
+   * #317 바꿀(또는 지금) 상품의 같은 시즌 폼 문구 — 정본 데이터(sheets 모드는 시트, 그 외는 DB)의 다른 주문 원문에서 찾는다.
+   * 상품 · 수량 수정이 아니면 undefined. 찾지 못하면 null — 상품을 바꾸거나 지금 원문에 단가가 없을 때만 resolveProductEdit 이 거절한다
+   */
+  async findSeasonSelection(
+    rowNumber: number,
+    updates: { productType?: EditableProductType; quantity?: number }
+  ): Promise<string | null | undefined> {
+    if (updates.productType === undefined && updates.quantity === undefined) return undefined;
+
+    let rows: SheetRow[];
+    try {
+      rows = await this.getAllRows(true);
+    } catch (error) {
+      // 읽기 실패로 수정 전체를 막지 않는다 — 시즌 문구가 꼭 필요한 수정(상품 변경 · 원문에 단가 없음)만 resolveProductEdit 이 거절한다
+      const message = error instanceof Error ? error.message : String(error);
+      this.logger?.warn(`[product-edit] 같은 시즌 폼 문구를 찾지 못했습니다 (row ${rowNumber}): ${message}`);
+      return null;
+    }
+    const target = rows.find((row) => row._rowNumber === rowNumber);
+    if (!target) return null;
+
+    const productType = updates.productType ?? validateProductSelection(String(target['상품 선택'] ?? '')).productType;
+    if (!productType) return null;
+
+    const targetTimestamp = parseTimestampOrNull(target['타임스탬프']);
+    if (!targetTimestamp) return null;
+
+    const candidates = rows.flatMap((row) => {
+      const timestamp = parseTimestampOrNull(row['타임스탬프']);
+      return timestamp && row['상품 선택'] ? [{ productSelection: String(row['상품 선택']), timestamp }] : [];
+    });
+    return pickSeasonSelection(candidates, productType, targetTimestamp);
   }
 
   /**
@@ -579,5 +623,16 @@ export class HybridDataService {
    */
   get changeLogService() {
     return this.databaseService.changeLogService;
+  }
+}
+
+/** 시트 타임스탬프 → Date. 읽을 수 없으면 null (#317 시즌 문구 찾기 — 한 행 오류로 수정 전체를 막지 않는다) */
+function parseTimestampOrNull(raw: unknown): Date | null {
+  if (typeof raw !== 'string' || raw.trim() === '') return null;
+  try {
+    const date = parseKoreanTimestamp(raw);
+    return isNaN(date.getTime()) ? null : date;
+  } catch {
+    return null;
   }
 }

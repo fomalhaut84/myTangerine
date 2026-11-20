@@ -11,7 +11,6 @@ import {
   resolveProductSelection,
   type ProductCatalog,
 } from '../products.js';
-import { pricesForYear } from '../prices.js';
 import { LabelFormatter } from '../../formatters/label-formatter.js';
 import type { Config } from '../../config/config.js';
 import type { Order } from '../../types/order.js';
@@ -91,20 +90,6 @@ describe('수량 저장 칼럼 변환', () => {
   });
 });
 
-describe('pricesForYear', () => {
-  const table = { '2025': { '5kg': 23000 }, '2027': { '10kg': 40000 } };
-
-  it('그 해 → 이전 해 → 가장 오래된 해', () => {
-    expect(pricesForYear(2027, table)).toEqual({ '10kg': 40000 });
-    expect(pricesForYear(2026, table)).toEqual({ '5kg': 23000 });
-    expect(pricesForYear(2020, table)).toEqual({ '5kg': 23000 });
-  });
-
-  it('표가 비면 대체값', () => {
-    expect(pricesForYear(2025, {})).toEqual({ '5kg': 20000, '10kg': 35000 });
-  });
-});
-
 describe('LabelFormatter 와 카탈로그', () => {
   const config = {
     defaultSender: { name: '기본', address: '주소', phone: '010-0000-0000' },
@@ -136,17 +121,11 @@ describe('LabelFormatter 와 카탈로그', () => {
   });
 });
 
-describe('카탈로그 단언 · 가격표 동결 (#313 리뷰)', () => {
+describe('카탈로그 단언 (#313 리뷰)', () => {
   it('수량 칸 없는 상품을 웹 선택으로 두면 멈춘다', () => {
     const broken: ProductCatalog = [
       { id: '선물세트', selection: { kind: 'includes', text: '선물세트' }, quantityColumn: null, editable: true, alwaysInSummary: false },
     ];
     expect(() => editableProductsOf(broken)).toThrow('수량 칸이 없습니다 — 선물세트');
-  });
-
-  it('가격표는 바꿀 수 없다', async () => {
-    const { PRODUCT_PRICES_BY_YEAR } = await import('../prices.js');
-    expect(Object.isFrozen(PRODUCT_PRICES_BY_YEAR)).toBe(true);
-    expect(Object.isFrozen(PRODUCT_PRICES_BY_YEAR['2025'])).toBe(true);
   });
 });

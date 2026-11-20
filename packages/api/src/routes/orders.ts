@@ -319,7 +319,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     let price10kg = 0;
 
     orders.forEach((order) => {
-      const amount = calculateOrderAmount(order, config);
+      const amount = calculateOrderAmount(order);
       if (order.productType === '5kg') {
         total5kg += order.quantity;
         price5kg += amount;
@@ -1409,7 +1409,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
 
       // #282 상품 · 수량 — 상태 · 주문유형 확인 뒤 상품과 수량을 모두 정해서 넘긴다
       // (DB 와 시트가 각자의 "지금 값" 으로 해석해 서로 다른 칸을 쓰지 않게)
-      const productCheck = resolveProductPatch(sheetRow, currentStatus, updates, config);
+      // #317 상품을 바꾸면 단가는 같은 시즌 다른 주문의 폼 문구에서 — 찾지 못하면 400(단가를 지어내지 않는다)
+      const seasonSelection = await dataService.findSeasonSelection(rowNumber, updates);
+      const productCheck = resolveProductPatch(sheetRow, currentStatus, updates, config, seasonSelection);
       if (!productCheck.ok) {
         return reply.code(productCheck.statusCode).send({
           success: false,
@@ -2351,7 +2353,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       }
 
       // 통계 계산
-      const stats = calculateStats(orders, config, {
+      const stats = calculateStats(orders, {
         scope,
         range,
         grouping,

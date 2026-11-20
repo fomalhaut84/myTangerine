@@ -1,5 +1,6 @@
 import type { Config } from '../config/config.js';
 import { readQuantity, resolveProductSelection, type ProductType } from '../catalog/products.js';
+import { parseUnitPrice } from '../catalog/form-selection.js';
 
 /**
  * 발송인 정보
@@ -216,6 +217,12 @@ export interface Order {
 
   /** 주문 수량 */
   quantity: number;
+
+  /**
+   * 단가(원) — `상품 선택` 원문의 폼 문구 `(38,000 / box)` 에서 읽는다(#317 · 단가의 정본은 구글 폼).
+   * 원문에 단가가 없으면 null — 금액 0 으로 집계되고 경고를 남긴다
+   */
+  unitPrice?: number | null;
 
   /** 스프레드시트에서의 실제 행 번호 */
   rowNumber: number;
@@ -483,6 +490,7 @@ export function sheetRowToOrder(row: SheetRow, config?: Config): Order {
     },
     productType,
     quantity,
+    unitPrice: parseUnitPrice(row['상품 선택']),
     rowNumber: row._rowNumber || 0,
     orderType,
     validationError,

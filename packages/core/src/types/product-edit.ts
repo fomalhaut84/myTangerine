@@ -6,7 +6,8 @@
  *
  * - 수정할 수 있는 상품은 5kg · 10kg 뿐이다(비상품은 2023 이후 주문 없음 · 사용자 2026-11-20)
  * - 상품 · 수량 칸은 카탈로그(`catalog/products.ts`)가 정본이다 — 상품이 늘면 카탈로그에만 더한다 (#313)
- * - `상품 선택` 에는 상품 종류 그대로(`5kg` · `10kg`)를 쓴다 — 재조정(#231)이 쓰는 값과 같다. 폼 원문은 DB `original_input` 에 남는다
+ * - `상품 선택` 에는 **단가가 든 폼 문구**를 쓴다(#317) — 상품이 그대로면 지금 원문, 바뀌면 같은 시즌 다른 주문의 폼 문구.
+ *   예전(#282)에는 종류만(`10kg`) 써서 단가가 사라졌다. 최초 입력값은 DB `original_input` 에 남는다
  * - 다른 상품의 수량 칸은 `''` 로 비운다 — `'0'` 을 쓰면 수량 해석(`extractQuantity`)이 5kg 칸을 먼저 읽어 0 이 된다
  */
 
@@ -14,11 +15,13 @@ import {
   editableProductsOf,
   findProduct,
   quantityColumnsOf,
+  resolveProductSelection,
   QUANTITY_STORAGE_FIELD,
   type EditableProductType,
   type QuantityColumn,
   type QuantityStorageField,
 } from '../catalog/products.js';
+import { parseUnitPrice } from '../catalog/form-selection.js';
 
 /** 웹에서 고를 수 있는 상품 — 정본은 catalog/products.ts 의 `editable` (#313) */
 export const EDITABLE_PRODUCT_TYPES = editableProductsOf() as readonly EditableProductType[];
@@ -38,12 +41,19 @@ export const MAX_EDIT_QUANTITY = 999;
 export interface ProductEditInput {
   productType?: EditableProductType;
   quantity?: number;
+  /**
+   * 바꿀 상품의 **폼 문구**(예: `10kg (38,000 / box)`) — 같은 시즌 다른 주문 원문에서 호출하는 쪽이 찾는다(#317 `pickSeasonSelection`).
+   * 단가는 폼에서만 정한다: 앱이 단가를 만들지 않는다
+   */
+  seasonSelection?: string | null;
 }
 
 /** 지금 주문의 상품 · 수량 — productType 은 검증 결과(오류면 null) */
 export interface ProductEditCurrent {
   productType: string | null;
   quantity: number;
+  /** 지금 `상품 선택` 원문 — 상품이 그대로면 단가가 든 이 원문을 유지한다(#317) */
+  productSelection?: string | null;
 }
 
 export type ProductEditCells = Record<'상품 선택' | QuantityColumn, string>;
@@ -72,10 +82,26 @@ function assertQuantity(quantity: number): void {
   }
 }
 
+function isFormSelectionOf(selection: string | null | undefined, productType: EditableProductType): selection is string {
+  return !!selection && resolveProductSelection(selection) === productType && parseUnitPrice(selection) !== null;
+}
+
+/**
+ * `상품 선택` 에 쓸 원문 (#317) — 단가가 든 폼 문구여야 한다.
+ * 상품이 그대로면 지금 원문, 바뀌면 같은 시즌 폼 문구. 둘 다 없으면 단가를 지어내지 않고 거절한다
+ */
+function resolveSelectionText(current: ProductEditCurrent, input: ProductEditInput, productType: EditableProductType): string {
+  if (isFormSelectionOf(current.productSelection, productType)) return current.productSelection;
+  if (isFormSelectionOf(input.seasonSelection, productType)) return input.seasonSelection;
+  throw new ProductEditError(
+    `이번 시즌 ${productType} 주문의 폼 단가를 찾지 못했습니다 — 같은 시즌에 ${productType} 주문이 있어야 바꿀 수 있습니다.`
+  );
+}
+
 /**
  * 수정 값을 최종 상품 · 수량 · 시트 칸으로 바꾼다.
  * @returns 상품 · 수량 수정이 아니면 null
- * @throws ProductEditError 수정할 수 없는 상품 · 잘못된 수량 · 상품을 정할 수 없음(지금 상품이 오류인데 수량만 줌)
+ * @throws ProductEditError 수정할 수 없는 상품 · 잘못된 수량 · 상품을 정할 수 없음(지금 상품이 오류인데 수량만 줌) · 폼 단가를 찾지 못함
  */
 export function resolveProductEdit(current: ProductEditCurrent, input: ProductEditInput): ResolvedProductEdit | null {
   if (input.productType === undefined && input.quantity === undefined) return null;
@@ -94,7 +120,7 @@ export function resolveProductEdit(current: ProductEditCurrent, input: ProductEd
 
   const quantityCells = Object.fromEntries(QUANTITY_COLUMNS.map((column) => [column, ''])) as Record<QuantityColumn, string>;
   const cells: ProductEditCells = {
-    '상품 선택': productType,
+    '상품 선택': resolveSelectionText(current, input, productType),
     ...quantityCells,
     [PRODUCT_QUANTITY_COLUMN[productType]]: String(quantity),
   };

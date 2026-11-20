@@ -29,7 +29,9 @@ export function resolveProductPatch<T extends ProductPatchUpdates>(
   sheetRow: Record<string, unknown>,
   currentStatus: string,
   updates: T,
-  config: unknown
+  config: unknown,
+  /** #317 같은 시즌 폼 문구(`HybridDataService.findSeasonSelection`) — 상품을 바꿀 때 단가를 여기서 가져온다 */
+  seasonSelection?: string | null
 ): ProductPatchResult<T> {
   if (updates.productType === undefined && updates.quantity === undefined) {
     return { ok: true, updates };
@@ -50,11 +52,16 @@ export function resolveProductPatch<T extends ProductPatchUpdates>(
   const current = {
     productType: order.validationError ? null : (order.productType as string | null),
     quantity: order.quantity as number,
+    productSelection: String(sheetRow['상품 선택'] ?? ''),
   };
 
   try {
-    const edit = resolveProductEdit(current, { productType: updates.productType, quantity: updates.quantity });
-    return { ok: true, updates: { ...updates, productType: edit.productType, quantity: edit.quantity } };
+    const edit = resolveProductEdit(current, { productType: updates.productType, quantity: updates.quantity, seasonSelection });
+    // 검증에 쓴 시즌 문구를 그대로 넘긴다 — DB · 시트가 같은 원문을 쓴다
+    return {
+      ok: true,
+      updates: { ...updates, productType: edit.productType, quantity: edit.quantity, seasonSelection: seasonSelection ?? null },
+    };
   } catch (error) {
     if (error instanceof ProductEditError) {
       return { ok: false, statusCode: 400, error: (error as Error).message };

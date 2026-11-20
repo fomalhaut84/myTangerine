@@ -17,8 +17,7 @@ const config = new Config({
   DEFAULT_SENDER_PHONE: '010-6395-0618',
 });
 
-// productPrices는 Config 클래스의 기본값 사용:
-// 5kg: 20,000원, 10kg: 35,000원
+// 단가는 주문 원문(폼 문구)에서 읽는다 — 코드 가격표는 #317 에서 지웠다(라벨에는 금액이 없다)
 
 // 샘플 데이터 (Python CLI와 동일한 시나리오)
 const sampleSheetRows: SheetRow[] = [

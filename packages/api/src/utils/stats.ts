@@ -3,7 +3,6 @@
  */
 
 import type { Order, ProductType, OrderType } from '@mytangerine/core';
-import type { Config } from '@mytangerine/core';
 
 /**
  * 통계 조회 범위
@@ -145,27 +144,32 @@ export interface StatsResponse {
   };
 }
 
+/** 단가가 없어 금액 0 으로 센 주문 — 같은 주문으로 로그가 넘치지 않게 한 번만 남긴다 */
+const warnedMissingUnitPrice = new Set<string>();
+
 /**
- * 주문 금액 계산 (년도별 가격 적용)
+ * 주문 금액 = 원문 단가 × 수량 (#317)
+ *
+ * 단가의 정본은 구글 폼 문구(`10kg (38,000 / box)`)다 — 주문 원문에서 읽은 `order.unitPrice`.
+ * 코드 가격표로 다시 계산하지 않는다: 가격이 바뀌어도 과거 주문 금액은 그대로다.
+ * 단가가 없으면 0 이고 경고를 남긴다(조용히 넘기지 않는다).
  */
-export function calculateOrderAmount(order: Order, config: Config): number {
+export function calculateOrderAmount(order: Order): number {
   if (!order.productType) {
     return 0;
   }
 
-  // 주문 년도 추출
-  const orderYear = order.timestamp.getFullYear();
-
-  // 해당 년도 가격 조회
-  const prices = config.getPricesForYear(orderYear);
-  const price = prices[order.productType];
-
-  // 가격이 정의되지 않은 경우 0 반환 (예: 2024년 이후 비상품)
-  if (price === undefined) {
+  const unitPrice = order.unitPrice;
+  if (unitPrice === null || unitPrice === undefined) {
+    const key = `${order.dbId ?? ''}:${order.rowNumber}`;
+    if (!warnedMissingUnitPrice.has(key)) {
+      warnedMissingUnitPrice.add(key);
+      console.warn(`[stats] 주문 원문에 단가가 없어 금액 0 으로 셉니다 (row ${order.rowNumber}): "${order._raw?.['상품 선택'] ?? ''}"`);
+    }
     return 0;
   }
 
-  return price * order.quantity;
+  return unitPrice * order.quantity;
 }
 
 /**
@@ -197,7 +201,6 @@ export function groupByMonth(orders: Order[]): Map<string, Order[]> {
 export function calculateMonthlyStats(
   month: string,
   orders: Order[],
-  config: Config,
   previousMonthRevenue: number | null,
   options?: { excludeGiftRevenue?: boolean; zeroRevenue?: boolean }
 ): MonthlyStats {
@@ -224,7 +227,7 @@ export function calculateMonthlyStats(
     if (!zeroRevenue) {
       const shouldIncludeRevenue = !excludeGiftRevenue || isRevenueIncludedOrderType(order.orderType);
       if (shouldIncludeRevenue) {
-        const amount = calculateOrderAmount(order, config);
+        const amount = calculateOrderAmount(order);
         if (order.productType === '비상품') {
           totalNonProductAmount += amount;
         } else if (order.productType === '5kg') {
@@ -270,7 +273,6 @@ export function calculateMonthlyStats(
  */
 export function calculateProductTotals(
   orders: Order[],
-  config: Config,
   options?: { excludeGiftRevenue?: boolean; zeroRevenue?: boolean }
 ): ProductTotals[] {
   const { excludeGiftRevenue = false, zeroRevenue = false } = options || {};
@@ -296,7 +298,7 @@ export function calculateProductTotals(
     if (!zeroRevenue) {
       const shouldIncludeRevenue = !excludeGiftRevenue || isRevenueIncludedOrderType(order.orderType);
       if (shouldIncludeRevenue) {
-        const amount = calculateOrderAmount(order, config);
+        const amount = calculateOrderAmount(order);
         if (order.productType === '비상품') {
           totalNonProductAmount += amount;
         } else if (order.productType === '5kg') {
@@ -351,7 +353,6 @@ export function calculateProductTotals(
  */
 export function calculateSummary(
   orders: Order[],
-  config: Config,
   startDate: Date,
   endDate: Date
 ): StatsSummary {
@@ -363,7 +364,7 @@ export function calculateSummary(
   let total10kgAmount = 0;
 
   for (const order of orders) {
-    const amount = calculateOrderAmount(order, config);
+    const amount = calculateOrderAmount(order);
 
     if (order.productType === '비상품') {
       totalNonProductQty += order.quantity;
@@ -494,7 +495,6 @@ export function isSeasonalScope(scope: StatsScope): scope is 'peak_season' | 'of
  */
 function calculateSummaryFromOrders(
   orders: Order[],
-  config: Config,
   startDate: Date,
   endDate: Date,
   options?: { excludeGiftRevenue?: boolean; zeroRevenue?: boolean }
@@ -522,7 +522,7 @@ function calculateSummaryFromOrders(
     if (!zeroRevenue) {
       const shouldIncludeRevenue = !excludeGiftRevenue || isRevenueIncludedOrderType(order.orderType);
       if (shouldIncludeRevenue) {
-        const amount = calculateOrderAmount(order, config);
+        const amount = calculateOrderAmount(order);
         if (order.productType === '비상품') {
           totalNonProductAmount += amount;
         } else if (order.productType === '5kg') {
@@ -563,7 +563,6 @@ function calculateSummaryFromOrders(
  */
 export function calculateStats(
   orders: Order[],
-  config: Config,
   options: {
     scope: StatsScope;
     range: StatsRange;
@@ -589,11 +588,11 @@ export function calculateStats(
 
   const sections: StatsSections = {
     // overall: 전체 수량, 매출은 판매(customer)만 포함
-    overall: calculateSummaryFromOrders(overallOrders, config, start, end, { excludeGiftRevenue: true }),
+    overall: calculateSummaryFromOrders(overallOrders, start, end, { excludeGiftRevenue: true }),
     // sales: 판매 주문만 (수량 + 매출)
-    sales: calculateSummaryFromOrders(salesOrders, config, start, end),
+    sales: calculateSummaryFromOrders(salesOrders, start, end),
     // gifts: 선물 주문만 (수량만, 매출은 0)
-    gifts: calculateSummaryFromOrders(giftOrders, config, start, end, { zeroRevenue: true }),
+    gifts: calculateSummaryFromOrders(giftOrders, start, end, { zeroRevenue: true }),
   };
 
   // 현재 필터에 해당하는 주문 선택
@@ -619,7 +618,7 @@ export function calculateStats(
 
   for (const month of sortedMonths) {
     const monthOrders = groupedByMonth.get(month)!;
-    const monthStats = calculateMonthlyStats(month, monthOrders, config, previousMonthRevenue, revenueOptions);
+    const monthStats = calculateMonthlyStats(month, monthOrders, previousMonthRevenue, revenueOptions);
     series.push(monthStats);
 
     // 다음 달의 증감률 계산을 위해 현재 달의 매출 저장 (비상품 포함)
@@ -627,10 +626,10 @@ export function calculateStats(
   }
 
   // 현재 필터에 해당하는 요약 (매출 처리 옵션 적용)
-  const summary = calculateSummaryFromOrders(filteredOrders, config, start, end, revenueOptions);
+  const summary = calculateSummaryFromOrders(filteredOrders, start, end, revenueOptions);
 
   // 상품별 합계 및 비율 (필터된 주문 기준, 매출 옵션 적용)
-  const totalsByProduct = calculateProductTotals(filteredOrders, config, revenueOptions);
+  const totalsByProduct = calculateProductTotals(filteredOrders, revenueOptions);
 
   return {
     success: true,

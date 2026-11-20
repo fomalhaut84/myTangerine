@@ -245,7 +245,7 @@ const labelsRoutes: FastifyPluginAsync = async (fastify) => {
         };
 
         orders.forEach((order) => {
-          const amount = calculateOrderAmount(order, config);
+          const amount = calculateOrderAmount(order);
           if (order.productType === '5kg') {
             summary['5kg'].count += order.quantity;
             summary['5kg'].amount += amount;
