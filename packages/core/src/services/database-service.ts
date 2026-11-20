@@ -38,10 +38,11 @@ const WRITE_TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const;
 export const SHEET_WRITE_PENDING_PREFIX = 'sheet-write-pending:';
 
 /**
- * #304: 다른 쓰기의 대기 표시를 만났을 때 바꿔 두는 사유 — 대기 접두어가 아니므로 어느 쓰기도 고유값으로 지우지 못하고,
+ * #304: 다른 쓰기의 대기 표시를 만났을 때 바꿔 두는 사유 — 고유값(UUID)과 같을 수 없어 어느 쓰기도 지우지 못하고,
+ * 대기 접두어라 재조정은 다른 대기 표시처럼 여유 시간 뒤에 잡는다(진행 중인 쓰기의 커밋 전 값을 쓰지 않게).
  * 재조정이 행 전체를 DB 값으로 맞춘 뒤에만 지워진다(그 쓰기가 끝나지 않았을 수도 · 동시에 진행 중일 수도 있다)
  */
-export const SUPERSEDED_PENDING_REASON = 'superseded sheet write pending — whole-row reconcile required (#304)';
+export const SUPERSEDED_PENDING_REASON = `${SHEET_WRITE_PENDING_PREFIX}superseded`;
 
 /** #293: 이보다 오래된 대기 표시는 쓰기 도중 끝난 것으로 보고 재조정한다(쓰기 한 번은 보통 수 초) */
 export const SHEET_WRITE_PENDING_GRACE_MS = 5 * 60 * 1000;
@@ -442,6 +443,7 @@ export class DatabaseService {
    * - 실패 표시가 없는 행에만 이번 고유값으로 표시한다
    * - 실패 표시(사유)가 있는 행은 사유를 지키고(재조정 대상 자격 · PR #230) `updatedAt` 만 갱신한다 —
    *   그 전에 읽은 재조정기가 표시를 지우지 못하게(`clearSheetSyncFailureIfUnchanged` 는 updatedAt 이 같을 때만 지운다)
+   * 남는 틈(기존): 같은 칸을 동시에 고치면 늦게 도착한 시트 쓰기가 더 새로운 값을 덮을 수 있다 — 행 단위 직렬화가 필요하다
    */
   async markSheetWritePending(rowNumbers: number[], token: string): Promise<void> {
     if (rowNumbers.length === 0) return;

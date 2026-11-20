@@ -146,7 +146,8 @@ describe('DatabaseService — 시트 반영 대기 표시 (#293)', () => {
       where: { sheetRowNumber: { in: [2, 3] }, syncStatus: 'failed', syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } },
       data: { syncErrorMessage: SUPERSEDED_PENDING_REASON },
     });
-    expect(SUPERSEDED_PENDING_REASON.startsWith(SHEET_WRITE_PENDING_PREFIX)).toBe(false);
+    // 대기 접두어(재조정 5분 여유) · 고유값(UUID)과는 같을 수 없다(어느 쓰기도 지우지 못한다)
+    expect(SUPERSEDED_PENDING_REASON).toBe(`${SHEET_WRITE_PENDING_PREFIX}superseded`);
   });
 
   it('markSheetWritePending: 실패 표시가 없는 행에만 이번 고유값으로 표시한다', async () => {
