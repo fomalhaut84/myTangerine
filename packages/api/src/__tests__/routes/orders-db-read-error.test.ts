@@ -43,6 +43,16 @@ describe('idType=dbId 조회 DB 실패 (#229)', () => {
     expect(res.payload).not.toContain('ECONNREFUSED');
   });
 
+  it.each([
+    ['GET', '/api/orders/2147483648?idType=dbId'],
+    ['POST', '/api/orders/2147483648/mark-delivered?idType=dbId'],
+  ])('%s %s — DB 정수 범위를 넘는 ID 는 DB 에 가지 않고 400', async (method, url) => {
+    const spy = vi.spyOn(mock, 'getOrderById');
+    const res = await server.inject({ method: method as 'GET' | 'POST', url, headers: AUTH_HEADERS, payload: method === 'POST' ? {} : undefined });
+    expect(res.statusCode).toBe(400);
+    expect(spy).not.toHaveBeenCalled();
+  });
+
   it('POST /api/orders/:id/mark-delivered?idType=dbId — 503 · 아무것도 쓰지 않는다', async () => {
     failDbRead();
     const res = await server.inject({

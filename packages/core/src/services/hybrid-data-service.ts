@@ -213,12 +213,14 @@ export class HybridDataService {
     }
 
     // database/hybrid: DB에서 직접 조회 — 시트 행이 없는 주문이라 시트 폴백은 없다.
-    // #229: DB 오류는 503 + 일반 문구(HybridReadError). 이미 상태 코드가 있는 오류(DB 미설정 503 등)는 그대로
+    // #229: DB 오류는 503 + 일반 문구(HybridReadError). 이미 5xx 상태 코드와 문구를 가진 오류는 그대로 둔다(방어용 —
+    // 지금 DatabaseService 는 오류를 감싸 다시 던지므로 닿지 않는다). 4xx 는 감싼다 — 원문이 응답에 나가지 않게
     let row: SheetRow | null;
     try {
       row = await this.databaseService.getOrderById(id);
     } catch (error) {
-      if (error && typeof error === 'object' && typeof (error as { statusCode?: unknown }).statusCode === 'number') throw error;
+      const statusCode = error && typeof error === 'object' ? (error as { statusCode?: unknown }).statusCode : undefined;
+      if (typeof statusCode === 'number' && statusCode >= 500) throw error;
       this.logger?.error(`[hybrid] getOrderById(${id}) failed in DB: ${describeError(error)}`);
       throw new HybridReadError('getOrderById', error);
     }

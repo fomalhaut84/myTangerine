@@ -29,10 +29,16 @@ describe('HybridDataService.getOrderById — DB 실패는 503 (#229)', () => {
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('ECONNREFUSED'));
   });
 
-  it('이미 상태 코드가 있는 오류는 그대로 던진다(예: DB 미설정 503)', async () => {
+  it('이미 5xx 상태 코드가 있는 오류는 그대로 던진다(방어용)', async () => {
     const configured = Object.assign(new Error('Database is not configured'), { statusCode: 503, publicMessage: 'DB 미설정' });
     const { s } = service(vi.fn().mockRejectedValue(configured));
     await expect(s.getOrderById(7)).rejects.toBe(configured);
+  });
+
+  it('4xx 상태 코드를 가진 오류는 감싼다 — 원문이 응답에 나가지 않게', async () => {
+    const conflict = Object.assign(new Error('internal detail'), { statusCode: 409 });
+    const { s } = service(vi.fn().mockRejectedValue(conflict));
+    await expect(s.getOrderById(7)).rejects.toBeInstanceOf(HybridReadError);
   });
 
   it('Error 가 아닌 값으로 실패해도 503 으로 감싼다', async () => {
