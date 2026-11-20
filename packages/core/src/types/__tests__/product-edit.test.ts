@@ -36,6 +36,19 @@ describe('resolveProductEdit', () => {
     expect(r?.cells['상품 선택']).toBe('10kg (30,000 / box)');
   });
 
+  // 회귀: PR #321 Codex P2 — hybrid 에서 DB · 시트의 지금 원문이 달라도 같은 원문을 쓴다
+  it('#322 확정 원문(resolvedSelection)이 있으면 지금 원문보다 먼저 쓴다', () => {
+    const staleSheet = { productType: '10kg', quantity: 1, productSelection: '10kg (35,000 / box)' };
+    const r = resolveProductEdit(staleSheet, { productType: '10kg', quantity: 2, resolvedSelection: S10, seasonSelection: S10 });
+    expect(r?.cells['상품 선택']).toBe(S10);
+  });
+
+  it('#322 확정 원문이 다른 상품 · 단가 없는 문구면 쓰지 않는다', () => {
+    const current = { productType: '10kg', quantity: 1, productSelection: '10kg (35,000 / box)' };
+    expect(resolveProductEdit(current, { quantity: 2, resolvedSelection: S5 })?.cells['상품 선택']).toBe('10kg (35,000 / box)');
+    expect(resolveProductEdit(current, { quantity: 2, resolvedSelection: '10kg' })?.cells['상품 선택']).toBe('10kg (35,000 / box)');
+  });
+
   it('폼 단가를 찾지 못하면 거절한다 — 단가를 지어내지 않는다 (#317)', () => {
     expect(() => resolveProductEdit({ productType: '5kg', quantity: 1, productSelection: S5 }, { productType: '10kg' })).toThrow(
       /폼 단가를 찾지 못했습니다/

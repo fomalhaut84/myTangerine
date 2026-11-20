@@ -1188,6 +1188,8 @@ export class DatabaseService {
       quantity?: number;
       /** #317 바꿀 상품의 같은 시즌 폼 문구 — HybridDataService 가 찾아 넘긴다 */
       seasonSelection?: string | null;
+      /** #322 API 가 확정한 `상품 선택` 원문 — 있으면 지금 원문 대신 그대로 쓴다 */
+      resolvedSelection?: string | null;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     },
@@ -1239,7 +1241,7 @@ export class DatabaseService {
         // 최초 입력값(original_input)은 바꾸지 않는다. 잘못된 값이면 ProductEditError 로 아무것도 쓰지 않는다
         const productEdit = resolveProductEdit(
           { productType: beforeOrder.productType, quantity: beforeOrder.quantity, productSelection: beforeOrder.productSelection },
-          { productType: updates.productType, quantity: updates.quantity, seasonSelection: updates.seasonSelection }
+          { productType: updates.productType, quantity: updates.quantity, seasonSelection: updates.seasonSelection, resolvedSelection: updates.resolvedSelection }
         );
         const productFields = productEdit ? productEditToOrderFields(productEdit) : {};
         Object.assign(data, productFields);

@@ -31,6 +31,13 @@ describe('SheetService.updateOrder — 상품 · 수량 (#282)', () => {
     expect(updateRowCells).toHaveBeenCalledWith(12, { '상품 선택': '10kg (38,000 / box)', '5kg 수량': '', '10kg 수량': '2' });
   });
 
+  // 회귀: PR #321 Codex P2 — 시트 원문이 DB 와 달라도(낡은 단가) API 가 확정한 원문을 쓴다
+  it('#322 확정 원문을 주면 시트의 지금 원문 대신 그 값을 쓴다', async () => {
+    const { s, updateRowCells } = service({ '상품 선택': '10kg (35,000 / box)', '5kg 수량': '', '10kg 수량': '1' });
+    await s.updateOrder(12, { productType: '10kg', quantity: 2, resolvedSelection: '10kg (38,000 / box)' });
+    expect(updateRowCells).toHaveBeenCalledWith(12, { '상품 선택': '10kg (38,000 / box)', '5kg 수량': '', '10kg 수량': '2' });
+  });
+
   it('지금 상품이 오류인데 수량만 주면 쓰지 않고 던진다', async () => {
     const { s, updateRowCells } = service({ '상품 선택': '감귤 박스', '5kg 수량': '', '10kg 수량': '' });
     await expect(s.updateOrder(12, { quantity: 2 })).rejects.toThrow('상품');

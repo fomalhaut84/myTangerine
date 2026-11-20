@@ -46,6 +46,11 @@ export interface ProductEditInput {
    * 단가는 폼에서만 정한다: 앱이 단가를 만들지 않는다
    */
   seasonSelection?: string | null;
+  /**
+   * 호출하는 쪽(API)이 이미 확정한 `상품 선택` 원문 — 주면 DB · 시트가 각자의 지금 원문 대신 이 값을 그대로 쓴다.
+   * hybrid 에서 두 저장소의 원문이 달라도 같은 단가가 남게 한다(#322 · PR #321 Codex P2)
+   */
+  resolvedSelection?: string | null;
 }
 
 /** 지금 주문의 상품 · 수량 — productType 은 검증 결과(오류면 null) */
@@ -88,9 +93,11 @@ function isFormSelectionOf(selection: string | null | undefined, productType: Ed
 
 /**
  * `상품 선택` 에 쓸 원문 (#317) — 단가가 든 폼 문구여야 한다.
- * 상품이 그대로면 지금 원문, 바뀌면 같은 시즌 폼 문구. 둘 다 없으면 단가를 지어내지 않고 거절한다
+ * 확정 원문(resolvedSelection)이 있으면 그것, 아니면 상품이 그대로일 때 지금 원문, 바뀌면 같은 시즌 폼 문구.
+ * 셋 다 없으면 단가를 지어내지 않고 거절한다
  */
 function resolveSelectionText(current: ProductEditCurrent, input: ProductEditInput, productType: EditableProductType): string {
+  if (isFormSelectionOf(input.resolvedSelection, productType)) return input.resolvedSelection;
   if (isFormSelectionOf(current.productSelection, productType)) return current.productSelection;
   if (isFormSelectionOf(input.seasonSelection, productType)) return input.seasonSelection;
   throw new ProductEditError(

@@ -58,7 +58,10 @@ describe('PATCH /api/orders/:rowNumber — 상품 · 수량 (#282)', () => {
 
     expect(res.statusCode).toBe(200);
     expect(mock.getUpdateOrderCalls()).toEqual([
-      { rowNumber: ROW, updates: { productType: '10kg', quantity: 2, seasonSelection: '10kg (38,000 / box)' } },
+      {
+        rowNumber: ROW,
+        updates: { productType: '10kg', quantity: 2, seasonSelection: '10kg (38,000 / box)', resolvedSelection: '10kg (38,000 / box)' },
+      },
     ]);
     const body = res.json();
     expect(body.order).toMatchObject({ productType: '10kg', quantity: 2 });
@@ -69,14 +72,20 @@ describe('PATCH /api/orders/:rowNumber — 상품 · 수량 (#282)', () => {
     seed({ '상품 선택': '5kg (23,000 / box)', '5kg 수량': '', '10kg 수량': '' });
     const res = await patch({ quantity: 3 });
     expect(res.statusCode).toBe(200);
-    expect(mock.getUpdateOrderCalls()[0].updates).toMatchObject({ productType: '5kg', quantity: 3 });
+    // 확정 원문은 지금 원문 그대로 (#322)
+    expect(mock.getUpdateOrderCalls()[0].updates).toMatchObject({ productType: '5kg', quantity: 3, resolvedSelection: '5kg (23,000 / box)' });
   });
 
   it('상품만 고치면 지금 수량을 함께 넘긴다', async () => {
     seedWithSeason({ '상품 선택': '5kg (23,000 / box)', '5kg 수량': '4', '10kg 수량': '' });
     const res = await patch({ productType: '10kg' });
     expect(res.statusCode).toBe(200);
-    expect(mock.getUpdateOrderCalls()[0].updates).toEqual({ productType: '10kg', quantity: 4, seasonSelection: '10kg (38,000 / box)' });
+    expect(mock.getUpdateOrderCalls()[0].updates).toEqual({
+      productType: '10kg',
+      quantity: 4,
+      seasonSelection: '10kg (38,000 / box)',
+      resolvedSelection: '10kg (38,000 / box)',
+    });
   });
 
   it('#317 같은 시즌에 바꿀 상품 주문이 없으면 400 · 쓰지 않는다 (단가를 지어내지 않는다)', async () => {

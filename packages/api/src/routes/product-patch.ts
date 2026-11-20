@@ -57,10 +57,16 @@ export function resolveProductPatch<T extends ProductPatchUpdates>(
 
   try {
     const edit = resolveProductEdit(current, { productType: updates.productType, quantity: updates.quantity, seasonSelection });
-    // 검증에 쓴 시즌 문구를 그대로 넘긴다 — DB · 시트가 같은 원문을 쓴다
     return {
       ok: true,
-      updates: { ...updates, productType: edit.productType, quantity: edit.quantity, seasonSelection: seasonSelection ?? null },
+      updates: {
+        ...updates,
+        productType: edit.productType,
+        quantity: edit.quantity,
+        seasonSelection: seasonSelection ?? null,
+        // #322 검증에서 확정한 원문 — hybrid 에서 DB · 시트의 지금 원문이 달라도 같은 값을 쓴다
+        resolvedSelection: edit.cells['상품 선택'],
+      },
     };
   } catch (error) {
     if (error instanceof ProductEditError) {

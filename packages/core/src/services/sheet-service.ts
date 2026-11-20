@@ -939,6 +939,8 @@ export class SheetService {
       quantity?: number;
       /** #317 바꿀 상품의 같은 시즌 폼 문구 — HybridDataService 가 찾아 넘긴다 */
       seasonSelection?: string | null;
+      /** #322 API 가 확정한 `상품 선택` 원문 — 있으면 지금 원문 대신 그대로 쓴다 */
+      resolvedSelection?: string | null;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     }
@@ -1010,7 +1012,7 @@ export class SheetService {
    */
   private async resolveProductEditCells(
     rowNumber: number,
-    updates: { productType?: EditableProductType; quantity?: number; seasonSelection?: string | null }
+    updates: { productType?: EditableProductType; quantity?: number; seasonSelection?: string | null; resolvedSelection?: string | null }
   ): Promise<ProductEditCells> {
     const currentRow = await this.getOrderByRowNumber(rowNumber);
     if (!currentRow) {
