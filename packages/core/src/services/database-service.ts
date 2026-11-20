@@ -37,6 +37,12 @@ const WRITE_TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const;
  */
 export const SHEET_WRITE_PENDING_PREFIX = 'sheet-write-pending:';
 
+/**
+ * #304: 다른 쓰기의 대기 표시를 만났을 때 바꿔 두는 사유 — 대기 접두어가 아니므로 어느 쓰기도 고유값으로 지우지 못하고,
+ * 재조정이 행 전체를 DB 값으로 맞춘 뒤에만 지워진다(그 쓰기가 끝나지 않았을 수도 · 동시에 진행 중일 수도 있다)
+ */
+export const SUPERSEDED_PENDING_REASON = 'superseded sheet write pending — whole-row reconcile required (#304)';
+
 /** #293: 이보다 오래된 대기 표시는 쓰기 도중 끝난 것으로 보고 재조정한다(쓰기 한 번은 보통 수 초) */
 export const SHEET_WRITE_PENDING_GRACE_MS = 5 * 60 * 1000;
 
@@ -430,18 +436,21 @@ export class DatabaseService {
    * #293: hybrid 쓰기 전에 "시트 반영 대기" 표시를 먼저 남긴다 — 이번 쓰기의 고유값(token)을 사유 칸에 둔다.
    * DB 를 쓴 뒤 시트까지 성공하면 `clearSheetWritePending` 이 같은 고유값일 때만 지운다. 표시 기록 실패 · 중간 종료에도
    * DB 전용 변경이 표시 없이 남지 않게 한다(시트 우선 가져오기 · 재조정이 이 표시를 본다).
-   * - 다른 쓰기의 대기 표시는 이번 고유값으로 덮는다 — 먼저 끝난 쓰기가 지워 이번 쓰기가 표시 없이 남지 않게
-   * - 진짜 실패 표시(사유)가 있는 행은 사유를 지키고(재조정 대상 자격 · PR #230) `updatedAt` 만 갱신한다 —
+   * - 다른 쓰기의 대기 표시는 **재조정 필요 사유로 바꾼다**(#304 · 릴리즈 PR #303 Codex P2) — 그 쓰기가 끝나지 않았으면
+   *   (DB 커밋 뒤 api 종료) 그 칸은 시트에 없다. 이번 쓰기는 요청한 칸만 시트에 쓰므로 이번 성공으로 지우면 안 된다.
+   *   동시에 진행 중인 쓰기여도 같다 — 어느 쪽도 고유값으로 지우지 못하고 재조정이 행 전체를 맞춘다
+   * - 실패 표시가 없는 행에만 이번 고유값으로 표시한다
+   * - 실패 표시(사유)가 있는 행은 사유를 지키고(재조정 대상 자격 · PR #230) `updatedAt` 만 갱신한다 —
    *   그 전에 읽은 재조정기가 표시를 지우지 못하게(`clearSheetSyncFailureIfUnchanged` 는 updatedAt 이 같을 때만 지운다)
-   * 남는 틈: 같은 행에 쓰기가 동시에 오고 그중 하나가 시트를 쓰기 전에 프로세스가 끝나면 표시가 빠질 수 있다(매우 드묾)
    */
   async markSheetWritePending(rowNumbers: number[], token: string): Promise<void> {
     if (rowNumbers.length === 0) return;
     await this._prisma.order.updateMany({
-      where: {
-        sheetRowNumber: { in: rowNumbers },
-        OR: [{ syncStatus: { not: 'failed' } }, { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } }],
-      },
+      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: 'failed', syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } },
+      data: { syncErrorMessage: SUPERSEDED_PENDING_REASON },
+    });
+    await this._prisma.order.updateMany({
+      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: { not: 'failed' } },
       data: { syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}${token}` },
     });
     await this._prisma.order.updateMany({
