@@ -385,6 +385,8 @@ export class HybridDataService {
       quantity?: number;
       /** #317 호출하는 쪽(API)이 이미 찾은 시즌 폼 문구 — 주면 다시 찾지 않는다 */
       seasonSelection?: string | null;
+      /** #322 API 가 확정한 `상품 선택` 원문 — DB · 시트에 같은 값으로 넘긴다 */
+      resolvedSelection?: string | null;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     }

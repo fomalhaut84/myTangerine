@@ -149,7 +149,7 @@ export class MockSheetService {
         : {
             ...row,
             // 실제 SheetService 처럼: 시즌 문구가 오면 그것, 아니면 지금 원문 유지(#317)
-            '상품 선택': updates.seasonSelection ?? row['상품 선택'],
+            '상품 선택': updates.resolvedSelection ?? updates.seasonSelection ?? row['상품 선택'],
             '5kg 수량': updates.productType === '5kg' ? qty : '',
             '10kg 수량': updates.productType === '10kg' ? qty : '',
             _validationError: undefined,
@@ -207,6 +207,7 @@ export interface MockOrderUpdates {
   productType?: string;
   quantity?: number;
   seasonSelection?: string | null;
+  resolvedSelection?: string | null;
   orderType?: string;
   trackingNumber?: string;
 }

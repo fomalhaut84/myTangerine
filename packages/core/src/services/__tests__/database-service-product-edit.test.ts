@@ -115,4 +115,12 @@ describe('DatabaseService.updateOrder — 상품 · 수량 (#282)', () => {
     await expect(service.updateOrder(12, { productType: '10kg' }, 'web')).rejects.toThrow('폼 단가를 찾지 못했습니다');
     expect(tx.order.updateMany).not.toHaveBeenCalled();
   });
+
+  // 회귀: PR #321 Codex P2 — API 가 확정한 원문을 DB 도 그대로 쓴다(시트와 같은 값)
+  it('#322 확정 원문(resolvedSelection)을 지금 원문보다 먼저 쓴다', async () => {
+    const before = { ...ERROR_ORDER, productSelection: '10kg (35,000 / box)', productType: '10kg', quantity5kg: '', quantity10kg: '1', quantity: 1, validationError: null };
+    const { tx, service } = setup(before);
+    await service.updateOrder(12, { productType: '10kg', quantity: 2, resolvedSelection: S10 }, 'web');
+    expect(tx.order.updateMany.mock.calls[0][0].data).toMatchObject({ productSelection: S10, quantity10kg: '2' });
+  });
 });
