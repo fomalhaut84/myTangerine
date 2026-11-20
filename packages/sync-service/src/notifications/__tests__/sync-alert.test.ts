@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { SyncAlerter, buildSyncStallMessage, buildSyncFailureMessage, kstDateKey, classifyReconcileFailure } from '../sync-alert.js';
+import { SyncAlerter, buildSyncStallMessage, buildSyncFailureMessage, kstDateKey, classifyReconcileFailure, RECONCILE_ROW_FAILURE_TTL_MS } from '../sync-alert.js';
 
 const NOW = new Date('2026-11-19T16:30:00Z'); // KST 11-20 01:30
 const logger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() });
@@ -243,7 +243,44 @@ describe('SyncAlerter.onReconcileResult — 시트 재조정 (#231)', () => {
     expect(text).not.toContain('quota');
   });
 
+  it('#288: 회차 전체 중단(행 0)은 주문 단위로 세지 않는다 — 회차 단위 연속 수만', async () => {
+    const { a, send } = alerter();
+    const aborted = { ...ok, attempted: 1, reconciled: [], failed: [{ rowNumber: 0, error: 'reconcile aborted: boom' }] };
+    for (let i = 0; i < 4; i++) {
+      await a.onReconcileResult(aborted);
+      await a.onReconcileResult(ok); // 회차 단위 수는 0 으로
+    }
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('#288: 마지막 실패 뒤 2시간이 지나면 주문 단위 수를 버린다(대상에서 빠진 주문 · 떨어진 실패)', async () => {
+    let now = NOW.getTime();
+    const { a, send } = alerter(undefined, { now: () => new Date(now) });
+    const failing = { ...ok, reconciled: [11], failed: [{ rowNumber: 10, error: 'sheet write failed: quota' }] };
+    for (let i = 0; i < 4; i++) {
+      await a.onReconcileResult(failing);
+      await a.onReconcileResult({ ...ok, reconciled: [12] }); // 회차 단위 수는 0 으로
+    }
+    now += RECONCILE_ROW_FAILURE_TTL_MS + 1;
+    await a.onReconcileResult(failing);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('#288: 이번 회차에 실패하지 않은 주문만 남아 있으면 다시 경고하지 않는다(다음 날에도)', async () => {
+    let now = NOW.getTime();
+    const { a, send } = alerter(undefined, { now: () => new Date(now) });
+    const failing = { ...ok, reconciled: [11], failed: [{ rowNumber: 10, error: 'sheet write failed: quota' }] };
+    for (let i = 0; i < 5; i++) await a.onReconcileResult(failing);
+    expect(send).toHaveBeenCalledTimes(1);
+    now += 60 * 60 * 1000; // 1시간 뒤 · 날짜가 바뀌어도
+    await a.onReconcileResult({ ...ok, reconciled: [12] });
+    now += 24 * 60 * 60 * 1000;
+    await a.onReconcileResult({ ...ok, reconciled: [12] });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
   it('#288: 실패 단계 분류', () => {
+    expect(classifyReconcileFailure('reconcile aborted: x')).toBe('전체 중단');
     expect(classifyReconcileFailure('row read failed: x')).toBe('행 읽기');
     expect(classifyReconcileFailure('sheet write failed: x')).toBe('시트 쓰기');
     expect(classifyReconcileFailure('post-write row check failed: x')).toBe('쓴 뒤 확인');

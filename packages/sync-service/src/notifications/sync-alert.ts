@@ -13,6 +13,11 @@ import type { HermesOutcome } from './hermes-client.js';
 import type { NoticeLogger } from './new-order-notifier.js';
 
 export const FAILURE_THRESHOLD = 5;
+/**
+ * #288: 주문 단위 실패 수를 버리는 시간 — 재조정기 백오프 최대(1시간)의 2배. 그동안 다시 실패하지 않으면
+ * (대상에서 빠졌거나 · 웹 쓰기가 맞췄거나 · 삭제됨) 연속이 아니다
+ */
+export const RECONCILE_ROW_FAILURE_TTL_MS = 2 * 60 * 60 * 1000;
 const MAX_LISTED_ROWS = 5;
 const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
 
@@ -82,6 +87,7 @@ const RECONCILE_FAILURE_STAGES: ReadonlyArray<[prefix: string, label: string]> =
   ['post-write row check failed', '쓴 뒤 확인'],
   ['columns missing', '열 없음'],
   ['clear or re-mark failed', 'DB 표시 정리'],
+  ['reconcile aborted', '전체 중단'],
 ];
 
 export function classifyReconcileFailure(error: string): string {
@@ -150,8 +156,12 @@ export class SyncAlerter {
   private active = true;
   private consecutiveFailures = 0;
   private consecutiveReconcileFailures = 0;
-  /** #288: 주문(시트 행) 단위 연속 실패 — 실패하면 +1 · 맞추면(또는 stale) 지운다 · 시도되지 않은 회차(백오프)는 그대로 */
-  private readonly reconcileRowFailures = new Map<number, { count: number; stage: string }>();
+  /**
+   * #288: 주문(시트 행) 단위 연속 실패 — 실패하면 +1 · 맞추면(또는 stale) 지운다 · 시도되지 않은 회차(백오프)는 그대로 ·
+   * 마지막 실패 뒤 RECONCILE_ROW_FAILURE_TTL_MS 가 지나면 버린다. 키는 시트 행 번호다(hybrid 에서 행 ↔ 주문 1:1 ·
+   * 재조정기 백오프는 주문 id 로 센다)
+   */
+  private readonly reconcileRowFailures = new Map<number, { count: number; stage: string; lastFailedAt: number }>();
   private readonly sentKeys = new Set<string>();
 
   constructor(private readonly deps: SyncAlerterDeps) {}
@@ -193,15 +203,25 @@ export class SyncAlerter {
    * 회차 단위 연속 수는 정상 주문이 섞인 회차에 0 으로 돌아가 막힌 주문을 놓쳤다
    */
   private async trackReconcileRows(result: ReconcileAlertInput): Promise<void> {
-    // 맞췄거나 그 사이 바뀐(stale — 실패가 아니다 · 다음 회차가 최신 값으로) 주문은 지운다
+    const now = this.now().getTime();
+    // 오래된 항목 · 맞췄거나 그 사이 바뀐(stale — 실패가 아니다 · 다음 회차가 최신 값으로) 주문은 지운다
+    for (const [row, f] of this.reconcileRowFailures) {
+      if (now - f.lastFailedAt > RECONCILE_ROW_FAILURE_TTL_MS) this.reconcileRowFailures.delete(row);
+    }
     for (const row of [...(result.reconciled ?? []), ...(result.stale ?? [])]) this.reconcileRowFailures.delete(row);
-    for (const { rowNumber, error } of result.failed) {
+    // 행 0 은 회차 전체 중단(reconcile aborted) — 회차 단위 연속 수가 센다
+    const failedRows = result.failed.filter((f) => f.rowNumber > 0);
+    for (const { rowNumber, error } of failedRows) {
       const prev = this.reconcileRowFailures.get(rowNumber)?.count ?? 0;
-      this.reconcileRowFailures.set(rowNumber, { count: prev + 1, stage: classifyReconcileFailure(error) });
+      this.reconcileRowFailures.set(rowNumber, { count: prev + 1, stage: classifyReconcileFailure(error), lastFailedAt: now });
     }
     const threshold = this.deps.failureThreshold ?? FAILURE_THRESHOLD;
+    // 이번 회차에 실패해 임계값 이상인 주문이 있을 때만 — 오래 남은 항목이 매일 경고를 다시 보내지 않게
+    const failedNow = new Set(failedRows.map((f) => f.rowNumber));
+    const triggered = [...failedNow].some((row) => (this.reconcileRowFailures.get(row)?.count ?? 0) >= threshold);
+    if (!triggered) return;
+    // 회차 단위 경고와 같은 키 — 같은 날은 먼저 나간 하나만(둘 다 "재조정 실패" 다)
     const stuck = [...this.reconcileRowFailures.values()].filter((f) => f.count >= threshold);
-    if (stuck.length === 0) return;
     await this.sendOncePerDay(
       'sheet-reconcile-failure',
       buildReconcileStuckOrdersMessage(stuck.map((f) => f.stage), threshold, this.deps.adminWebUrl)
@@ -222,6 +242,10 @@ export class SyncAlerter {
     );
   }
 
+  private now(): Date {
+    return (this.deps.now ?? (() => new Date()))();
+  }
+
   /** 동기화 전체가 실패한 회차(락 충돌 제외) */
   async onSyncFailure(): Promise<void> {
     this.consecutiveFailures++;
@@ -231,7 +255,7 @@ export class SyncAlerter {
 
   private async sendOncePerDay(kind: string, message: HermesMessage): Promise<void> {
     if (!this.active || (this.deps.isActive && !this.deps.isActive())) return;
-    const key = `${kind}-${kstDateKey((this.deps.now ?? (() => new Date()))())}`;
+    const key = `${kind}-${kstDateKey(this.now())}`;
     if (this.sentKeys.has(key)) return;
 
     try {
