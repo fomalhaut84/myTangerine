@@ -10,7 +10,7 @@
  */
 
 import { describe, it, expect, vi } from 'vitest';
-import { SyncAlerter, buildSyncStallMessage, buildSyncFailureMessage, kstDateKey } from '../sync-alert.js';
+import { SyncAlerter, buildSyncStallMessage, buildSyncFailureMessage, kstDateKey, classifyReconcileFailure, RECONCILE_ROW_FAILURE_TTL_MS } from '../sync-alert.js';
 
 const NOW = new Date('2026-11-19T16:30:00Z'); // KST 11-20 01:30
 const logger = () => ({ info: vi.fn(), warn: vi.fn(), error: vi.fn() });
@@ -186,6 +186,107 @@ describe('SyncAlerter.onReconcileResult — 시트 재조정 (#231)', () => {
     expect(send).toHaveBeenCalledTimes(1);
     expect(send.mock.calls[0][1]).toBe('sheet-reconcile-failure-2026-11-20');
     expect(send.mock.calls[0][0].text).not.toContain('quota'); // 오류 원문은 넣지 않는다
+  });
+
+  // #288: 막힌 주문이 백오프로 띄엄띄엄 시도되는 사이 다른 주문이 맞춰지면 회차 단위 연속 수는 0 으로 돌아갔다
+  it('#288: 정상 주문이 섞인 회차가 있어도 같은 주문이 5회 실패하면 경고한다', async () => {
+    const { a, send } = alerter();
+    const mixed = { ...ok, reconciled: [11], failed: [{ rowNumber: 10, error: 'columns missing in sheet header, values not applied: 송장번호' }] };
+    for (let i = 0; i < 4; i++) {
+      await a.onReconcileResult(mixed);
+      await a.onReconcileResult({ ...ok, reconciled: [12], failed: [] }); // 막힌 주문은 백오프로 건너뜀
+    }
+    expect(send).not.toHaveBeenCalled();
+    await a.onReconcileResult(mixed);
+    expect(send).toHaveBeenCalledTimes(1);
+    expect(send.mock.calls[0][1]).toBe('sheet-reconcile-failure-2026-11-20');
+    const text: string = send.mock.calls[0][0].text;
+    expect(text).toContain('주문 1건');
+    expect(text).toContain('열 없음');
+    expect(text).not.toContain('송장번호'); // 오류 원문(열 이름 · 값)은 넣지 않는다
+    expect(text).not.toMatch(/행 10/); // 행 번호도 넣지 않는다
+  });
+
+  it('#288: 그 주문이 맞춰지면 그 주문의 연속 수는 0 으로', async () => {
+    const { a, send } = alerter();
+    const failing = { ...ok, reconciled: [], failed: [{ rowNumber: 10, error: 'sheet write failed: quota' }] };
+    for (let i = 0; i < 4; i++) await a.onReconcileResult(failing);
+    await a.onReconcileResult({ ...ok, reconciled: [10] });
+    for (let i = 0; i < 4; i++) await a.onReconcileResult(failing);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('#288: 그 사이 바뀐(stale) 주문도 연속 수를 지운다', async () => {
+    const { a, send } = alerter();
+    const failing = { ...ok, reconciled: [11], failed: [{ rowNumber: 10, error: 'sheet write failed: quota' }] };
+    for (let i = 0; i < 4; i++) await a.onReconcileResult(failing);
+    await a.onReconcileResult({ ...ok, reconciled: [], stale: [10] });
+    await a.onReconcileResult(failing);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('#288: 경고 문구에 실패 단계를 넣는다(회차 단위 경고도)', async () => {
+    const { a, send } = alerter();
+    const failing = {
+      ...ok,
+      reconciled: [],
+      failed: [
+        { rowNumber: 10, error: 'sheet write failed: quota' },
+        { rowNumber: 11, error: 'post-write row check failed: timeout' },
+      ],
+    };
+    for (let i = 0; i < 5; i++) await a.onReconcileResult(failing);
+    expect(send).toHaveBeenCalledTimes(1);
+    const text: string = send.mock.calls[0][0].text;
+    expect(text).toContain('시트 쓰기 1');
+    expect(text).toContain('쓴 뒤 확인 1');
+    expect(text).not.toContain('quota');
+  });
+
+  it('#288: 회차 전체 중단(행 0)은 주문 단위로 세지 않는다 — 회차 단위 연속 수만', async () => {
+    const { a, send } = alerter();
+    const aborted = { ...ok, attempted: 1, reconciled: [], failed: [{ rowNumber: 0, error: 'reconcile aborted: boom' }] };
+    for (let i = 0; i < 4; i++) {
+      await a.onReconcileResult(aborted);
+      await a.onReconcileResult(ok); // 회차 단위 수는 0 으로
+    }
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('#288: 마지막 실패 뒤 2시간이 지나면 주문 단위 수를 버린다(대상에서 빠진 주문 · 떨어진 실패)', async () => {
+    let now = NOW.getTime();
+    const { a, send } = alerter(undefined, { now: () => new Date(now) });
+    const failing = { ...ok, reconciled: [11], failed: [{ rowNumber: 10, error: 'sheet write failed: quota' }] };
+    for (let i = 0; i < 4; i++) {
+      await a.onReconcileResult(failing);
+      await a.onReconcileResult({ ...ok, reconciled: [12] }); // 회차 단위 수는 0 으로
+    }
+    now += RECONCILE_ROW_FAILURE_TTL_MS + 1;
+    await a.onReconcileResult(failing);
+    expect(send).not.toHaveBeenCalled();
+  });
+
+  it('#288: 이번 회차에 실패하지 않은 주문만 남아 있으면 다시 경고하지 않는다(다음 날에도)', async () => {
+    let now = NOW.getTime();
+    const { a, send } = alerter(undefined, { now: () => new Date(now) });
+    const failing = { ...ok, reconciled: [11], failed: [{ rowNumber: 10, error: 'sheet write failed: quota' }] };
+    for (let i = 0; i < 5; i++) await a.onReconcileResult(failing);
+    expect(send).toHaveBeenCalledTimes(1);
+    now += 60 * 60 * 1000; // 1시간 뒤 · 날짜가 바뀌어도
+    await a.onReconcileResult({ ...ok, reconciled: [12] });
+    now += 24 * 60 * 60 * 1000;
+    await a.onReconcileResult({ ...ok, reconciled: [12] });
+    expect(send).toHaveBeenCalledTimes(1);
+  });
+
+  it('#288: 실패 단계 분류', () => {
+    expect(classifyReconcileFailure('reconcile aborted: x')).toBe('전체 중단');
+    expect(classifyReconcileFailure('row read failed: x')).toBe('행 읽기');
+    expect(classifyReconcileFailure('sheet write failed: x')).toBe('시트 쓰기');
+    expect(classifyReconcileFailure('post-write row check failed: x')).toBe('쓴 뒤 확인');
+    expect(classifyReconcileFailure('columns missing in sheet header, values not applied: a')).toBe('열 없음');
+    expect(classifyReconcileFailure('clear or re-mark failed: x')).toBe('DB 표시 정리');
+    expect(classifyReconcileFailure('something else')).toBe('기타');
   });
 
   it('대상이 없던 회차(attempted 0)는 연속 실패 수를 바꾸지 않는다', async () => {
