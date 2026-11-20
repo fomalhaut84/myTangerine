@@ -449,8 +449,10 @@ export class HybridDataService {
    *    맞춰졌다는 보장이 없다(PR #230 Codex P2). 행 전체 재조정(#231)이 지운다
    *    DB 가 앞선 상태는 증분 동기화가 바꾸지 않고(#281) 시트 우선 가져오기도 덮어쓰지 않는다(재조정 대기 · #228)
    * 3. #293 먼저 표시: DB 를 쓰기 전에 대상 행에 "시트 반영 대기" 표시(이번 쓰기 고유값)를 남긴다 — 표시를 못 남기면
-   *    아무것도 쓰지 않고 HybridWriteError(503). 시트까지 성공하면 그 고유값일 때만 지운다. DB 실패면 거둔다.
-   *    시트 실패 · 행 확인 불가면 실패 사유로 덮는다. 그래서 표시 기록 실패 · 중간 종료에도 DB 전용 변경이 표시 없이 남지 않는다
+   *    아무것도 쓰지 않고 HybridWriteError(503). 시트까지 성공하면 그 고유값일 때만 지운다.
+   *    DB 실패면 표시를 남긴다 — 커밋 응답만 유실돼 실제로는 커밋됐을 수 있다(5분 뒤 재조정이 다른 칸만 맞추고 지운다).
+   *    시트 실패 · 행 확인 불가면 실패 사유로 덮는다. 그래서 표시 기록 실패 · 중간 종료에도 DB 전용 변경이 표시 없이
+   *    남지 않는다 — 예외: 같은 행에 쓰기가 동시에 오고 그 도중 프로세스가 끝나는 경우(매우 드묾)
    */
   private async hybridWrite(
     operation: string,
@@ -477,9 +479,8 @@ export class HybridDataService {
     try {
       await dbWrite();
     } catch (dbError) {
-      this.logger?.error(`[hybrid] ${operation} DB failed — Sheets not written (${target}): ${describeError(dbError)}`);
-      // DB 는 바뀌지 않았다 — 대기 표시를 거둔다(실패하면 표시가 남고 재조정이 같은 값을 다시 쓸 뿐이다)
-      await this.clearPendingMark(operation, pendingRows, token);
+      // 대기 표시는 남긴다 — 커밋 여부가 불분명할 수 있다(재조정이 맞춘다 · 그동안 시트 우선 가져오기가 덮지 않는다)
+      this.logger?.error(`[hybrid] ${operation} DB failed — Sheets not written, pending mark kept (${target}): ${describeError(dbError)}`);
       throw new HybridWriteError(operation, dbError);
     }
 

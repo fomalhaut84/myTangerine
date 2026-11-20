@@ -417,13 +417,27 @@ export class DatabaseService {
    * #293: hybrid 쓰기 전에 "시트 반영 대기" 표시를 먼저 남긴다 — 이번 쓰기의 고유값(token)을 사유 칸에 둔다.
    * DB 를 쓴 뒤 시트까지 성공하면 `clearSheetWritePending` 이 같은 고유값일 때만 지운다. 표시 기록 실패 · 중간 종료에도
    * DB 전용 변경이 표시 없이 남지 않게 한다(시트 우선 가져오기 · 재조정이 이 표시를 본다).
-   * 이미 실패 표시가 있는 행은 건드리지 않는다 — 그 사유와 재조정 대상 자격을 지킨다(일부 필드 쓰기의 성공으로 지우지 않는다 · PR #230)
+   * - 다른 쓰기의 대기 표시는 이번 고유값으로 덮는다 — 먼저 끝난 쓰기가 지워 이번 쓰기가 표시 없이 남지 않게
+   * - 진짜 실패 표시(사유)가 있는 행은 사유를 지키고(재조정 대상 자격 · PR #230) `updatedAt` 만 갱신한다 —
+   *   그 전에 읽은 재조정기가 표시를 지우지 못하게(`clearSheetSyncFailureIfUnchanged` 는 updatedAt 이 같을 때만 지운다)
+   * 남는 틈: 같은 행에 쓰기가 동시에 오고 그중 하나가 시트를 쓰기 전에 프로세스가 끝나면 표시가 빠질 수 있다(매우 드묾)
    */
   async markSheetWritePending(rowNumbers: number[], token: string): Promise<void> {
     if (rowNumbers.length === 0) return;
     await this._prisma.order.updateMany({
-      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: { not: 'failed' } },
+      where: {
+        sheetRowNumber: { in: rowNumbers },
+        OR: [{ syncStatus: { not: 'failed' } }, { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } }],
+      },
       data: { syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}${token}` },
+    });
+    await this._prisma.order.updateMany({
+      where: {
+        sheetRowNumber: { in: rowNumbers },
+        syncStatus: 'failed',
+        OR: [{ syncErrorMessage: null }, { NOT: { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } } }],
+      },
+      data: { updatedAt: new Date() },
     });
   }
 

@@ -147,11 +147,11 @@ describe('HybridDataService hybrid writes', () => {
         expect(f.sheet[method]).not.toHaveBeenCalled();
       });
 
-      it('#293: DB 쓰기가 실패하면 대기 표시를 거둔다(아무것도 바뀌지 않았다)', async () => {
+      it('#293: DB 쓰기가 실패해도 대기 표시를 남긴다(커밋 응답만 유실됐을 수 있다 — 재조정이 맞춘다)', async () => {
         f.db[method].mockRejectedValue(new Error('db down'));
         await call(hybrid(f)).catch(() => undefined);
-        const token = f.db.markSheetWritePending.mock.calls[0][1];
-        expect(f.db.clearSheetWritePending).toHaveBeenCalledWith(rows, token);
+        expect(f.db.markSheetWritePending).toHaveBeenCalled();
+        expect(f.db.clearSheetWritePending).not.toHaveBeenCalled();
       });
 
       it('#293: 시트가 실패하면 실패 사유로 표시하고 대기 표시는 지우지 않는다', async () => {

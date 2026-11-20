@@ -133,14 +133,29 @@ describe('DatabaseService — 시트 반영 대기 표시 (#293)', () => {
     expect(await service.markSheetSyncFailed([2, 3], 'x')).toBe(2);
   });
 
-  it('markSheetWritePending: 이미 실패 표시가 있는 행은 건드리지 않고(사유 보존) 나머지에 고유값으로 표시한다', async () => {
+  it('markSheetWritePending: 실패 표시가 없거나 다른 쓰기의 대기 표시인 행에 이번 고유값으로 표시한다', async () => {
     const { root, service } = setup();
     await service.markSheetWritePending([2, 3], 'tok-1');
-    expect(root.order.updateMany).toHaveBeenCalledWith({
-      where: { sheetRowNumber: { in: [2, 3] }, syncStatus: { not: 'failed' } },
+    expect(root.order.updateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        sheetRowNumber: { in: [2, 3] },
+        OR: [{ syncStatus: { not: 'failed' } }, { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } }],
+      },
       data: { syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}tok-1` },
     });
     expect(root.orderChangeLog.create).not.toHaveBeenCalled();
+  });
+
+  it('markSheetWritePending: 진짜 실패 표시(사유)가 있는 행은 사유를 지키고 updatedAt 만 갱신한다(먼저 읽은 재조정기가 지우지 못하게)', async () => {
+    const { root, service } = setup();
+    await service.markSheetWritePending([2], 'tok-1');
+    const second = root.order.updateMany.mock.calls[1][0];
+    expect(second.where).toEqual({
+      sheetRowNumber: { in: [2] },
+      syncStatus: 'failed',
+      OR: [{ syncErrorMessage: null }, { NOT: { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } } }],
+    });
+    expect(Object.keys(second.data)).toEqual(['updatedAt']);
   });
 
   it('clearSheetWritePending: 그 고유값이 그대로인 행만 성공으로 되돌린다(그 사이 실패 사유로 바뀐 행은 남긴다)', async () => {
