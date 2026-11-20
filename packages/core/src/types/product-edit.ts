@@ -2,26 +2,35 @@
  * 웹 상품 · 수량 수정 (#282)
  *
  * 상품 선택 오류(검증 실패) 주문을 웹에서 바로잡는다 — 시트는 사람이 고치지 않는다(hybrid 정본 = DB · S-10).
- * DB 와 시트가 같은 값을 쓰도록 수정 값 → 시트 칸 3개(`상품 선택` · `5kg 수량` · `10kg 수량`)를 여기서 한 번만 정한다.
+ * DB 와 시트가 같은 값을 쓰도록 수정 값 → 시트 칸(`상품 선택` + 카탈로그의 수량 칸 전부)을 여기서 한 번만 정한다.
  *
  * - 수정할 수 있는 상품은 5kg · 10kg 뿐이다(비상품은 2023 이후 주문 없음 · 사용자 2026-11-20)
- * - 상품 → 수량 칸은 PRODUCT_QUANTITY_COLUMN 표 하나다 — 상품이 늘면 표에만 더한다
+ * - 상품 · 수량 칸은 카탈로그(`catalog/products.ts`)가 정본이다 — 상품이 늘면 카탈로그에만 더한다 (#313)
  * - `상품 선택` 에는 상품 종류 그대로(`5kg` · `10kg`)를 쓴다 — 재조정(#231)이 쓰는 값과 같다. 폼 원문은 DB `original_input` 에 남는다
  * - 다른 상품의 수량 칸은 `''` 로 비운다 — `'0'` 을 쓰면 수량 해석(`extractQuantity`)이 5kg 칸을 먼저 읽어 0 이 된다
  */
 
-/** 웹에서 고를 수 있는 상품 */
-export const EDITABLE_PRODUCT_TYPES = ['5kg', '10kg'] as const;
-export type EditableProductType = (typeof EDITABLE_PRODUCT_TYPES)[number];
+import {
+  editableProductsOf,
+  findProduct,
+  quantityColumnsOf,
+  QUANTITY_STORAGE_FIELD,
+  type EditableProductType,
+  type QuantityColumn,
+  type QuantityStorageField,
+} from '../catalog/products.js';
 
-/** 수량을 쓰는 시트 칸 — 시트 컬럼명은 외부 계약이다(data-safety S-7) */
-export const QUANTITY_COLUMNS = ['5kg 수량', '10kg 수량'] as const;
-type QuantityColumn = (typeof QUANTITY_COLUMNS)[number];
+/** 웹에서 고를 수 있는 상품 — 정본은 catalog/products.ts 의 `editable` (#313) */
+export const EDITABLE_PRODUCT_TYPES = editableProductsOf() as readonly EditableProductType[];
+export type { EditableProductType };
 
-export const PRODUCT_QUANTITY_COLUMN: Readonly<Record<EditableProductType, QuantityColumn>> = {
-  '5kg': '5kg 수량',
-  '10kg': '10kg 수량',
-};
+/** 수량을 쓰는 시트 칸 — 시트 컬럼명은 외부 계약이다(data-safety S-7) · 카탈로그 순서 */
+export const QUANTITY_COLUMNS = quantityColumnsOf() as readonly QuantityColumn[];
+
+/** 상품 → 수량 칸 — 카탈로그에서 만든다 */
+export const PRODUCT_QUANTITY_COLUMN: Readonly<Record<EditableProductType, QuantityColumn>> = Object.fromEntries(
+  EDITABLE_PRODUCT_TYPES.map((id) => [id, findProduct(id)?.quantityColumn])
+) as Record<EditableProductType, QuantityColumn>;
 
 /** 수량 상한 — 오타(예: 100 → 1000) 방지 */
 export const MAX_EDIT_QUANTITY = 999;
@@ -77,7 +86,7 @@ export function resolveProductEdit(current: ProductEditCurrent, input: ProductEd
 
   const productType = input.productType ?? (isEditableProductType(current.productType) ? current.productType : null);
   if (!productType) {
-    throw new ProductEditError('지금 상품을 알 수 없습니다 — 상품(5kg · 10kg)을 함께 지정해 주세요.');
+    throw new ProductEditError(`지금 상품을 알 수 없습니다 — 상품(${EDITABLE_PRODUCT_TYPES.join(' · ')})을 함께 지정해 주세요.`);
   }
 
   const quantity = input.quantity ?? current.quantity;
@@ -104,11 +113,13 @@ export interface ProductEditOrderFields {
 }
 
 export function productEditToOrderFields(edit: ResolvedProductEdit): ProductEditOrderFields {
+  const quantityFields = Object.fromEntries(
+    QUANTITY_COLUMNS.map((column) => [QUANTITY_STORAGE_FIELD[column], edit.cells[column]])
+  ) as Record<QuantityStorageField, string>;
   return {
     productSelection: edit.cells['상품 선택'],
     productType: edit.productType,
-    quantity5kg: edit.cells['5kg 수량'],
-    quantity10kg: edit.cells['10kg 수량'],
+    ...quantityFields,
     quantity: edit.quantity,
     validationError: null,
   };

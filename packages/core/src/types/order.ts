@@ -1,4 +1,5 @@
 import type { Config } from '../config/config.js';
+import { readQuantity, resolveProductSelection, type ProductType } from '../catalog/products.js';
 
 /**
  * 발송인 정보
@@ -19,9 +20,9 @@ export interface Recipient {
 }
 
 /**
- * 상품 타입
+ * 상품 타입 — 정본은 catalog/products.ts (#313)
  */
-export type ProductType = '비상품' | '5kg' | '10kg';
+export type { ProductType } from '../catalog/products.js';
 
 /**
  * 주문 상태 (3단계 상태 체계)
@@ -298,32 +299,10 @@ export function parseKoreanTimestamp(timestampStr: string): Date {
 
 /**
  * 수량 추출 (Python 버전의 get_quantity 로직)
- * 5kg 수량, 10kg 수량 중 값이 있는 것을 반환, 없으면 1
+ * 수량 칸(카탈로그 순서 — 5kg 수량 → 10kg 수량) 중 처음 값이 있는 것, 없으면 1 (#313 catalog/products.ts)
  */
 export function extractQuantity(row: SheetRow): number {
-  const qty5kg = row['5kg 수량'];
-  const qty10kg = row['10kg 수량'];
-
-  // 5kg 수량 확인
-  if (qty5kg !== undefined && qty5kg !== null && String(qty5kg).trim() !== '') {
-    const str = String(qty5kg);
-    const match = str.match(/\d+/);
-    if (match) {
-      return parseInt(match[0], 10);
-    }
-  }
-
-  // 10kg 수량 확인
-  if (qty10kg !== undefined && qty10kg !== null && String(qty10kg).trim() !== '') {
-    const str = String(qty10kg);
-    const match = str.match(/\d+/);
-    if (match) {
-      return parseInt(match[0], 10);
-    }
-  }
-
-  // 기본값
-  return 1;
+  return readQuantity(row);
 }
 
 /**
@@ -406,19 +385,10 @@ export function validateProductSelection(productSelection: string): {
     };
   }
 
-  // '비상품' 매칭
-  if (productSelection.includes('비상품')) {
-    return {
-      isValid: true,
-      productType: '비상품',
-      reason: '',
-    };
-  }
+  // 카탈로그로 해석 — 비상품(글자 포함)을 먼저, 다음은 원문에서 먼저 나온 무게(단어 경계) (#313)
+  const productType = resolveProductSelection(productSelection);
 
-  // 정규식으로 정확한 5kg 또는 10kg 매칭 (단어 경계 사용)
-  const match = productSelection.match(/\b(5|10)kg\b/);
-
-  if (!match) {
+  if (!productType) {
     return {
       isValid: false,
       productType: null,
@@ -426,7 +396,6 @@ export function validateProductSelection(productSelection: string): {
     };
   }
 
-  const productType = `${match[1]}kg` as ProductType;
   return {
     isValid: true,
     productType,

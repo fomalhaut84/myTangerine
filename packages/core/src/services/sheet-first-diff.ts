@@ -6,6 +6,7 @@
  */
 
 import type { FieldChange } from './change-log-service.js';
+import { QUANTITY_STORAGE_FIELD } from '../catalog/products.js';
 
 /** 시트 우선 가져오기가 덮어쓰고 이력에 남기는 필드 (`sheetRowToPrismaOrderData` 결과 기준) */
 export const SHEET_FIRST_COMPARED_FIELDS = [
@@ -18,8 +19,8 @@ export const SHEET_FIRST_COMPARED_FIELDS = [
   'productSelection',
   'productType',
   'quantity',
-  'quantity5kg',
-  'quantity10kg',
+  // 수량 원문 칼럼 — 카탈로그의 저장 칼럼 표 (#313)
+  ...Object.values(QUANTITY_STORAGE_FIELD),
   'validationError',
   'ordererName',
   'ordererEmail',
