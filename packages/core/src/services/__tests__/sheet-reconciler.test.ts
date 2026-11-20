@@ -249,6 +249,22 @@ describe('SheetReconciler.reconcile', () => {
     expect(db.markSheetSyncFailedById).toHaveBeenCalledWith(1010, expect.stringContaining('reconcile'));
   });
 
+  it.each([
+    ['시트 쓰기 실패', { writeError: new Error('quota') }],
+  ] as const)('#293: %s — 쓰려던 주문에 실패 표시를 다시 남긴다', async (_label, opts) => {
+    const { reconciler, db } = setup([order(10)], opts);
+    await reconciler.reconcile();
+    expect(db.markSheetSyncFailedById).toHaveBeenCalledWith(1010, expect.stringContaining('#293'));
+  });
+
+  it('#293: 쓴 뒤 행 확인을 못 하면 쓴 주문에 실패 표시를 다시 남긴다', async () => {
+    const { reconciler, db, sheet } = setup([order(10)]);
+    (sheet.getTimestampsByRows as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('read failed'));
+    const result = await reconciler.reconcile();
+    expect(result.failed[0].error).toContain('post-write row check failed');
+    expect(db.markSheetSyncFailedById).toHaveBeenCalledWith(1010, expect.stringContaining('#293'));
+  });
+
   it('#293: 다시 표시하다 실패하면 그 주문만 실패로 남긴다(던지지 않는다)', async () => {
     const { reconciler, db } = setup([order(10)], { cleared: () => 0 });
     db.markSheetSyncFailedById.mockRejectedValue(new Error('db down'));
