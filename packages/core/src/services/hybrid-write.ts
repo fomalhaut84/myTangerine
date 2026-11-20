@@ -51,6 +51,26 @@ export class HybridWriteError extends Error {
   }
 }
 
+/** #229: DB 읽기 실패 시 사용자 문구 — 원인(접속 주소 · 오류 원문)은 로그에만 */
+export const DB_READ_FAILED_MESSAGE = '주문을 불러오지 못했습니다. 잠시 후 다시 시도해 주세요.';
+
+/**
+ * #229: DB 에서만 읽을 수 있는 주문(시트 행이 없는 배송사고 주문)의 조회가 DB 오류로 실패했다.
+ * 시트 폴백이 불가능하므로 원인 불명 500 대신 일반 문구의 503 으로 답한다(전역 에러 핸들러가 publicMessage 를 쓴다)
+ */
+export class HybridReadError extends Error {
+  readonly statusCode = 503;
+  readonly publicMessage = DB_READ_FAILED_MESSAGE;
+
+  constructor(
+    readonly operation: string,
+    readonly dbError: unknown
+  ) {
+    super(`Hybrid ${operation} failed in database: ${describeError(dbError)}`);
+    this.name = 'HybridReadError';
+  }
+}
+
 export function describeError(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
