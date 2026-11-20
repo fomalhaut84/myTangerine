@@ -36,7 +36,9 @@ function setup(opts: {
     updateOrderStatus: vi.fn().mockResolvedValue(undefined),
     markDelivered: vi.fn().mockResolvedValue(undefined),
     updateOrder: vi.fn().mockResolvedValue(undefined),
-    markSheetSyncFailed: vi.fn(),
+    markSheetSyncFailed: vi.fn().mockResolvedValue(1),
+    markSheetWritePending: vi.fn().mockResolvedValue(undefined),
+    clearSheetWritePending: vi.fn().mockResolvedValue(1),
     getOrderTimestampsByRows: vi.fn(
       async (rows: number[]) =>
         new Map(

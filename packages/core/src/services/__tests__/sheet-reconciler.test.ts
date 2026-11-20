@@ -109,6 +109,7 @@ function setup(
       if (r instanceof Error) throw r;
       return r;
     }),
+    markSheetSyncFailedById: vi.fn().mockResolvedValue(1),
   };
   const reconciler = new SheetReconciler(sheet as unknown as SheetService, db as unknown as DatabaseService, undefined, {
     now: opts.now ?? (() => 0),
@@ -240,6 +241,37 @@ describe('SheetReconciler.reconcile', () => {
     expect(result).toMatchObject({ reconciled: [], stale: [10] });
   });
 
+  // 회귀: PR #301 Codex P2 (재조정이 고른 뒤 웹 쓰기가 끝나 표시를 지우면, 재조정이 쓴 예전 값이 표시 없이 남았다)
+  it('#293: 칸을 쓴 뒤 조건 해제가 0건이면(그 사이 바뀜) 실패 표시를 다시 남긴다 — 다음 회차가 최신 DB 값으로 맞춘다', async () => {
+    const { reconciler, db, writes } = setup([order(10)], { cleared: () => 0 });
+    await reconciler.reconcile();
+    expect(writes.length).toBeGreaterThan(0);
+    expect(db.markSheetSyncFailedById).toHaveBeenCalledWith(1010, expect.stringContaining('reconcile'));
+  });
+
+  it.each([
+    ['시트 쓰기 실패', { writeError: new Error('quota') }],
+  ] as const)('#293: %s — 쓰려던 주문에 실패 표시를 다시 남긴다', async (_label, opts) => {
+    const { reconciler, db } = setup([order(10)], opts);
+    await reconciler.reconcile();
+    expect(db.markSheetSyncFailedById).toHaveBeenCalledWith(1010, expect.stringContaining('#293'));
+  });
+
+  it('#293: 쓴 뒤 행 확인을 못 하면 쓴 주문에 실패 표시를 다시 남긴다', async () => {
+    const { reconciler, db, sheet } = setup([order(10)]);
+    (sheet.getTimestampsByRows as ReturnType<typeof vi.fn>).mockRejectedValueOnce(new Error('read failed'));
+    const result = await reconciler.reconcile();
+    expect(result.failed[0].error).toContain('post-write row check failed');
+    expect(db.markSheetSyncFailedById).toHaveBeenCalledWith(1010, expect.stringContaining('#293'));
+  });
+
+  it('#293: 다시 표시하다 실패하면 그 주문만 실패로 남긴다(던지지 않는다)', async () => {
+    const { reconciler, db } = setup([order(10)], { cleared: () => 0 });
+    db.markSheetSyncFailedById.mockRejectedValue(new Error('db down'));
+    const result = await reconciler.reconcile();
+    expect(result.failed).toEqual([{ rowNumber: 10, error: expect.stringContaining('re-mark failed') }]);
+  });
+
   it('표시 해제 DB 오류는 그 주문만 실패로 — 다른 주문 결과는 남는다(던지지 않는다)', async () => {
     const { reconciler } = setup([order(10), order(11)], { cleared: (id) => (id === 1010 ? new Error('db down') : 1) });
     const result = await reconciler.reconcile();
@@ -300,7 +332,8 @@ describe('DatabaseService 재조정 쿼리', () => {
     const svc = new DatabaseService({} as never, { order: { findMany } } as never);
     await svc.getSheetSyncFailedOrders(10);
     expect(findMany).toHaveBeenCalledWith({
-      where: { syncStatus: 'failed', sheetRowNumber: { not: null } },
+      // #293: 진행 중인 대기 표시 제외 조건(OR)은 database-service-transaction.test.ts 에서 본다
+      where: expect.objectContaining({ syncStatus: 'failed', sheetRowNumber: { not: null }, OR: expect.any(Array) }),
       orderBy: { updatedAt: 'asc' },
       take: 10,
     });

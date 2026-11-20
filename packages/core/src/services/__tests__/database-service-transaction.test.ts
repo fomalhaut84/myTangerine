@@ -7,7 +7,7 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { DatabaseService } from '../database-service.js';
+import { DatabaseService, SHEET_WRITE_PENDING_PREFIX, SHEET_WRITE_PENDING_GRACE_MS } from '../database-service.js';
 import type { Config } from '../../config/config.js';
 
 const ORDER = {
@@ -54,7 +54,6 @@ const WRITES: Array<[string, (s: DatabaseService) => Promise<unknown>]> = [
   ['softDelete', (s) => s.softDelete([2], 'web')],
   ['restore', (s) => s.restore([2], 'web')],
   ['updateOrder', (s) => s.updateOrder(2, { productType: '5kg', quantity: 2, recipient: { name: '새이름' } }, 'web')],
-  ['updateCell', (s) => s.updateCell(2, '비고', '입금확인')],
 ];
 
 describe('DatabaseService write transactions', () => {
@@ -124,5 +123,82 @@ describe('DatabaseService.markSheetSyncFailed', () => {
     const { root, service } = setup();
     await service.markSheetSyncFailed([], 'x');
     expect(root.order.updateMany).not.toHaveBeenCalled();
+  });
+});
+
+describe('DatabaseService — 시트 반영 대기 표시 (#293)', () => {
+  it('markSheetSyncFailed 는 표시한 행 수를 돌려준다', async () => {
+    const { root, service } = setup();
+    root.order.updateMany.mockResolvedValue({ count: 2 });
+    expect(await service.markSheetSyncFailed([2, 3], 'x')).toBe(2);
+  });
+
+  it('markSheetWritePending: 실패 표시가 없거나 다른 쓰기의 대기 표시인 행에 이번 고유값으로 표시한다', async () => {
+    const { root, service } = setup();
+    await service.markSheetWritePending([2, 3], 'tok-1');
+    expect(root.order.updateMany).toHaveBeenNthCalledWith(1, {
+      where: {
+        sheetRowNumber: { in: [2, 3] },
+        OR: [{ syncStatus: { not: 'failed' } }, { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } }],
+      },
+      data: { syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}tok-1` },
+    });
+    expect(root.orderChangeLog.create).not.toHaveBeenCalled();
+  });
+
+  it('markSheetWritePending: 진짜 실패 표시(사유)가 있는 행은 사유를 지키고 updatedAt 만 갱신한다(먼저 읽은 재조정기가 지우지 못하게)', async () => {
+    const { root, service } = setup();
+    await service.markSheetWritePending([2], 'tok-1');
+    const second = root.order.updateMany.mock.calls[1][0];
+    expect(second.where).toEqual({
+      sheetRowNumber: { in: [2] },
+      syncStatus: 'failed',
+      OR: [{ syncErrorMessage: null }, { NOT: { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } } }],
+    });
+    expect(Object.keys(second.data)).toEqual(['updatedAt']);
+  });
+
+  it('clearSheetWritePending: 그 고유값이 그대로인 행만 성공으로 되돌린다(그 사이 실패 사유로 바뀐 행은 남긴다)', async () => {
+    const { root, service } = setup();
+    root.order.updateMany.mockResolvedValue({ count: 1 });
+    expect(await service.clearSheetWritePending([2, 3], 'tok-1')).toBe(1);
+    expect(root.order.updateMany).toHaveBeenCalledWith({
+      where: { sheetRowNumber: { in: [2, 3] }, syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}tok-1` },
+      data: { syncStatus: 'success', syncErrorMessage: null },
+    });
+  });
+
+  it.each(['markSheetWritePending', 'clearSheetWritePending'] as const)('%s: 빈 행 목록이면 아무것도 하지 않는다', async (m) => {
+    const { root, service } = setup();
+    await service[m]([], 'tok');
+    expect(root.order.updateMany).not.toHaveBeenCalled();
+  });
+
+  it('markSheetSyncFailedById: 그 주문 하나에 실패 사유를 남긴다', async () => {
+    const { root, service } = setup();
+    root.order.updateMany.mockResolvedValue({ count: 1 });
+    expect(await service.markSheetSyncFailedById(7, 'reconcile stale')).toBe(1);
+    expect(root.order.updateMany).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { syncStatus: 'failed', syncErrorMessage: 'reconcile stale' },
+    });
+  });
+
+  it('getSheetSyncFailedOrders: 진행 중인(최근) 대기 표시는 재조정 대상에서 뺀다 — 오래된 표시(중간 종료)는 넣는다', async () => {
+    const { root, service } = setup();
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-11-20T10:00:00Z'));
+    try {
+      await service.getSheetSyncFailedOrders(10);
+    } finally {
+      vi.useRealTimers();
+    }
+    const where = root.order.findMany.mock.calls[0][0].where;
+    expect(where).toMatchObject({ syncStatus: 'failed', sheetRowNumber: { not: null } });
+    expect(where.OR).toEqual([
+      { syncErrorMessage: null },
+      { NOT: { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } } },
+      { updatedAt: { lte: new Date(Date.parse('2026-11-20T10:00:00Z') - SHEET_WRITE_PENDING_GRACE_MS) } },
+    ]);
   });
 });
