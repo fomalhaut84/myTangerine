@@ -17,6 +17,7 @@ import { ChangeLogService, type FieldChange } from './change-log-service.js';
 import { normalizeTimestampRaw } from './sheet-row-identity.js';
 import { buildOriginalInput, type OriginalInput } from './original-input.js';
 import { diffSheetFirstOverwrite } from './sheet-first-diff.js';
+import { resolveProductEdit, productEditToOrderFields, type EditableProductType } from '../types/product-edit.js';
 
 /**
  * #266: findOrderAtOtherRow 후보 창 — 해석한 시각 기준 ±27시간.
@@ -1138,7 +1139,7 @@ export class DatabaseService {
     updates: {
       sender?: { name?: string; phone?: string; address?: string };
       recipient?: { name?: string; phone?: string; address?: string };
-      productType?: '5kg' | '10kg' | '비상품';
+      productType?: EditableProductType;
       quantity?: number;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
@@ -1187,25 +1188,14 @@ export class DatabaseService {
           }
         }
 
-        // 상품 정보
-        if (updates.productType !== undefined) {
-          data.productType = updates.productType;
-        }
-
-        // 수량 (5kg 또는 10kg 수량 필드에 저장)
-        // 8차 리뷰: Prisma 스키마의 String 타입에 맞게 문자열로 저장
-        if (updates.quantity !== undefined) {
-          const productType = updates.productType || beforeOrder.productType;
-          if (productType?.includes('5kg')) {
-            data.quantity5kg = String(updates.quantity);
-            data.quantity10kg = '0';
-          } else if (productType?.includes('10kg')) {
-            data.quantity10kg = String(updates.quantity);
-            data.quantity5kg = '0';
-          }
-          // P2 Fix: derived quantity 필드도 함께 업데이트 (claim 주문 복제 등에서 사용)
-          data.quantity = updates.quantity;
-        }
+        // #282 상품 · 수량 — 화면 · PDF · 통계가 다시 해석하는 칸(상품 선택 원문 · 수량 문자열)과 검증 오류를 함께 맞춘다.
+        // 최초 입력값(original_input)은 바꾸지 않는다. 잘못된 값이면 ProductEditError 로 아무것도 쓰지 않는다
+        const productEdit = resolveProductEdit(
+          { productType: beforeOrder.productType, quantity: beforeOrder.quantity },
+          { productType: updates.productType, quantity: updates.quantity }
+        );
+        const productFields = productEdit ? productEditToOrderFields(productEdit) : {};
+        Object.assign(data, productFields);
 
         // 주문 유형
         if (updates.orderType !== undefined) {
@@ -1269,46 +1259,10 @@ export class DatabaseService {
           }
         }
 
-        // 상품 타입 변경 감지 (6차 리뷰)
-        if (updates.productType !== undefined && updates.productType !== beforeOrder.productType) {
-          fieldChanges.productType = { old: beforeOrder.productType, new: updates.productType };
-        }
-
-        // 수량 변경 감지 (6차 + 7차 + 8차 리뷰)
-        // productType 변경 시 반대 수량 필드 리셋도 기록
-        // 8차 리뷰: 로그에도 String 타입으로 일관성 유지
-        if (updates.quantity !== undefined) {
-          const productType = updates.productType || beforeOrder.productType;
-          const isProductTypeChanging = updates.productType !== undefined && updates.productType !== beforeOrder.productType;
-          const newQtyStr = String(updates.quantity);
-
-          if (productType?.includes('5kg')) {
-            // 새 값이 5kg 수량으로 설정됨
-            const old5kg = beforeOrder.quantity5kg ?? '';
-            if (newQtyStr !== old5kg) {
-              fieldChanges.quantity5kg = { old: old5kg, new: newQtyStr };
-            }
-            // productType 변경 시 10kg 수량이 0으로 리셋되는 것도 기록
-            if (isProductTypeChanging) {
-              const old10kg = beforeOrder.quantity10kg ?? '';
-              if (old10kg !== '0' && old10kg !== '') {
-                fieldChanges.quantity10kg = { old: old10kg, new: '0' };
-              }
-            }
-          } else if (productType?.includes('10kg')) {
-            // 새 값이 10kg 수량으로 설정됨
-            const old10kg = beforeOrder.quantity10kg ?? '';
-            if (newQtyStr !== old10kg) {
-              fieldChanges.quantity10kg = { old: old10kg, new: newQtyStr };
-            }
-            // productType 변경 시 5kg 수량이 0으로 리셋되는 것도 기록
-            if (isProductTypeChanging) {
-              const old5kg = beforeOrder.quantity5kg ?? '';
-              if (old5kg !== '0' && old5kg !== '') {
-                fieldChanges.quantity5kg = { old: old5kg, new: '0' };
-              }
-            }
-          }
+        // #282 상품 · 수량 변경 감지 — 이전 값을 모두 남긴다
+        for (const [field, value] of Object.entries(productFields)) {
+          const old = (beforeOrder as Record<string, unknown>)[field] ?? null;
+          if (old !== value) fieldChanges[field] = { old, new: value };
         }
 
         // 변경사항이 있으면 로그 기록

@@ -19,6 +19,13 @@ import { Card } from '@/components/common/Card';
 import { StatusBadge } from '@/components/orders/StatusBadge';
 import { ChangeHistoryTab } from '@/components/orders/ChangeHistoryTab';
 import { OriginalInputSection } from '@/components/orders/OriginalInputSection';
+import { ProductEditFields } from '@/components/orders/ProductEditFields';
+import {
+  buildProductEditPayload,
+  canEditProduct,
+  initialProductEditForm,
+  type ProductEditForm,
+} from '@/lib/product-edit';
 import { Input } from '@/components/ui/input';
 import Link from 'next/link';
 import { useParams, useRouter, useSearchParams } from 'next/navigation';
@@ -66,6 +73,8 @@ export default function OrderDetailPage() {
   // 수정 모드 상태 (Issue #136)
   const [isEditMode, setIsEditMode] = useState(false);
   const [editForm, setEditForm] = useState<OrderUpdateData>({});
+  // #282 상품 · 수량 수정 (신규주문 · 입금확인만)
+  const [productForm, setProductForm] = useState<ProductEditForm>({});
   const [formErrors, setFormErrors] = useState<string[]>([]);
 
   // API에서 직접 주문을 가져옴 (더 이상 클라이언트에서 필터링하지 않음)
@@ -191,6 +200,7 @@ export default function OrderDetailPage() {
       // trackingNumber는 실제 값이 있을 때만 포함 (빈 문자열이면 undefined)
       trackingNumber: order.trackingNumber || undefined,
     });
+    setProductForm(canEditProduct(order) ? initialProductEditForm(order) : {});
     setFormErrors([]);
     setIsEditMode(true);
   };
@@ -199,6 +209,7 @@ export default function OrderDetailPage() {
   const handleCancelEdit = () => {
     setIsEditMode(false);
     setEditForm({});
+    setProductForm({});
     setFormErrors([]);
   };
 
@@ -216,6 +227,12 @@ export default function OrderDetailPage() {
       if (editForm.recipient?.address?.trim() === '') errors.push('수취인 주소는 필수입니다.');
     }
 
+    // #282 상품 · 수량 — 바뀐 값만 보낸다(오류 주문은 상품을 골라야 한다)
+    const productResult = canEditProduct(order)
+      ? buildProductEditPayload(order, productForm)
+      : ({ ok: true, payload: {} } as const);
+    if (!productResult.ok) errors.push(productResult.error);
+
     if (errors.length > 0) {
       setFormErrors(errors);
       return;
@@ -228,6 +245,7 @@ export default function OrderDetailPage() {
       if (editForm.sender) cleanedData.sender = editForm.sender;
       if (editForm.recipient) cleanedData.recipient = editForm.recipient;
       if (editForm.orderType) cleanedData.orderType = editForm.orderType;
+      if (productResult.ok) Object.assign(cleanedData, productResult.payload);
     }
     // trackingNumber 처리
     // - 값이 있으면: 수정
@@ -257,6 +275,7 @@ export default function OrderDetailPage() {
       toast.success('주문이 수정되었습니다.');
       setIsEditMode(false);
       setEditForm({});
+      setProductForm({});
       refetch();
     } catch (err) {
       const message = err instanceof Error ? err.message : '주문 수정 중 오류가 발생했습니다.';
@@ -523,9 +542,17 @@ export default function OrderDetailPage() {
           </dl>
         </Card>
 
-        {/* 상품 정보 - 상품 타입/수량은 수정 불가 (정책) */}
+        {/* 상품 정보 - #282: 신규주문 · 입금확인 주문은 상품 · 수량 수정 가능 */}
         <Card title="상품 정보" className="mb-6">
           <dl className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {isEditMode && canEditProduct(order) ? (
+              <ProductEditFields
+                form={productForm}
+                onChange={setProductForm}
+                hasValidationError={Boolean(order.validationError)}
+              />
+            ) : (
+            <>
             <div>
               <dt className="text-sm font-medium text-gray-500">
                 상품 타입
@@ -565,6 +592,8 @@ export default function OrderDetailPage() {
                 <span className="text-sm text-gray-900">{order.quantity}개</span>
               </dd>
             </div>
+            </>
+            )}
             {/* 주문 유형 - 배송완료가 아닌 경우 수정 가능 */}
             {/* Issue #155: claim 타입은 "배송사고 등록" 버튼으로만 생성되므로 드롭다운에서 제거 */}
             {isEditMode && order.status !== '배송완료' ? (

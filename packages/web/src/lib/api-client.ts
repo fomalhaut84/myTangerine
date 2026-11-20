@@ -16,6 +16,7 @@ import type {
   StatsQueryParams,
 } from '@/types/api';
 import type { SyncResponse } from './sync-result';
+import type { EditableProduct } from './product-edit';
 
 /**
  * 브라우저는 API 서버를 직접 부르지 않는다 (#220).
@@ -210,11 +211,13 @@ export async function restoreOrder(rowNumber: number): Promise<{
 
 /**
  * 주문 수정용 데이터 타입
- * Note: productType, quantity는 수정 불가 (Issue #136 정책)
+ * #282: productType · quantity 는 신규주문 · 입금확인 주문에서만(서버가 판정 · lib/product-edit)
  */
 export interface OrderUpdateData {
   sender?: { name?: string; phone?: string; address?: string };
   recipient?: { name?: string; phone?: string; address?: string };
+  productType?: EditableProduct;
+  quantity?: number;
   orderType?: 'customer' | 'gift' | 'claim';
   trackingNumber?: string;
 }

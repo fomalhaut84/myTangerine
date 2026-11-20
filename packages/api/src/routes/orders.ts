@@ -3,7 +3,8 @@
  */
 
 import { FastifyPluginAsync } from 'fastify';
-import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, parseOrderType, ChangeLogService, type WriteOutcome } from '@mytangerine/core';
+import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, parseOrderType, ChangeLogService, EDITABLE_PRODUCT_TYPES, MAX_EDIT_QUANTITY, type WriteOutcome } from '@mytangerine/core';
+import { resolveProductPatch, type EditableProductType } from './product-patch.js';
 import {
   calculateStats,
   calculateOrderAmount,
@@ -1206,7 +1207,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
     Body: {
       sender?: { name?: string; phone?: string; address?: string };
       recipient?: { name?: string; phone?: string; address?: string };
-      // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
+      // #282: 상품 · 수량은 신규주문 · 입금확인에서만 (상품 선택 오류 바로잡기)
+      productType?: EditableProductType;
+      quantity?: number;
       // Issue #152: claim 추가
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
@@ -1217,7 +1220,9 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       schema: {
         tags: ['orders'],
         summary: '주문 정보 수정',
-        description: '주문의 수취인/발송인 정보, 주문 유형, 송장번호를 수정합니다. 상품 타입/수량은 수정 불가.',
+        description:
+          '주문의 수취인/발송인 정보, 주문 유형, 송장번호를 수정합니다. ' +
+          '상품 · 수량은 신규주문 · 입금확인 주문에서만 수정할 수 있고(배송사고 주문 제외), 고치면 상품 선택 검증 오류가 풀립니다 (#282).',
         params: {
           type: 'object',
           required: ['rowNumber'],
@@ -1252,7 +1257,17 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
                 address: { type: 'string', description: '수취인 주소' },
               },
             },
-            // 상품 타입/수량은 수정 불가 (정책: 주문 시 결정되는 핵심 정보)
+            productType: {
+              type: 'string',
+              enum: [...EDITABLE_PRODUCT_TYPES],
+              description: '상품 (#282 · 신규주문 · 입금확인만)',
+            },
+            quantity: {
+              type: 'integer',
+              minimum: 1,
+              maximum: MAX_EDIT_QUANTITY,
+              description: '수량(상자) (#282 · 신규주문 · 입금확인만)',
+            },
             orderType: {
               type: 'string',
               enum: ['customer', 'gift', 'claim'],
@@ -1380,8 +1395,6 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         }
       }
 
-      // 상품 타입/수량은 스키마에서 제외되어 있으므로 검증 불필요
-
       if (validationErrors.length > 0) {
         return reply.code(400).send({
           success: false,
@@ -1391,8 +1404,20 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
         });
       }
 
+      // #282 상품 · 수량 — 상태 · 주문유형 확인 뒤 상품과 수량을 모두 정해서 넘긴다
+      // (DB 와 시트가 각자의 "지금 값" 으로 해석해 서로 다른 칸을 쓰지 않게)
+      const productCheck = resolveProductPatch(sheetRow, currentStatus, updates, config);
+      if (!productCheck.ok) {
+        return reply.code(productCheck.statusCode).send({
+          success: false,
+          error: productCheck.error,
+          statusCode: productCheck.statusCode,
+          timestamp: new Date().toISOString(),
+        });
+      }
+
       // 주문 업데이트 실행
-      const outcome = await dataService.updateOrder(rowNumber, updates);
+      const outcome = await dataService.updateOrder(rowNumber, productCheck.updates);
 
       // 통계 캐시 무효화
       statsCache.invalidate(/^stats:/);

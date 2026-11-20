@@ -7,6 +7,7 @@
 export * from './types/order.js';
 export * from './types/pdf.js';
 export * from './types/excel.js';
+export * from './types/product-edit.js';
 
 // Config
 export { Config } from './config/config.js';
