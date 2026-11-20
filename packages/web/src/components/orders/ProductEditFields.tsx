@@ -43,7 +43,7 @@ export function ProductEditFields({ form, onChange, hasValidationError }: Produc
           ))}
         </select>
         {hasValidationError && (
-          <p className="mt-1 text-xs text-red-600">상품 선택 오류 — 상품을 고르면 오류가 풀립니다.</p>
+          <p className="mt-1 text-xs text-red-600">지금 상품을 이 목록에서 고칠 수 없습니다(선택 오류 · 판매 중지 상품) — 상품을 고르면 풀립니다.</p>
         )}
       </div>
       <div>

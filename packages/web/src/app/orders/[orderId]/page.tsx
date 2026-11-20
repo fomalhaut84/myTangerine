@@ -24,6 +24,7 @@ import {
   buildProductEditPayload,
   canEditProduct,
   initialProductEditForm,
+  isEditableProduct,
   type ProductEditForm,
 } from '@/lib/product-edit';
 import { Input } from '@/components/ui/input';
@@ -549,7 +550,7 @@ export default function OrderDetailPage() {
               <ProductEditFields
                 form={productForm}
                 onChange={setProductForm}
-                hasValidationError={Boolean(order.validationError)}
+                hasValidationError={Boolean(order.validationError) || !isEditableProduct(order.productType)}
               />
             ) : (
             <>

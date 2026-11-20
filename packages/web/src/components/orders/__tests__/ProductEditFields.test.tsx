@@ -11,7 +11,7 @@ describe('ProductEditFields', () => {
     render(<ProductEditFields form={{ quantity: 2 }} onChange={onChange} hasValidationError />);
     const select = screen.getByLabelText('상품 타입') as HTMLSelectElement;
     expect(select.value).toBe('');
-    expect(screen.getByText(/상품 선택 오류/)).toBeTruthy();
+    expect(screen.getByText(/상품을 고르면 풀립니다/)).toBeTruthy();
     fireEvent.change(select, { target: { value: '10kg' } });
     expect(onChange).toHaveBeenCalledWith({ quantity: 2, productType: '10kg' });
   });

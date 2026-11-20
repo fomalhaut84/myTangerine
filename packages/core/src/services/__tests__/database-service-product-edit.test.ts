@@ -85,6 +85,13 @@ describe('DatabaseService.updateOrder — 상품 · 수량 (#282)', () => {
     expect(tx.order.updateMany).not.toHaveBeenCalled();
   });
 
+  it('빈 수량 칸(null)을 "" 로 쓰는 것은 변경이 아니다', async () => {
+    const before = { ...ERROR_ORDER, productSelection: '5kg', productType: '5kg', quantity5kg: '1', quantity10kg: null, quantity: 1, validationError: null };
+    const { service, logChange } = setup(before);
+    await service.updateOrder(12, { productType: '5kg', quantity: 2 }, 'web');
+    expect(logChange.mock.calls[0][0].fieldChanges).not.toHaveProperty('quantity10kg');
+  });
+
   it('값이 그대로면 이력을 남기지 않는다', async () => {
     const same = { ...ERROR_ORDER, productSelection: '5kg', productType: '5kg', quantity5kg: '3', quantity10kg: '', quantity: 3, validationError: null };
     const { logChange, service } = setup(same);

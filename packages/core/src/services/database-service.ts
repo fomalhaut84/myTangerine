@@ -1262,7 +1262,9 @@ export class DatabaseService {
         // #282 상품 · 수량 변경 감지 — 이전 값을 모두 남긴다
         for (const [field, value] of Object.entries(productFields)) {
           const old = (beforeOrder as Record<string, unknown>)[field] ?? null;
-          if (old !== value) fieldChanges[field] = { old, new: value };
+          // 수량 칸은 null 과 '' 가 같은 "빈 칸" 이다
+          const same = typeof value === 'string' ? (old ?? '') === value : old === value;
+          if (!same) fieldChanges[field] = { old, new: value };
         }
 
         // 변경사항이 있으면 로그 기록
