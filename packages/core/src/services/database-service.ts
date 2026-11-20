@@ -18,6 +18,7 @@ import { normalizeTimestampRaw } from './sheet-row-identity.js';
 import { buildOriginalInput, type OriginalInput } from './original-input.js';
 import { diffSheetFirstOverwrite } from './sheet-first-diff.js';
 import { resolveProductEdit, productEditToOrderFields, type EditableProductType } from '../types/product-edit.js';
+import { quantityCellsFromStorage, quantityStorageFromRow } from '../catalog/products.js';
 
 /**
  * #266: findOrderAtOtherRow 후보 창 — 해석한 시각 기준 ±27시간.
@@ -118,8 +119,7 @@ export class DatabaseService {
       '받으실분 주소 (도로명 주소로 부탁드려요)': order.recipientAddress,
       '받으실분 연락처 (핸드폰번호)': order.recipientPhone,
       '상품 선택': order.productSelection,
-      '5kg 수량': order.quantity5kg,
-      '10kg 수량': order.quantity10kg,
+      ...quantityCellsFromStorage(order),
       // Issue #131: 주문유형 추가 (선물/판매 구분)
       // Issue #152: 배송사고 유형 추가
       '주문유형': order.orderType === 'gift' ? '선물' : order.orderType === 'claim' ? '배송사고' : undefined,
@@ -213,8 +213,7 @@ export class DatabaseService {
       recipientPhone: row['받으실분 연락처 (핸드폰번호)'],
       productSelection,
       productType: validation.productType || null,
-      quantity5kg: String(row['5kg 수량'] || ''),
-      quantity10kg: String(row['10kg 수량'] || ''),
+      ...quantityStorageFromRow(row),
       quantity,
       // Issue #131: 주문유형 저장
       orderType,
