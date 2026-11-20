@@ -443,26 +443,25 @@ export class DatabaseService {
    * - 실패 표시가 없는 행에만 이번 고유값으로 표시한다
    * - 실패 표시(사유)가 있는 행은 사유를 지키고(재조정 대상 자격 · PR #230) `updatedAt` 만 갱신한다 —
    *   그 전에 읽은 재조정기가 표시를 지우지 못하게(`clearSheetSyncFailureIfUnchanged` 는 updatedAt 이 같을 때만 지운다)
-   * 남는 틈(기존): 같은 칸을 동시에 고치면 늦게 도착한 시트 쓰기가 더 새로운 값을 덮을 수 있다 — 행 단위 직렬화가 필요하다
+   * 한 트랜잭션에서 대상 행 전체의 `updatedAt` 을 먼저 갱신해 행을 잠그고(UPDATE 행 잠금 — raw SQL 없이) 나머지를 한다 —
+   * 같은 행에 동시에 온 쓰기의 표시 작업이 차례로 돌아
+   * 뒤의 쓰기가 앞 쓰기의 대기 표시를 반드시 본다(따로 돌면 둘 다 "표시 없음" 을 보고 한쪽이 표시 없이 진행할 수 있었다)
+   * 남는 틈(기존): 같은 칸을 동시에 고치면 늦게 도착한 시트 쓰기가 더 새로운 값을 덮을 수 있다 — 쓰기 전체의 행 단위 직렬화가 필요하다
    */
   async markSheetWritePending(rowNumbers: number[], token: string): Promise<void> {
     if (rowNumbers.length === 0) return;
-    await this._prisma.order.updateMany({
-      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: 'failed', syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } },
-      data: { syncErrorMessage: SUPERSEDED_PENDING_REASON },
-    });
-    await this._prisma.order.updateMany({
-      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: { not: 'failed' } },
-      data: { syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}${token}` },
-    });
-    await this._prisma.order.updateMany({
-      where: {
-        sheetRowNumber: { in: rowNumbers },
-        syncStatus: 'failed',
-        OR: [{ syncErrorMessage: null }, { NOT: { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } } }],
-      },
-      data: { updatedAt: new Date() },
-    });
+    await this._prisma.$transaction(async (tx: Prisma.TransactionClient) => {
+      // 행 잠금 + 실패 표시(사유) 행의 updatedAt 갱신(먼저 읽은 재조정기가 지우지 못하게)을 겸한다
+      await tx.order.updateMany({ where: { sheetRowNumber: { in: rowNumbers } }, data: { updatedAt: new Date() } });
+      await tx.order.updateMany({
+        where: { sheetRowNumber: { in: rowNumbers }, syncStatus: 'failed', syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } },
+        data: { syncErrorMessage: SUPERSEDED_PENDING_REASON },
+      });
+      await tx.order.updateMany({
+        where: { sheetRowNumber: { in: rowNumbers }, syncStatus: { not: 'failed' } },
+        data: { syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}${token}` },
+      });
+    }, WRITE_TX_OPTIONS);
   }
 
   /**
