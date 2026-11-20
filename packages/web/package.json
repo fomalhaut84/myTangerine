@@ -6,7 +6,7 @@
     "dev": "node scripts/dev.js",
     "build": "next build",
     "start": "node scripts/start.js",
-    "lint": "next lint",
+    "lint": "eslint .",
     "test": "vitest run",
     "hash-password": "node scripts/hash-password.mjs"
   },

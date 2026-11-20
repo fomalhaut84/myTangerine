@@ -1,6 +1,7 @@
 import groupBy from 'lodash/groupBy.js';
 import type { Config } from '../config/config.js';
 import type { Order, Sender } from '../types/order.js';
+import { PRODUCT_CATALOG, findProduct, type ProductCatalog } from '../catalog/products.js';
 
 /**
  * 배송 라벨 포맷터
@@ -8,15 +9,13 @@ import type { Order, Sender } from '../types/order.js';
  */
 export class LabelFormatter {
   private config: Config;
-  private totalNonProduct: number = 0;
-  private total5kg: number = 0;
-  private total10kg: number = 0;
-  private totalNonProductAmount: number = 0;
-  private total5kgAmount: number = 0;
-  private total10kgAmount: number = 0;
+  private readonly catalog: ProductCatalog;
+  /** 상품별 박스 수 — formatLabels 호출마다 새로 만든다 (#313: 상품별 고정 필드 → 카탈로그) */
+  private boxesByProduct: Map<string, number> = new Map();
 
-  constructor(config: Config) {
+  constructor(config: Config, catalog: ProductCatalog = PRODUCT_CATALOG) {
     this.config = config;
+    this.catalog = catalog;
   }
 
   /**
@@ -29,12 +28,7 @@ export class LabelFormatter {
     }
 
     // 주문 처리 전 합계 초기화
-    this.totalNonProduct = 0;
-    this.total5kg = 0;
-    this.total10kg = 0;
-    this.totalNonProductAmount = 0;
-    this.total5kgAmount = 0;
-    this.total10kgAmount = 0;
+    this.boxesByProduct = new Map();
 
     const formattedLabels: string[] = [];
 
@@ -128,7 +122,7 @@ export class LabelFormatter {
   private formatRecipient(order: Order): string[] {
     const labels: string[] = ['받는사람\n'];
 
-    const { recipient, productType, quantity, validationError, timestamp, trackingNumber } = order;
+    const { recipient, productType, quantity, validationError, trackingNumber } = order;
     labels.push(`${recipient.address} ${recipient.name} ${recipient.phone}\n`);
 
     // 송장번호가 있으면 표시
@@ -139,38 +133,14 @@ export class LabelFormatter {
     labels.push('주문상품\n');
 
     // 검증 에러가 있는 경우 에러 메시지 출력
+    // 카탈로그에 없는 상품은 (검증 오류가 아니어도) 줄 · 합계 모두 빠진다 — 예전 동작 그대로
+    // (금액은 라벨에 나오지 않아 집계하지 않는다 — 통계 금액은 api calculateOrderAmount)
+    const product = findProduct(productType, this.catalog);
     if (validationError) {
       labels.push(`[오류] ${validationError}\n\n`);
-    } else if (productType === '비상품') {
-      // 비상품 집계 (가격이 없어도 수량은 집계)
-      this.totalNonProduct += quantity;
-
-      const orderYear = timestamp.getFullYear();
-      const prices = this.config.getPricesForYear(orderYear);
-      const price = prices['비상품'];
-      if (price) {
-        // 비상품 가격이 있는 년도인 경우 금액 집계
-        this.totalNonProductAmount += price * quantity;
-      }
-
-      labels.push(`비상품 / ${quantity}박스\n\n`);
-    } else if (productType === '5kg') {
-      this.total5kg += quantity;
-      // 주문 년도의 가격으로 금액 계산
-      const orderYear = timestamp.getFullYear();
-      const prices = this.config.getPricesForYear(orderYear);
-      const price = prices['5kg'];
-      if (price) {
-        this.total5kgAmount += price * quantity;
-      }
-      labels.push(`5kg / ${quantity}박스\n\n`);
-    } else if (productType === '10kg') {
-      this.total10kg += quantity;
-      // 주문 년도의 가격으로 금액 계산
-      const orderYear = timestamp.getFullYear();
-      const prices = this.config.getPricesForYear(orderYear);
-      this.total10kgAmount += prices['10kg'] * quantity;
-      labels.push(`10kg / ${quantity}박스\n\n`);
+    } else if (product) {
+      this.boxesByProduct.set(product.id, (this.boxesByProduct.get(product.id) ?? 0) + quantity);
+      labels.push(`${product.id} / ${quantity}박스\n\n`);
     }
 
     return labels;
@@ -180,24 +150,23 @@ export class LabelFormatter {
    * 주문 요약 포맷팅 (금액 제외, 수량만 표시)
    */
   private formatSummary(): string[] {
-    const totalBoxes = this.totalNonProduct + this.total5kg + this.total10kg;
     const summary: string[] = [
       '='.repeat(50) + '\n',
       '주문 요약\n',
       '-'.repeat(20) + '\n',
     ];
 
-    // 비상품이 있는 경우에만 출력
-    if (this.totalNonProduct > 0) {
-      summary.push(`비상품 주문: ${this.totalNonProduct}박스\n`);
+    // 카탈로그 순서 — alwaysInSummary 가 아니면 있을 때만 (예: 비상품)
+    let totalBoxes = 0;
+    for (const product of this.catalog) {
+      const boxes = this.boxesByProduct.get(product.id) ?? 0;
+      totalBoxes += boxes;
+      if (product.alwaysInSummary || boxes > 0) {
+        summary.push(`${product.id} 주문: ${boxes}박스\n`);
+      }
     }
 
-    summary.push(
-      `5kg 주문: ${this.total5kg}박스\n`,
-      `10kg 주문: ${this.total10kg}박스\n`,
-      '-'.repeat(20) + '\n',
-      `총 주문: ${totalBoxes}박스\n`,
-    );
+    summary.push('-'.repeat(20) + '\n', `총 주문: ${totalBoxes}박스\n`);
 
     return summary;
   }

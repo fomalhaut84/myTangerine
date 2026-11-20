@@ -56,21 +56,6 @@ describe('SheetService', () => {
         address: '제주도 제주시',
         phone: '010-1234-5678',
       },
-      productPrices: {
-        '2024': {
-          '비상품': 0,
-          '5kg': 20000,
-          '10kg': 35000,
-        },
-        '2025': {
-          '5kg': 23000,
-          '10kg': 38000,
-        },
-      },
-      getPricesForYear: (year: number) => {
-        const yearStr = year.toString();
-        return config.productPrices[yearStr] || config.productPrices['2024'];
-      },
       requiredColumns: [
         '타임스탬프',
         '비고',

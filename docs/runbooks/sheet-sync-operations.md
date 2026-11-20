@@ -41,6 +41,10 @@ v2.4.0 부터 앱은 어긋남을 감지하면 **쓰지 않고 멈춘다**(안�
 sudo -u postgres psql -d mytangerine -c "SELECT sheet_row_number AS row, id, timestamp_raw, order_type, status, deleted_at IS NOT NULL AS deleted FROM orders WHERE sheet_row_number BETWEEN <시작> AND <끝> ORDER BY sheet_row_number;"
 ```
 
+> **시각 조건은 UTC 로 비교한다.** DB 시각 칸(`updated_at` · `created_at` · `changed_at` …)은 시간대 없는 `timestamp` 에 **UTC** 로 저장되고,
+> 운영 psql 세션 시간대는 `Asia/Seoul` 이다(2026-11-20 확인). `updated_at > now() - interval '1 hour'` 는 9시간 어긋나 비어 나온다 —
+> `updated_at > (now() AT TIME ZONE 'UTC') - interval '1 hour'` 로 쓴다. 결과의 시각도 UTC 다(한국 시각 = +9시간).
+
 시트의 같은 행 범위 `타임스탬프` 칸과 한 줄씩 비교한다. 대표 모양:
 
 | 모양 | 원인 | 정리 |
@@ -107,6 +111,16 @@ sudo -u postgres psql -d mytangerine -c "SELECT sheet_row_number AS row, id, tim
 - 행 정체성 충돌로 멈춘 행은 정리가 끝나면 다음 cron(1분)에 스스로 풀린다
 - 교체 상한(24시간 3건)에 걸린 행은 최근 교체 3건이 24시간 밖으로 나가야 다시 교체된다 — 그 사이 같은 신호가 계속되면 오판일 수 있으니 진단부터 한다
 - `#hermes` 경고는 종류별 하루 1회다 — 다음 날 같은 경고가 오면 아직 안 풀린 것이다
+
+## 웹 상품 정정이 "폼 단가를 찾지 못했습니다" 로 막힐 때 (#317)
+
+단가의 정본은 구글 폼 문구(`10kg (38,000 / box)`)다. 웹에서 오주문 상품을 바꾸면 앱은 **같은 시즌(7월 ~ 다음 해 6월)에 들어온
+다른 주문의 폼 문구**를 그대로 쓰고, 단가를 만들지 않는다. 그래서 그 시즌에 바꿀 규격의 주문이 아직 없으면 수정이 400 으로 막힌다
+(시즌 첫 며칠 · 폼에 새 규격을 막 추가한 직후).
+
+- 기다릴 수 있으면: 그 규격 주문이 한 건 들어온 뒤 다시 바꾼다
+- 지금 바꿔야 하면: 웹에서 **주문을 삭제**(복원 가능한 삭제)하고 고객에게 **폼으로 다시 주문**받는다 — 사용자 결정 2026-11-20
+- 시트 `상품 선택` 칸을 손으로 고치지 않는다 — hybrid 정본은 DB 라 반영되지 않고 어긋난다(data-safety S-10)
 
 ## 관련
 

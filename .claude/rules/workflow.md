@@ -57,14 +57,14 @@ git checkout dev && git pull && git checkout -b feature/issue-<N>-<설명>
 |---|---|---|---|---|
 | `@mytangerine/core` | `pnpm --filter @mytangerine/core lint` | `pnpm --filter @mytangerine/core type-check` | `pnpm --filter @mytangerine/core exec vitest run` | `pnpm --filter @mytangerine/core build` |
 | `@mytangerine/api` | `pnpm --filter @mytangerine/api lint` | `pnpm --filter @mytangerine/api type-check` | `pnpm --filter @mytangerine/api exec vitest run` | `pnpm --filter @mytangerine/api build` |
-| `@mytangerine/web` | `pnpm --filter @mytangerine/web lint` | (빌드가 타입체크) | `pnpm --filter @mytangerine/web test` | `pnpm --filter @mytangerine/web build` |
-| `@mytangerine/sync-service` | 해당 없음(스크립트 없음) | `pnpm --filter @mytangerine/sync-service type-check` | 해당 없음(테스트 없음) | `pnpm --filter @mytangerine/sync-service build` |
+| `@mytangerine/web` | `pnpm --filter @mytangerine/web lint` (eslint 9 flat config · 기준선 오류 4 · 경고 10 — #277) | (빌드가 타입체크) | `pnpm --filter @mytangerine/web test` | `pnpm --filter @mytangerine/web build` |
+| `@mytangerine/sync-service` | 해당 없음(스크립트 없음) | `pnpm --filter @mytangerine/sync-service type-check` | `pnpm --filter @mytangerine/sync-service test` | `pnpm --filter @mytangerine/sync-service build` |
 | `.claude/hooks` | 해당 없음 | 해당 없음 | `python3 -m unittest discover -s .claude/hooks` | 해당 없음 |
 | `deploy/` · `.github/workflows/deploy.yml` (#201) | 해당 없음 | `bash -n deploy/*.sh` | `python3 -m unittest discover -s deploy` (임시 git 저장소 + 가짜 pnpm·pm2·curl · 약 25초 · CI `deploy-scripts` job) | 해당 없음 |
 
 - core·api 의 `test` 스크립트는 `vitest`(watch 기본)라 **`exec vitest run`** 으로 1회 실행한다
 - 빌드는 `DATABASE_URL` 이 있어야 prisma generate 가 돈다(CI 는 더미 값 — S-4)
-- CI(`.github/workflows/ci.yml`) 는 core·api 만 돌고 lint 는 `continue-on-error` 다 — **CI 통과가 web·sync-service 검증을 뜻하지 않는다**
+- CI(`.github/workflows/ci.yml`) 는 core·api·sync-service·web 의 테스트·빌드를 돈다(web 은 #277). lint 는 모두 `continue-on-error` 고 **타입체크(core·api·sync-service)는 돌지 않는다** — CI 통과가 lint·타입 통과를 뜻하지 않는다
 - 전부 통과해야 다음 단계. 실패하면 고치고 다시. "해당 없음"은 사유와 함께 적는다 — 건너뛰기가 아니다
 
 ### 7. 코드 리뷰 + PR — 두 단계 (PR 오픈 전 로컬 · 오픈 후 봇)

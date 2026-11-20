@@ -18,6 +18,7 @@ import { normalizeTimestampRaw } from './sheet-row-identity.js';
 import { buildOriginalInput, type OriginalInput } from './original-input.js';
 import { diffSheetFirstOverwrite } from './sheet-first-diff.js';
 import { resolveProductEdit, productEditToOrderFields, type EditableProductType } from '../types/product-edit.js';
+import { quantityCellsFromStorage, quantityStorageFromRow } from '../catalog/products.js';
 
 /**
  * #266: findOrderAtOtherRow 후보 창 — 해석한 시각 기준 ±27시간.
@@ -118,8 +119,7 @@ export class DatabaseService {
       '받으실분 주소 (도로명 주소로 부탁드려요)': order.recipientAddress,
       '받으실분 연락처 (핸드폰번호)': order.recipientPhone,
       '상품 선택': order.productSelection,
-      '5kg 수량': order.quantity5kg,
-      '10kg 수량': order.quantity10kg,
+      ...quantityCellsFromStorage(order),
       // Issue #131: 주문유형 추가 (선물/판매 구분)
       // Issue #152: 배송사고 유형 추가
       '주문유형': order.orderType === 'gift' ? '선물' : order.orderType === 'claim' ? '배송사고' : undefined,
@@ -213,8 +213,7 @@ export class DatabaseService {
       recipientPhone: row['받으실분 연락처 (핸드폰번호)'],
       productSelection,
       productType: validation.productType || null,
-      quantity5kg: String(row['5kg 수량'] || ''),
-      quantity10kg: String(row['10kg 수량'] || ''),
+      ...quantityStorageFromRow(row),
       quantity,
       // Issue #131: 주문유형 저장
       orderType,
@@ -1187,6 +1186,10 @@ export class DatabaseService {
       recipient?: { name?: string; phone?: string; address?: string };
       productType?: EditableProductType;
       quantity?: number;
+      /** #317 바꿀 상품의 같은 시즌 폼 문구 — HybridDataService 가 찾아 넘긴다 */
+      seasonSelection?: string | null;
+      /** #322 API 가 확정한 `상품 선택` 원문 — 있으면 지금 원문 대신 그대로 쓴다 */
+      resolvedSelection?: string | null;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     },
@@ -1237,8 +1240,8 @@ export class DatabaseService {
         // #282 상품 · 수량 — 화면 · PDF · 통계가 다시 해석하는 칸(상품 선택 원문 · 수량 문자열)과 검증 오류를 함께 맞춘다.
         // 최초 입력값(original_input)은 바꾸지 않는다. 잘못된 값이면 ProductEditError 로 아무것도 쓰지 않는다
         const productEdit = resolveProductEdit(
-          { productType: beforeOrder.productType, quantity: beforeOrder.quantity },
-          { productType: updates.productType, quantity: updates.quantity }
+          { productType: beforeOrder.productType, quantity: beforeOrder.quantity, productSelection: beforeOrder.productSelection },
+          { productType: updates.productType, quantity: updates.quantity, seasonSelection: updates.seasonSelection, resolvedSelection: updates.resolvedSelection }
         );
         const productFields = productEdit ? productEditToOrderFields(productEdit) : {};
         Object.assign(data, productFields);

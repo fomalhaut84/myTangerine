@@ -21,14 +21,21 @@ function service(current: Partial<SheetRow> | null) {
 describe('SheetService.updateOrder — 상품 · 수량 (#282)', () => {
   it('상품 · 수량을 주면 세 칸을 함께 쓰고 다른 수량 칸은 비운다', async () => {
     const { s, updateRowCells } = service({ '상품 선택': '감귤 박스', '5kg 수량': '', '10kg 수량': '2' });
-    await s.updateOrder(12, { productType: '5kg', quantity: 3 });
-    expect(updateRowCells).toHaveBeenCalledWith(12, { '상품 선택': '5kg', '5kg 수량': '3', '10kg 수량': '' });
+    await s.updateOrder(12, { productType: '5kg', quantity: 3, seasonSelection: '5kg (23,000 / box)' });
+    expect(updateRowCells).toHaveBeenCalledWith(12, { '상품 선택': '5kg (23,000 / box)', '5kg 수량': '3', '10kg 수량': '' });
   });
 
-  it('수량만 주면 시트의 지금 상품(폼 원문)을 해석해 그 칸에 쓴다', async () => {
+  it('수량만 주면 시트의 지금 상품(폼 원문)을 해석해 그 칸에 쓰고 원문(단가)은 그대로 둔다 (#317)', async () => {
     const { s, updateRowCells } = service({ '상품 선택': '10kg (38,000 / box)', '5kg 수량': '', '10kg 수량': '' });
     await s.updateOrder(12, { quantity: 2 });
-    expect(updateRowCells).toHaveBeenCalledWith(12, { '상품 선택': '10kg', '5kg 수량': '', '10kg 수량': '2' });
+    expect(updateRowCells).toHaveBeenCalledWith(12, { '상품 선택': '10kg (38,000 / box)', '5kg 수량': '', '10kg 수량': '2' });
+  });
+
+  // 회귀: PR #321 Codex P2 — 시트 원문이 DB 와 달라도(낡은 단가) API 가 확정한 원문을 쓴다
+  it('#322 확정 원문을 주면 시트의 지금 원문 대신 그 값을 쓴다', async () => {
+    const { s, updateRowCells } = service({ '상품 선택': '10kg (35,000 / box)', '5kg 수량': '', '10kg 수량': '1' });
+    await s.updateOrder(12, { productType: '10kg', quantity: 2, resolvedSelection: '10kg (38,000 / box)' });
+    expect(updateRowCells).toHaveBeenCalledWith(12, { '상품 선택': '10kg (38,000 / box)', '5kg 수량': '', '10kg 수량': '2' });
   });
 
   it('지금 상품이 오류인데 수량만 주면 쓰지 않고 던진다', async () => {

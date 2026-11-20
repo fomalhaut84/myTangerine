@@ -20,6 +20,8 @@ import type { DatabaseService } from './database-service.js';
 import { matchesSheetRow } from './sheet-row-identity.js';
 import { formatKstTimestamp } from './sync-status-writer.js';
 import { validateProductSelection } from '../types/order.js';
+import { QUANTITY_STORAGE_FIELD } from '../catalog/products.js';
+import { QUANTITY_COLUMNS } from '../types/product-edit.js';
 import type { Logger } from './sync-engine.js';
 
 /** 한 회차에 다시 맞추는 최대 주문 수 — 시트 호출은 회차당 읽기 2 · 쓰기 1 */
@@ -102,8 +104,9 @@ export function buildReconcileCells(order: ReconcileOrder): Record<string, strin
     '받으실분 연락처 (핸드폰번호)': order.recipientPhone,
     '받으실분 주소 (도로명 주소로 부탁드려요)': order.recipientAddress,
     '상품 선택': product,
-    '5kg 수량': sheetQuantity(order.quantity5kg),
-    '10kg 수량': sheetQuantity(order.quantity10kg),
+    ...Object.fromEntries(
+      QUANTITY_COLUMNS.map((column) => [column, sheetQuantity(order[QUANTITY_STORAGE_FIELD[column]])])
+    ),
     DB_SYNC_STATUS: 'success',
     DB_SYNC_AT: formatKstTimestamp(order.updatedAt),
     DB_SYNC_ID: String(order.id),
