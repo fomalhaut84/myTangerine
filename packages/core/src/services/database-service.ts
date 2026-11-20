@@ -1186,6 +1186,8 @@ export class DatabaseService {
       recipient?: { name?: string; phone?: string; address?: string };
       productType?: EditableProductType;
       quantity?: number;
+      /** #317 바꿀 상품의 같은 시즌 폼 문구 — HybridDataService 가 찾아 넘긴다 */
+      seasonSelection?: string | null;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     },
@@ -1236,8 +1238,8 @@ export class DatabaseService {
         // #282 상품 · 수량 — 화면 · PDF · 통계가 다시 해석하는 칸(상품 선택 원문 · 수량 문자열)과 검증 오류를 함께 맞춘다.
         // 최초 입력값(original_input)은 바꾸지 않는다. 잘못된 값이면 ProductEditError 로 아무것도 쓰지 않는다
         const productEdit = resolveProductEdit(
-          { productType: beforeOrder.productType, quantity: beforeOrder.quantity },
-          { productType: updates.productType, quantity: updates.quantity }
+          { productType: beforeOrder.productType, quantity: beforeOrder.quantity, productSelection: beforeOrder.productSelection },
+          { productType: updates.productType, quantity: updates.quantity, seasonSelection: updates.seasonSelection }
         );
         const productFields = productEdit ? productEditToOrderFields(productEdit) : {};
         Object.assign(data, productFields);

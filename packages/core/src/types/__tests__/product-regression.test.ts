@@ -4,7 +4,7 @@
  * 카탈로그로 옮기기 전 동작을 그대로 고정한다. 과거 주문 해석이 바뀌면 통계 · 라벨 · 금액이 달라진다.
  */
 import { describe, it, expect } from 'vitest';
-import { extractQuantity, validateProductSelection, type Order, type SheetRow } from '../order.js';
+import { extractQuantity, sheetRowToOrder, validateProductSelection, type Order, type SheetRow } from '../order.js';
 import { LabelFormatter } from '../../formatters/label-formatter.js';
 import type { Config } from '../../config/config.js';
 
@@ -67,7 +67,6 @@ describe('extractQuantity (#313 회귀)', () => {
 describe('LabelFormatter 요약 (#313 회귀)', () => {
   const config = {
     defaultSender: { name: '기본', address: '주소', phone: '010-0000-0000' },
-    getPricesForYear: () => ({ '5kg': 23000, '10kg': 38000 }),
   } as unknown as Config;
 
   function order(productType: Order['productType'], quantity: number, extra: Partial<Order> = {}): Order {
@@ -107,5 +106,30 @@ describe('LabelFormatter 요약 (#313 회귀)', () => {
     ]);
     expect(text).toContain('[오류] 유효하지 않은 상품 타입: "3kg"\n\n');
     expect(text).toContain('총 주문: 1박스\n');
+  });
+});
+
+describe('sheetRowToOrder 단가 (#317 — 원문 폼 문구가 정본)', () => {
+  const base = {
+    타임스탬프: '2024. 1. 8. 오전 10:00:00',
+    비고: '',
+    '보내는분 성함': '보내는이',
+    '보내는분 주소 (도로명 주소로 부탁드려요)': '제주',
+    '보내는분 연락처 (핸드폰번호)': '01011111111',
+    '받으실분 성함': '받는이',
+    '받으실분 주소 (도로명 주소로 부탁드려요)': '서울',
+    '받으실분 연락처 (핸드폰번호)': '01022222222',
+    '5kg 수량': '',
+    '10kg 수량': '3',
+    _rowNumber: 5,
+  } as unknown as SheetRow;
+
+  it('2024 년 1월 `10kg (30,000 / box)` 는 30,000 — 달력 연도 가격표(35,000)가 아니다', () => {
+    const order = sheetRowToOrder({ ...base, '상품 선택': '10kg (30,000 / box)' } as SheetRow);
+    expect(order).toMatchObject({ productType: '10kg', quantity: 3, unitPrice: 30000 });
+  });
+
+  it('원문에 단가가 없으면 null', () => {
+    expect(sheetRowToOrder({ ...base, '상품 선택': '10kg' } as SheetRow).unitPrice).toBeNull();
   });
 });

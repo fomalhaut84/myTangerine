@@ -1,11 +1,8 @@
 import { type Env, loadEnv, findProjectRoot } from './env.js';
 import type { Sender } from '../types/order.js';
-import { PRODUCT_PRICES_BY_YEAR, pricesForYear, type ProductPrices, type YearlyProductPrices } from '../catalog/prices.js';
 import { quantityColumnsOf } from '../catalog/products.js';
 import path from 'path';
 import fs from 'fs';
-
-export type { ProductPrices, YearlyProductPrices } from '../catalog/prices.js';
 
 /**
  * 애플리케이션 설정
@@ -13,18 +10,6 @@ export type { ProductPrices, YearlyProductPrices } from '../catalog/prices.js';
 export class Config {
   /** 환경 변수 */
   private readonly env: Env;
-
-  /** 상품 가격 (년도별) — 정본은 catalog/prices.ts (#313) */
-  public readonly productPrices: YearlyProductPrices = PRODUCT_PRICES_BY_YEAR;
-
-  /**
-   * 특정 년도의 상품 가격 조회
-   * 해당 년도 가격이 없으면 가장 가까운 이전 년도 가격 반환
-   * 이전 년도가 없으면 가장 오래된 년도 가격 반환
-   */
-  public getPricesForYear(year: number): ProductPrices {
-    return pricesForYear(year, this.productPrices);
-  }
 
   /** 필수 스프레드시트 컬럼 */
   public readonly requiredColumns = [

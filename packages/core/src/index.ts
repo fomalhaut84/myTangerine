@@ -9,9 +9,9 @@ export * from './types/pdf.js';
 export * from './types/excel.js';
 export * from './types/product-edit.js';
 
-// Catalog (#313 — 상품 · 가격 정본)
+// Catalog (#313 상품 정본 · #317 단가는 폼 문구)
 export * from './catalog/products.js';
-export * from './catalog/prices.js';
+export * from './catalog/form-selection.js';
 
 // Config
 export { Config } from './config/config.js';

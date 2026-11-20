@@ -3,6 +3,7 @@
  */
 
 import type { SheetRow } from '@mytangerine/core';
+import { parseKoreanTimestamp, pickSeasonSelection, validateProductSelection } from '@mytangerine/core';
 
 /**
  * Mock SheetService 클래스
@@ -147,7 +148,7 @@ export class MockSheetService {
         ? row
         : {
             ...row,
-            '상품 선택': updates.productType!,
+            '상품 선택': updates.seasonSelection ?? updates.productType!,
             '5kg 수량': updates.productType === '5kg' ? qty : '',
             '10kg 수량': updates.productType === '10kg' ? qty : '',
             _validationError: undefined,
@@ -155,6 +156,23 @@ export class MockSheetService {
     this.mockNewOrders = this.mockNewOrders.map(apply);
     this.mockCompletedOrders = this.mockCompletedOrders.map(apply);
     this.mockAllOrders = this.mockAllOrders.map(apply);
+  }
+
+  /** #317 HybridDataService.findSeasonSelection 과 같은 규칙 — mock 주문에서 같은 시즌 폼 문구를 찾는다 */
+  async findSeasonSelection(
+    rowNumber: number,
+    updates: { productType?: string; quantity?: number }
+  ): Promise<string | null | undefined> {
+    if (updates.productType === undefined && updates.quantity === undefined) return undefined;
+    const target = this.mockAllOrders.find((row) => row._rowNumber === rowNumber);
+    if (!target) return null;
+    const productType = updates.productType ?? validateProductSelection(String(target['상품 선택'] ?? '')).productType;
+    if (!productType) return null;
+    const candidates = this.mockAllOrders.map((row) => ({
+      productSelection: String(row['상품 선택'] ?? ''),
+      timestamp: parseKoreanTimestamp(row['타임스탬프']),
+    }));
+    return pickSeasonSelection(candidates, productType, parseKoreanTimestamp(target['타임스탬프']));
   }
 
   getUpdateOrderCalls(): ReadonlyArray<{ rowNumber: number; updates: MockOrderUpdates }> {
@@ -187,6 +205,7 @@ export interface MockOrderUpdates {
   recipient?: { name?: string; phone?: string; address?: string };
   productType?: string;
   quantity?: number;
+  seasonSelection?: string | null;
   orderType?: string;
   trackingNumber?: string;
 }
@@ -204,7 +223,7 @@ export function createMockSheetRow(overrides?: Partial<SheetRow>): SheetRow {
     '받으실분 성함': '김철수',
     '받으실분 주소 (도로명 주소로 부탁드려요)': '서울시 송파구',
     '받으실분 연락처 (핸드폰번호)': '010-9876-5432',
-    '상품 선택': '5kg',
+    '상품 선택': '5kg (23,000 / box)', // #317 실제 폼 문구 형식 — 단가가 들어 있다
     '5kg 수량': '2',
     '10kg 수량': '',
     _rowNumber: 10,
@@ -222,7 +241,7 @@ export function createMockSheetRows(count: number): SheetRow[] {
     return createMockSheetRow({
       _rowNumber: i + 10,
       '받으실분 성함': `테스트${i + 1}`,
-      '상품 선택': is5kg ? '5kg' : '10kg',
+      '상품 선택': is5kg ? '5kg (23,000 / box)' : '10kg (38,000 / box)',
       '5kg 수량': is5kg ? quantity : '',
       '10kg 수량': is5kg ? '' : quantity,
     });

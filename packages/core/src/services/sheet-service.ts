@@ -937,6 +937,8 @@ export class SheetService {
       recipient?: { name?: string; phone?: string; address?: string };
       productType?: EditableProductType;
       quantity?: number;
+      /** #317 바꿀 상품의 같은 시즌 폼 문구 — HybridDataService 가 찾아 넘긴다 */
+      seasonSelection?: string | null;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
     }
@@ -1003,21 +1005,26 @@ export class SheetService {
     }
   }
 
-  /** #282: 상품 · 수량 수정 값 → 시트 칸. 상품을 주지 않으면 시트의 지금 상품(폼 원문)을 해석해 쓴다 */
+  /**
+   * #282: 상품 · 수량 수정 값 → 시트 칸. 지금 행의 상품 · 수량 · 원문(단가)을 읽어 쓴다 (#317 원문 유지)
+   */
   private async resolveProductEditCells(
     rowNumber: number,
-    updates: { productType?: EditableProductType; quantity?: number }
+    updates: { productType?: EditableProductType; quantity?: number; seasonSelection?: string | null }
   ): Promise<ProductEditCells> {
-    const needsCurrent = updates.productType === undefined || updates.quantity === undefined;
-    const currentRow = needsCurrent ? await this.getOrderByRowNumber(rowNumber) : null;
-    if (needsCurrent && !currentRow) {
+    const currentRow = await this.getOrderByRowNumber(rowNumber);
+    if (!currentRow) {
       throw new Error(`Order not found at row ${rowNumber}`);
     }
-    const current = currentRow
-      ? { productType: validateProductSelection(String(currentRow['상품 선택'] ?? '')).productType, quantity: extractQuantity(currentRow) }
-      : { productType: null, quantity: 1 };
+    const productSelection = String(currentRow['상품 선택'] ?? '');
+    const current = {
+      productType: validateProductSelection(productSelection).productType,
+      quantity: extractQuantity(currentRow),
+      productSelection,
+    };
     const edit = resolveProductEdit(current, updates);
     if (!edit) throw new Error('No product edit');
     return edit.cells;
   }
+
 }
