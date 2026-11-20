@@ -142,9 +142,39 @@ pm2 ls                                    # 세 앱 online · mode fork
 pm2 save
 ```
 
-- 로그 파일 이름이 `~/.pm2/logs/<앱>-out.log` · `-error.log` 로 바뀐다(번호 없음). 예전 `-out-5/6/7.log` 는 지워도 된다(선택)
+- 로그 파일은 `~/.pm2/logs/<앱>-out-<pm2 id>.log` · `-error-<pm2 id>.log` 다(2026-11-20 서버 실측 — 예: `myTangerineSync-out-47.log`). `pm2 delete` → `start` 로 id 가 바뀌면 새 파일이 생긴다. 지금 쓰는 파일은 `pm2 ls` 의 id 로 찾는다. 예전 번호 파일은 지워도 된다(선택)
 - 배포 스크립트는 앱 **이름**으로 재시작하므로 바꿀 것이 없다. `TZ` 는 정의의 `env` 로 들어간다
 - **되돌리기:** `pm2 delete <앱> && pm2 start /usr/local/bin/pnpm -i 1 --name <앱> -- --filter <패키지> start` → `pm2 save` (예전 cluster 방식 — 로그는 다시 사라진다)
+
+## pm2 로그 회전 (#276 · 1회 · 서버 전역)
+
+**왜:** fork 모드 전환(#256) 뒤 앱 로그가 다시 쌓인다. 회전이 없으면 끝없이 커진다 — sync 는 1분마다 남겨 하루 약 1.2MB(2026-11-20 실측).
+2026-11-20 서버에는 회전 설정이 없었다(`pm2 ls` 에 Module 없음).
+
+> **서버 전역 설정이다.** `pm2-logrotate` 는 pm2 모듈이라 이 서버의 **모든 pm2 앱**(다른 프로젝트 포함)의 로그를 같은 규칙으로 회전한다.
+> 다른 프로젝트 런북에 따로 회전 설정이 있으면 값을 맞춘다 — 모듈은 하나만 있고 마지막에 `pm2 set` 한 값이 이긴다.
+
+```bash
+pm2 install pm2-logrotate
+pm2 set pm2-logrotate:rotateInterval '0 0 * * *'   # 매일 자정 (서버 시스템 시간대 기준 — `timedatectl` 로 확인)
+pm2 set pm2-logrotate:TZ 'Asia/Seoul'              # 회전된 파일 이름에 붙는 날짜의 시간대
+pm2 set pm2-logrotate:max_size 50M                 # 하루 안에 50MB 를 넘으면 그때도 회전
+pm2 set pm2-logrotate:retain 30                    # 파일마다 30개 보관 → 약 30일 (장애 분석 기간)
+pm2 set pm2-logrotate:compress true                # 회전된 파일 gzip
+```
+
+**확인:**
+```bash
+pm2 ls                                   # 아래쪽 Module 목록에 pm2-logrotate · online
+pm2 conf pm2-logrotate                   # 위 다섯 값
+# 다음 날
+ls -lh ~/.pm2/logs | grep myTangerineSync-out    # <앱>-out-<id>__<날짜>.log.gz 가 생기고 원래 파일은 작아진다
+pm2 logs myTangerineSync --lines 5 --nostream    # 회전 뒤에도 새 줄이 보인다
+```
+
+- 회전 대상은 **지금 pm2 에 있는 앱의 로그 파일**뿐이다. 이미 없는 앱의 예전 로그 · 예전 번호 파일은 그대로 남는다 — 필요 없으면 손으로 지운다
+- 보관 개수는 회전된 파일 **기준**이다(앱 · out/error 마다 30개)
+- **되돌리기:** `pm2 uninstall pm2-logrotate` — 회전은 멈추고, 이미 회전된 `.gz` 파일은 남는다
 
 ## 웹 접근 제어 전환 (#196 · 1회 · `--draft` 릴리즈)
 
