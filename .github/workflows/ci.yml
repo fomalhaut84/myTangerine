@@ -73,6 +73,19 @@ jobs:
       - name: Test (sync-service)
         run: pnpm --filter @mytangerine/sync-service test
 
+      # #277 web — lint 는 기준선(오류 4 · 경고 10) 정리 전까지 실패해도 통과. 테스트·빌드는 실패하면 막는다
+      - name: Lint (web)
+        run: pnpm --filter @mytangerine/web lint
+        continue-on-error: true
+
+      - name: Test (web)
+        run: pnpm --filter @mytangerine/web test
+
+      - name: Build (web)
+        run: pnpm --filter @mytangerine/web build
+        env:
+          NEXT_TELEMETRY_DISABLED: '1'
+
       - name: Upload coverage
         uses: codecov/codecov-action@v6
         if: always()
