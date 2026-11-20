@@ -41,6 +41,10 @@ v2.4.0 부터 앱은 어긋남을 감지하면 **쓰지 않고 멈춘다**(안�
 sudo -u postgres psql -d mytangerine -c "SELECT sheet_row_number AS row, id, timestamp_raw, order_type, status, deleted_at IS NOT NULL AS deleted FROM orders WHERE sheet_row_number BETWEEN <시작> AND <끝> ORDER BY sheet_row_number;"
 ```
 
+> **시각 조건은 UTC 로 비교한다.** DB 시각 칸(`updated_at` · `created_at` · `changed_at` …)은 시간대 없는 `timestamp` 에 **UTC** 로 저장되고,
+> 운영 psql 세션 시간대는 `Asia/Seoul` 이다(2026-11-20 확인). `updated_at > now() - interval '1 hour'` 는 9시간 어긋나 비어 나온다 —
+> `updated_at > (now() AT TIME ZONE 'UTC') - interval '1 hour'` 로 쓴다. 결과의 시각도 UTC 다(한국 시각 = +9시간).
+
 시트의 같은 행 범위 `타임스탬프` 칸과 한 줄씩 비교한다. 대표 모양:
 
 | 모양 | 원인 | 정리 |
