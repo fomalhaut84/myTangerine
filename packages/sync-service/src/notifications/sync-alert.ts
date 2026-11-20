@@ -75,10 +75,51 @@ export function buildReconcileShiftedMessage(
   };
 }
 
-export function buildReconcileFailureMessage(consecutive: number, adminWebUrl: string | undefined): HermesMessage {
+/** #288: 재조정 실패 단계 — 오류 원문 대신 경고에 넣는다(열 이름 · 값 · 행 번호 없이) */
+const RECONCILE_FAILURE_STAGES: ReadonlyArray<[prefix: string, label: string]> = [
+  ['row read failed', '행 읽기'],
+  ['sheet write failed', '시트 쓰기'],
+  ['post-write row check failed', '쓴 뒤 확인'],
+  ['columns missing', '열 없음'],
+  ['clear or re-mark failed', 'DB 표시 정리'],
+];
+
+export function classifyReconcileFailure(error: string): string {
+  return RECONCILE_FAILURE_STAGES.find(([prefix]) => error.startsWith(prefix))?.[1] ?? '기타';
+}
+
+/** 단계별 건수 — "시트 쓰기 1 · 열 없음 2" (단계 표 순서) */
+export function summarizeReconcileStages(stages: readonly string[]): string {
+  const counts = stages.reduce<Record<string, number>>((acc, s) => ({ ...acc, [s]: (acc[s] ?? 0) + 1 }), {});
+  const order = [...RECONCILE_FAILURE_STAGES.map(([, label]) => label), '기타'];
+  return order.filter((label) => counts[label]).map((label) => `${label} ${counts[label]}`).join(' · ');
+}
+
+export function buildReconcileFailureMessage(
+  consecutive: number,
+  adminWebUrl: string | undefined,
+  stages: readonly string[] = []
+): HermesMessage {
+  const stageText = stages.length > 0 ? ` (실패 단계: ${summarizeReconcileStages(stages)})` : '';
   return {
     title: '시트 재조정 실패',
-    text: `DB → 시트 재조정이 ${consecutive}회 연속 실패했습니다 — 구글 시트 접근 · 서버 로그를 확인해 주세요. DB 가 정본이라 업무 화면은 정상입니다.`,
+    text: `DB → 시트 재조정이 ${consecutive}회 연속 실패했습니다${stageText} — 구글 시트 접근 · 서버 로그를 확인해 주세요. DB 가 정본이라 업무 화면은 정상입니다.`,
+    ...ordersLink(adminWebUrl),
+    level: 'warn',
+  };
+}
+
+/** #288: 정상 주문이 섞인 회차가 있어도 같은 주문이 연속 실패한 경우 */
+export function buildReconcileStuckOrdersMessage(
+  stuckStages: readonly string[],
+  threshold: number,
+  adminWebUrl: string | undefined
+): HermesMessage {
+  return {
+    title: '시트 재조정 실패',
+    text:
+      `시트 재조정이 ${threshold}회 이상 연속 실패한 주문 ${stuckStages.length}건 (실패 단계: ${summarizeReconcileStages(stuckStages)}) — ` +
+      '열 없음이면 시트 헤더를, 쓰기 · 확인 실패면 구글 시트 접근 · 서버 로그를 확인해 주세요. DB 가 정본이라 업무 화면은 정상입니다.',
     ...ordersLink(adminWebUrl),
     level: 'warn',
   };
@@ -89,7 +130,8 @@ export interface ReconcileAlertInput {
   attempted: number;
   skippedIdentity: readonly number[];
   shiftedAfterWrite: ReadonlyArray<{ rowNumber: number; cells: number }>;
-  failed: readonly unknown[];
+  /** 재조정기 결과 — error 는 단계 접두어로 시작한다(sheet-reconciler) */
+  failed: ReadonlyArray<{ rowNumber: number; error: string }>;
   reconciled?: readonly number[];
   stale?: readonly number[];
 }
@@ -108,6 +150,8 @@ export class SyncAlerter {
   private active = true;
   private consecutiveFailures = 0;
   private consecutiveReconcileFailures = 0;
+  /** #288: 주문(시트 행) 단위 연속 실패 — 실패하면 +1 · 맞추면(또는 stale) 지운다 · 시도되지 않은 회차(백오프)는 그대로 */
+  private readonly reconcileRowFailures = new Map<number, { count: number; stage: string }>();
   private readonly sentKeys = new Set<string>();
 
   constructor(private readonly deps: SyncAlerterDeps) {}
@@ -135,11 +179,33 @@ export class SyncAlerter {
     if (result.skippedIdentity.length > 0) {
       await this.sendOncePerDay('sheet-reconcile-stall', buildReconcileStallMessage(result.skippedIdentity, this.deps.adminWebUrl));
     }
+    const stages = result.failed.map((f) => classifyReconcileFailure(f.error));
+    await this.trackReconcileRows(result);
     if (result.failed.length === 0) {
       if (result.attempted > 0) this.consecutiveReconcileFailures = 0;
       return;
     }
-    await this.countReconcileFailure();
+    await this.countReconcileFailure(stages);
+  }
+
+  /**
+   * #288: 같은 주문이 임계값 이상 연속 실패하면 경고(회차 단위 경고와 같은 키 — 하루 1회 한 번만).
+   * 회차 단위 연속 수는 정상 주문이 섞인 회차에 0 으로 돌아가 막힌 주문을 놓쳤다
+   */
+  private async trackReconcileRows(result: ReconcileAlertInput): Promise<void> {
+    // 맞췄거나 그 사이 바뀐(stale — 실패가 아니다 · 다음 회차가 최신 값으로) 주문은 지운다
+    for (const row of [...(result.reconciled ?? []), ...(result.stale ?? [])]) this.reconcileRowFailures.delete(row);
+    for (const { rowNumber, error } of result.failed) {
+      const prev = this.reconcileRowFailures.get(rowNumber)?.count ?? 0;
+      this.reconcileRowFailures.set(rowNumber, { count: prev + 1, stage: classifyReconcileFailure(error) });
+    }
+    const threshold = this.deps.failureThreshold ?? FAILURE_THRESHOLD;
+    const stuck = [...this.reconcileRowFailures.values()].filter((f) => f.count >= threshold);
+    if (stuck.length === 0) return;
+    await this.sendOncePerDay(
+      'sheet-reconcile-failure',
+      buildReconcileStuckOrdersMessage(stuck.map((f) => f.stage), threshold, this.deps.adminWebUrl)
+    );
   }
 
   /** 재조정이 예외로 끝난 회차 — 결과가 없어도 연속 실패로 센다(알림 없이 멈추지 않게) */
@@ -147,12 +213,12 @@ export class SyncAlerter {
     await this.countReconcileFailure();
   }
 
-  private async countReconcileFailure(): Promise<void> {
+  private async countReconcileFailure(stages: readonly string[] = []): Promise<void> {
     this.consecutiveReconcileFailures++;
     if (this.consecutiveReconcileFailures < (this.deps.failureThreshold ?? FAILURE_THRESHOLD)) return;
     await this.sendOncePerDay(
       'sheet-reconcile-failure',
-      buildReconcileFailureMessage(this.consecutiveReconcileFailures, this.deps.adminWebUrl)
+      buildReconcileFailureMessage(this.consecutiveReconcileFailures, this.deps.adminWebUrl, stages)
     );
   }
 
