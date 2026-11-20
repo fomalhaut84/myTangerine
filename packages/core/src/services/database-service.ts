@@ -325,8 +325,7 @@ export class DatabaseService {
   }
 
   /**
-   * 특정 행 번호로 Raw Prisma Order 조회 (충돌 감지용)
-   * Phase 2: 충돌 감지에 필요한 메타 필드 (lastModifiedBy, lastModifiedAt, version) 포함
+   * 특정 행 번호로 Raw Prisma Order 조회 — 동기화가 쓰는 메타 필드(syncStatus · version · lastModified*) 포함
    */
   async getRawOrderByRowNumber(rowNumber: number): Promise<PrismaOrder | null> {
     try {

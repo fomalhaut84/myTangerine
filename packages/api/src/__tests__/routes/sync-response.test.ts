@@ -1,7 +1,7 @@
 /**
  * 동기화 응답 (#279)
  *
- * SyncResult 의 충돌 · 행 정체성 정지(#257 · #260) · 행 밀림 정지(#261) 가 응답 스키마에 없어
+ * SyncResult 의 재조정 대기(#228) · 행 정체성 정지(#257 · #260) · 행 밀림 정지(#261) 가 응답 스키마에 없어
  * Fastify 직렬화에서 사라졌다. 수동 동기화는 #hermes 경고를 보내지 않으므로 화면이 유일한 신호다.
  */
 
@@ -15,9 +15,7 @@ function result(overrides: Partial<SyncRouteResult> = {}): SyncRouteResult {
     success: 8,
     failed: 0,
     skipped: 2,
-    conflicts: 0,
     errors: [],
-    conflictDetails: [],
     newOrderNotices: 0,
     replaced: 0,
     replacementLimitHit: false,
@@ -55,14 +53,18 @@ describe('buildSyncResponse', () => {
     expect(body.result.errors).toEqual([{ rowNumber: 5, error: 'Sync failed for this row' }]);
   });
 
-  it('충돌 상세는 행 번호 · 주문 id 만 — 사유 문자열(내부 시각)은 뺀다', () => {
-    const body = buildSyncResponse(
-      result({ conflicts: 1, conflictDetails: [{ rowNumber: 7, orderId: 70, reason: 'DB modified at 2026-11-19T01:00:00.000Z > ...' }] }),
-      'incremental'
-    );
-    expect(body.result.conflictDetails).toEqual([{ rowNumber: 7, orderId: 70 }]);
-    expect(body.message).toContain('충돌 1건');
+  it('#228: 재조정 대기 행(시트 우선 가져오기가 덮지 않은 DB 전용 변경)은 행 수를 알리고 경고한다', () => {
+    const body = buildSyncResponse(result({ pendingReconcileRows: [7, 9] }), 'full');
+    expect(body.result.pendingReconcileRows).toEqual([7, 9]);
+    expect(body.message).toContain('행 2개는 시트에 아직 반영되지 않은 DB 변경이 있어 덮어쓰지 않았습니다');
+    expect(body.message).not.toContain('충돌');
     expect(body.warning).toBe(true);
+  });
+
+  it('#228: 응답에 충돌 필드가 없다', () => {
+    const body = buildSyncResponse(result(), 'incremental');
+    expect(body.result).not.toHaveProperty('conflicts');
+    expect(body.result).not.toHaveProperty('conflictDetails');
   });
 
   it('행 밀림 정지(#261) — 메시지에 정지 · 남은 행 · 런북 안내, 경고', () => {
@@ -87,11 +89,10 @@ describe('buildSyncResponse', () => {
 });
 
 describe('syncResponseSchema — 직렬화 뒤에도 필드가 남는다', () => {
-  it('충돌 · 정지 · 교체 · 알림 필드가 응답에 남는다', async () => {
+  it('재조정 대기 · 정지 · 교체 · 알림 필드가 응답에 남는다', async () => {
     const body = buildSyncResponse(
       result({
-        conflicts: 1,
-        conflictDetails: [{ rowNumber: 7, orderId: 70, reason: 'x' }],
+        pendingReconcileRows: [7],
         replaced: 1,
         replacementLimitHit: true,
         newOrderNotices: 2,
@@ -104,8 +105,7 @@ describe('syncResponseSchema — 직렬화 뒤에도 필드가 남는다', () =>
     const json = await serialize(body);
     expect(json.warning).toBe(true);
     expect(json.result).toMatchObject({
-      conflicts: 1,
-      conflictDetails: [{ rowNumber: 7, orderId: 70 }],
+      pendingReconcileRows: [7],
       replaced: 1,
       replacementLimitHit: true,
       newOrderNotices: 2,
@@ -113,7 +113,6 @@ describe('syncResponseSchema — 직렬화 뒤에도 필드가 남는다', () =>
       rowShiftDetected: true,
       unprocessed: 5,
     });
-    expect(json.result.conflictDetails[0]).not.toHaveProperty('reason');
   });
 
   it('전체 동기화 스키마는 duration 을 남긴다', async () => {
@@ -134,6 +133,6 @@ describe('syncResponseSchema — 직렬화 뒤에도 필드가 남는다', () =>
     const body = buildSyncResponse(legacy, 'incremental');
     const json = await serialize(body);
     expect(json.warning).toBe(false);
-    expect(json.result).toMatchObject({ conflicts: 0, identityConflictRows: [], rowShiftDetected: false, unprocessed: 0 });
+    expect(json.result).toMatchObject({ pendingReconcileRows: [], identityConflictRows: [], rowShiftDetected: false, unprocessed: 0 });
   });
 });

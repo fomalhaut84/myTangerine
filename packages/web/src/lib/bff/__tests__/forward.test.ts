@@ -21,7 +21,7 @@ describe('resolveUpstreamPath', () => {
     ['/bff/api/labels/grouped', '/api/labels/grouped'],
     ['/bff/api/sync', '/api/sync'],
     ['/bff/api/sync/full', '/api/sync/full'],
-    ['/bff/api/orders/conflicts/a%20b/resolve', '/api/orders/conflicts/a%20b/resolve'],
+    ['/bff/api/orders/a%20b/history', '/api/orders/a%20b/history'],
   ])('maps %s → %s', (input, expected) => {
     expect(resolveUpstreamPath(input)).toBe(expected);
   });

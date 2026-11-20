@@ -1,6 +1,6 @@
 /**
  * 수동 동기화 결과 표시 판정 (#279)
- * 수동 동기화는 #hermes 경고를 보내지 않으므로 화면이 정지 · 충돌을 경고로 보여야 한다.
+ * 수동 동기화는 #hermes 경고를 보내지 않으므로 화면이 정지 · 재조정 대기를 경고로 보여야 한다.
  */
 import { describe, it, expect } from 'vitest';
 import { summarizeSyncResult, type SyncResponse } from '../sync-result';
@@ -48,10 +48,11 @@ describe('summarizeSyncResult', () => {
     expect(s.details.filter((d) => d.includes('391'))).toHaveLength(1);
   });
 
-  it('충돌은 warning · 충돌 행 목록', () => {
-    const s = summarizeSyncResult(response({ conflicts: 2, conflictDetails: [{ rowNumber: 7, orderId: 70 }, { rowNumber: 9, orderId: 90 }] }, true));
+  it('#228: 재조정 대기 행(시트 우선 가져오기가 덮지 않음)은 warning · 행 목록', () => {
+    const s = summarizeSyncResult(response({ pendingReconcileRows: [7, 9] }, true));
     expect(s.tone).toBe('warning');
-    expect(s.details).toContain('충돌(웹 수정 우선 · 시트 값 미반영) 행: 7, 9');
+    expect(s.details).toContain('시트 반영 대기라 덮어쓰지 않은 행(자동 재조정): 7, 9');
+    expect(s.details.some((d) => d.includes('충돌'))).toBe(false);
   });
 
   it('행 목록은 10개까지만 보이고 나머지는 개수로', () => {

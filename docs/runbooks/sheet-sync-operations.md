@@ -92,7 +92,9 @@ sudo -u postgres psql -d mytangerine -c "SELECT sheet_row_number AS row, id, tim
     -H "content-type: application/json" -d '{"confirm":"sheet-first"}'
   ```
 - 주문마다 한 트랜잭션으로 덮어쓰고 **바뀐 필드 전체**(상태 · 송장 · 삭제 · 주문유형 · 상품 · 수량 · 주문자 · 보내는분 · 받으실분)를 변경 이력(`changedBy=sync`)에 남긴다. 그 사이 웹 수정이 있었던 주문은 쓰지 않고 실패로 보고한다. 최초 입력값은 바꾸지 않는다
-- 덮어쓰지 않는 주문(응답의 `conflicts` 로 보고): 시트 반영 실패 표시가 있는 주문(DB 에만 있는 변경) · 웹 수정이 시트 동기화 시각보다 새로운 주문
+- 덮어쓰지 않는 주문(응답 `pendingReconcileRows` · 로그 `left for reconcile` 로 보고): 시트 반영 실패 표시가 있는 주문(DB 에만 있는 변경). 재조정(#231)이 DB 값을 시트에 쓴 뒤 다시 실행하면 그 주문도 시트 값에 맞춰진다
+- **웹에서 고친 주문도 시트 값으로 덮어쓴다(#228)** — 웹 수정은 보통 시트에도 반영돼 있어 값이 바뀌지 않는다. 시트가 웹 수정 이전 값이면 그 값으로 돌아가므로, 실행 전 시트가 정답인지 확인한다(바뀐 필드는 변경 이력에 남는다)
+- 웹-시트 "충돌" 개념은 없다(#228) — 예전 충돌 로그는 이력 탭에 그대로 보인다
 - 실행 전 `pg_dump` 백업을 남긴다(data-safety S-3)
 - 평소 증분 동기화는 시트 값이 DB 와 다른 행을 DB 그대로 두고 응답 `sheetDivergedRows` · 로그(`Sheet row differs from the DB order`)로 알린다 — 시트 반영 실패(웹 경고 "부분 저장") 뒤 자연스럽게 생긴다
 - sheets 모드로 운영하던 기간에 들어온 주문은 hybrid 로 바꾼 뒤 처음 DB 에 만들어진다 — 그 주문의 최초 입력값은 그 시점의 시트 값이다

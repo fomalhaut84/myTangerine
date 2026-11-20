@@ -3,8 +3,9 @@
  *
  * 정본은 DB 다. 시트 → DB 는 새 주문이 처음 들어올 때만 쓴다.
  * - 증분(cron · 수동): DB 에 있는 같은 주문은 시트 값이 달라도 DB 를 바꾸지 않는다 — 상태 칸만 쓴다
- * - 전체(시트 우선 가져오기 · 운영자 복구): 지금처럼 시트 값으로 덮어쓰되 바뀐 필드를 변경 이력에 남기고,
- *   DB 에만 있는 변경(시트 반영 실패 · syncStatus=failed)은 덮어쓰지 않는다
+ * - 전체(시트 우선 가져오기 · 운영자 복구): 시트 값으로 덮어쓰되 바뀐 필드를 변경 이력에 남기고,
+ *   DB 에만 있는 변경(시트 반영 실패 · syncStatus=failed)은 덮어쓰지 않고 재조정 대기로 알린다
+ * - #228: 웹-시트 "충돌" 개념은 없다 — 충돌 로그를 만들지 않는다
  * - 새 주문을 만들 때 최초 입력값(original_input)을 저장한다
  *
  * SheetService · Prisma 는 mock 이다(S-4).
@@ -14,7 +15,6 @@ import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import { SyncEngine } from '../sync-engine.js';
 import { DatabaseService } from '../database-service.js';
-import type { ChangeLogService } from '../change-log-service.js';
 import { parseKoreanTimestamp, type SheetRow } from '../../types/order.js';
 import type { SheetService } from '../sheet-service.js';
 import type { Config } from '../../config/config.js';
@@ -75,17 +75,8 @@ function engine(existing: Record<string, unknown> | null, row: SheetRow = sheetR
     // 시트 행 → DB 필드 변환은 prisma 없이 도는 실제 함수를 쓴다
     sheetRowToPrismaOrderData: (r: SheetRow) => DatabaseService.prototype.sheetRowToPrismaOrderData.call(null, r),
   };
-  const changeLogService = {
-    hasUnresolvedConflict: vi.fn().mockResolvedValue(false),
-    logChange: vi.fn().mockResolvedValue(undefined),
-  };
-  const e = new SyncEngine(
-    sheetService as unknown as SheetService,
-    databaseService as unknown as DatabaseService,
-    undefined,
-    changeLogService as unknown as ChangeLogService
-  );
-  return { e, databaseService, changeLogService, writes };
+  const e = new SyncEngine(sheetService as unknown as SheetService, databaseService as unknown as DatabaseService);
+  return { e, databaseService, writes };
 }
 
 async function run(e: SyncEngine, mode: 'incremental' | 'full') {
@@ -97,14 +88,13 @@ async function run(e: SyncEngine, mode: 'incremental' | 'full') {
 
 describe('SyncEngine — 증분 동기화는 새 주문만 만든다 (#281)', () => {
   it('DB 에 있는 같은 주문은 DB 를 바꾸지 않고 상태 칸만 쓴다 — 새 주문 성공이 아니라 "유지" 로 센다', async () => {
-    const { e, databaseService, changeLogService, writes } = engine(EXISTING);
+    const { e, databaseService, writes } = engine(EXISTING);
     const result = await run(e, 'incremental');
 
     expect(databaseService.upsertOrder).not.toHaveBeenCalled();
     expect(databaseService.overwriteOrderFromSheet).not.toHaveBeenCalled();
-    expect(changeLogService.logChange).not.toHaveBeenCalled();
     expect(writes.map((w) => [w.row, w.updates.DB_SYNC_STATUS, w.updates.DB_SYNC_ID])).toEqual([[10, 'success', '5']]);
-    expect(result).toMatchObject({ success: 0, unchanged: 1, failed: 0, conflicts: 0 });
+    expect(result).toMatchObject({ success: 0, unchanged: 1, failed: 0, pendingReconcileRows: [] });
   });
 
   it('시트 값이 DB 와 다르면 DB 를 유지하고 그 행을 보고한다(값은 로그에 남기지 않음)', async () => {
@@ -118,13 +108,6 @@ describe('SyncEngine — 증분 동기화는 새 주문만 만든다 (#281)', ()
     const { e, writes } = engine({ ...EXISTING, syncedAt });
     await run(e, 'incremental');
     expect(writes[0].updates.DB_SYNC_AT).toBe('2026-11-18T10:02:03+09:00');
-  });
-
-  it('웹 수정이 시트 동기화 시각보다 새로워도 더는 충돌로 보지 않는다(DB 가 정본)', async () => {
-    const { e, changeLogService } = engine(EXISTING, sheetRow({ DB_SYNC_AT: '2026-11-18T00:00:00+09:00' }));
-    const result = await run(e, 'incremental');
-    expect(result.conflicts).toBe(0);
-    expect(changeLogService.hasUnresolvedConflict).not.toHaveBeenCalled();
   });
 
   it('시트 반영 실패 표시(syncStatus=failed) 주문은 DB 도 시트 상태 칸도 건드리지 않는다 (#231 재조정 대상)', async () => {
@@ -164,19 +147,28 @@ describe('SyncEngine — 전체 동기화 = 시트 우선 가져오기(운영자
     expect(result.errors[0].error).toContain('changed concurrently');
   });
 
-  it('DB 에만 있는 변경(syncStatus=failed)은 덮어쓰지 않고 충돌로 알린다', async () => {
-    const { e, databaseService } = engine({ ...EXISTING, syncStatus: 'failed' });
+  it('DB 에만 있는 변경(syncStatus=failed)은 덮어쓰지 않고 재조정 대기 행으로 알린다 — 상태 칸도 쓰지 않는다', async () => {
+    const { e, databaseService, writes } = engine({ ...EXISTING, syncStatus: 'failed' });
     const result = await run(e, 'full');
     expect(databaseService.overwriteOrderFromSheet).not.toHaveBeenCalled();
-    expect(result.conflicts).toBe(1);
-    expect(result.conflictDetails[0].reason).toContain('#281');
+    expect(writes).toEqual([]);
+    expect(result).toMatchObject({ success: 0, failed: 0, pendingReconcileRows: [10] });
   });
 
-  it('웹 수정이 시트 동기화 시각보다 새로우면 지금처럼 충돌(덮어쓰지 않음)', async () => {
+  it('#228: 웹 수정이 시트 동기화 시각보다 새로워도 충돌이 아니다 — 시트 값으로 덮어쓰고 이력을 남긴다', async () => {
     const { e, databaseService } = engine(EXISTING, sheetRow({ DB_SYNC_AT: '2026-11-18T00:00:00+09:00' }));
     const result = await run(e, 'full');
-    expect(databaseService.overwriteOrderFromSheet).not.toHaveBeenCalled();
-    expect(result.conflicts).toBe(1);
+    expect(databaseService.overwriteOrderFromSheet).toHaveBeenCalledTimes(1);
+    expect(result).toMatchObject({ success: 1, pendingReconcileRows: [] });
+    expect(result).not.toHaveProperty('conflicts');
+    expect(result).not.toHaveProperty('conflictDetails');
+  });
+
+  it('#228: 시트 DB_SYNC_AT 이 비었거나 깨진 웹 수정 주문도 같은 규칙으로 덮어쓴다', async () => {
+    const { e, databaseService } = engine(EXISTING, sheetRow({ DB_SYNC_AT: 'not-a-date' }));
+    const result = await run(e, 'full');
+    expect(databaseService.overwriteOrderFromSheet).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(1);
   });
 });
 

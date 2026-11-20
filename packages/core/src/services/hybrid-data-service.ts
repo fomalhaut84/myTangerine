@@ -446,7 +446,7 @@ export class HybridDataService {
    * 2. DB 성공 · 시트 실패 → Order.syncStatus='failed' 기록 + partial 결과.
    *    그 표시는 다음 쓰기가 성공해도 지우지 않는다 — 쓰기는 일부 필드만 시트에 쓰므로 실패했던 필드가
    *    맞춰졌다는 보장이 없다(PR #230 Codex P2). 행 전체 재조정(#231)이 지운다
-   *    DB 가 앞선 상태는 동기화가 충돌로 분류해 DB 값을 유지하므로 안정적이다
+   *    DB 가 앞선 상태는 증분 동기화가 바꾸지 않고(#281) 시트 우선 가져오기도 덮어쓰지 않는다(재조정 대기 · #228)
    */
   private async hybridWrite(
     operation: string,
