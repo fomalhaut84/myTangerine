@@ -392,7 +392,7 @@ export class HybridDataService {
     // #317 상품 · 수량 수정이면 같은 시즌 폼 문구를 한 번 찾아 DB · 시트에 같은 값을 넘긴다
     const seasonSelection =
       updates.seasonSelection !== undefined ? updates.seasonSelection : await this.findSeasonSelection(rowNumber, updates);
-    // 찾지 못했으면(null) 넘기지 않는다 — 상품을 바꾸는 수정만 resolveProductEdit 이 거절한다
+    // 찾지 못했으면(null) 넘기지 않는다 — 필요할 때(상품을 바꾸거나 지금 원문에 단가가 없을 때)만 resolveProductEdit 이 거절한다
     const resolved = { ...updates, seasonSelection: typeof seasonSelection === 'string' ? seasonSelection : undefined };
     return this.write(
       'updateOrder',
@@ -405,7 +405,7 @@ export class HybridDataService {
 
   /**
    * #317 바꿀(또는 지금) 상품의 같은 시즌 폼 문구 — 정본 데이터(sheets 모드는 시트, 그 외는 DB)의 다른 주문 원문에서 찾는다.
-   * 상품 · 수량 수정이 아니면 undefined. 찾지 못하면 null — resolveProductEdit 이 필요할 때만 거절한다
+   * 상품 · 수량 수정이 아니면 undefined. 찾지 못하면 null — 상품을 바꾸거나 지금 원문에 단가가 없을 때만 resolveProductEdit 이 거절한다
    */
   async findSeasonSelection(
     rowNumber: number,
@@ -417,7 +417,7 @@ export class HybridDataService {
     try {
       rows = await this.getAllRows(true);
     } catch (error) {
-      // 읽기 실패로 수량만 고치는 수정까지 막지 않는다 — 상품을 바꾸는 수정은 resolveProductEdit 이 400 으로 거절한다
+      // 읽기 실패로 수정 전체를 막지 않는다 — 시즌 문구가 꼭 필요한 수정(상품 변경 · 원문에 단가 없음)만 resolveProductEdit 이 거절한다
       const message = error instanceof Error ? error.message : String(error);
       this.logger?.warn(`[product-edit] 같은 시즌 폼 문구를 찾지 못했습니다 (row ${rowNumber}): ${message}`);
       return null;
