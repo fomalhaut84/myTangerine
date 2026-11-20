@@ -414,6 +414,19 @@ export class DatabaseService {
   }
 
   /**
+   * #293: 주문 하나에 시트 반영 실패를 남긴다 — 재조정이 칸을 쓴 뒤 그 사이 주문이 바뀐 것을 알았을 때
+   * (쓴 값이 낡았을 수 있다 · 다른 쓰기가 표시를 지웠을 수 있다) 다음 회차가 최신 DB 값으로 맞추게 한다
+   * @returns 표시한 행 수
+   */
+  async markSheetSyncFailedById(orderId: number, reason: string): Promise<number> {
+    const { count } = await this._prisma.order.updateMany({
+      where: { id: orderId },
+      data: { syncStatus: 'failed', syncErrorMessage: reason.slice(0, MAX_SYNC_ERROR_LENGTH) },
+    });
+    return count;
+  }
+
+  /**
    * #293: hybrid 쓰기 전에 "시트 반영 대기" 표시를 먼저 남긴다 — 이번 쓰기의 고유값(token)을 사유 칸에 둔다.
    * DB 를 쓴 뒤 시트까지 성공하면 `clearSheetWritePending` 이 같은 고유값일 때만 지운다. 표시 기록 실패 · 중간 종료에도
    * DB 전용 변경이 표시 없이 남지 않게 한다(시트 우선 가져오기 · 재조정이 이 표시를 본다).

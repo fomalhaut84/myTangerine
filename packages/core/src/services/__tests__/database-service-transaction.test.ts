@@ -174,6 +174,16 @@ describe('DatabaseService — 시트 반영 대기 표시 (#293)', () => {
     expect(root.order.updateMany).not.toHaveBeenCalled();
   });
 
+  it('markSheetSyncFailedById: 그 주문 하나에 실패 사유를 남긴다', async () => {
+    const { root, service } = setup();
+    root.order.updateMany.mockResolvedValue({ count: 1 });
+    expect(await service.markSheetSyncFailedById(7, 'reconcile stale')).toBe(1);
+    expect(root.order.updateMany).toHaveBeenCalledWith({
+      where: { id: 7 },
+      data: { syncStatus: 'failed', syncErrorMessage: 'reconcile stale' },
+    });
+  });
+
   it('getSheetSyncFailedOrders: 진행 중인(최근) 대기 표시는 재조정 대상에서 뺀다 — 오래된 표시(중간 종료)는 넣는다', async () => {
     const { root, service } = setup();
     vi.useFakeTimers();
