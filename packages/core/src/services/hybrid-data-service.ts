@@ -9,11 +9,13 @@
  * Issue #68 Phase 2.3
  */
 
+import { randomUUID } from 'node:crypto';
 import type { SheetService } from './sheet-service.js';
 import type { DatabaseService } from './database-service.js';
 import type { SheetRow, OrderStatus } from '../types/order.js';
 import type { EditableProductType } from '../types/product-edit.js';
 import {
+  HybridReadError,
   HybridWriteError,
   SheetRowMismatchError,
   describeError,
@@ -211,8 +213,18 @@ export class HybridDataService {
       return null;
     }
 
-    // database/hybrid: DB에서 직접 조회
-    const row = await this.databaseService.getOrderById(id);
+    // database/hybrid: DB에서 직접 조회 — 시트 행이 없는 주문이라 시트 폴백은 없다.
+    // #229: DB 오류는 503 + 일반 문구(HybridReadError). 이미 5xx 상태 코드와 문구를 가진 오류는 그대로 둔다(방어용 —
+    // 지금 DatabaseService 는 오류를 감싸 다시 던지므로 닿지 않는다). 4xx 는 감싼다 — 원문이 응답에 나가지 않게
+    let row: SheetRow | null;
+    try {
+      row = await this.databaseService.getOrderById(id);
+    } catch (error) {
+      const statusCode = error && typeof error === 'object' ? (error as { statusCode?: unknown }).statusCode : undefined;
+      if (typeof statusCode === 'number' && statusCode >= 500) throw error;
+      this.logger?.error(`[hybrid] getOrderById(${id}) failed in DB: ${describeError(error)}`);
+      throw new HybridReadError('getOrderById', error);
+    }
     this.logger?.info(`[hybrid] getOrderById(${id}) from DB: ${row ? 'found' : 'not found'}`);
     return row;
   }
@@ -245,18 +257,6 @@ export class HybridDataService {
       [rowNumber],
       () => this.databaseService.markSingleAsConfirmed(rowNumber, 'web'),
       () => this.sheetService!.markSingleAsConfirmed(rowNumber)
-    );
-  }
-
-  /**
-   * 셀 업데이트
-   */
-  async updateCell(rowNumber: number, columnName: string, value: string): Promise<WriteOutcome> {
-    return this.write(
-      'updateCell',
-      [rowNumber],
-      () => this.databaseService.updateCell(rowNumber, columnName, value),
-      () => this.sheetService!.updateCell(rowNumber, columnName, value)
     );
   }
 
@@ -448,6 +448,11 @@ export class HybridDataService {
    *    그 표시는 다음 쓰기가 성공해도 지우지 않는다 — 쓰기는 일부 필드만 시트에 쓰므로 실패했던 필드가
    *    맞춰졌다는 보장이 없다(PR #230 Codex P2). 행 전체 재조정(#231)이 지운다
    *    DB 가 앞선 상태는 증분 동기화가 바꾸지 않고(#281) 시트 우선 가져오기도 덮어쓰지 않는다(재조정 대기 · #228)
+   * 3. #293 먼저 표시: DB 를 쓰기 전에 대상 행에 "시트 반영 대기" 표시(이번 쓰기 고유값)를 남긴다 — 표시를 못 남기면
+   *    아무것도 쓰지 않고 HybridWriteError(503). 시트까지 성공하면 그 고유값일 때만 지운다.
+   *    DB 실패면 표시를 남긴다 — 커밋 응답만 유실돼 실제로는 커밋됐을 수 있다(5분 뒤 재조정이 다른 칸만 맞추고 지운다).
+   *    시트 실패 · 행 확인 불가면 실패 사유로 덮는다. 그래서 표시 기록 실패 · 중간 종료에도 DB 전용 변경이 표시 없이
+   *    남지 않는다. 다른 쓰기의 대기 표시를 만나면 재조정 필요 사유로 바꿔 둔다(#304 — 끝나지 않은 쓰기 · 동시 쓰기)
    */
   private async hybridWrite(
     operation: string,
@@ -461,10 +466,21 @@ export class HybridDataService {
     // 시트를 읽지 못해 확인할 수 없으면 DB 만 쓰고 시트는 쓰지 않는다(부분 저장 · 사용자 결정 2026-11-19)
     const check = await this.checkSheetRows(operation, rowNumbers);
 
+    // #293: DB 를 쓰기 전에 "시트 반영 대기" 표시 — 못 남기면 아무것도 쓰지 않는다
+    const pendingRows = rowNumbers ?? [];
+    const token = randomUUID();
+    try {
+      await this.databaseService.markSheetWritePending(pendingRows, token);
+    } catch (markError) {
+      this.logger?.error(`[hybrid] ${operation} could not mark sheet write pending — nothing written (${target}): ${describeError(markError)}`);
+      throw new HybridWriteError(operation, markError);
+    }
+
     try {
       await dbWrite();
     } catch (dbError) {
-      this.logger?.error(`[hybrid] ${operation} DB failed — Sheets not written (${target}): ${describeError(dbError)}`);
+      // 대기 표시는 남긴다 — 커밋 여부가 불분명할 수 있다(재조정이 맞춘다 · 그동안 시트 우선 가져오기가 덮지 않는다)
+      this.logger?.error(`[hybrid] ${operation} DB failed — Sheets not written, pending mark kept (${target}): ${describeError(dbError)}`);
       throw new HybridWriteError(operation, dbError);
     }
 
@@ -484,8 +500,23 @@ export class HybridDataService {
       return sheetPartial();
     }
 
+    await this.clearPendingMark(operation, pendingRows, token);
     this.logger?.info(`[hybrid] ${operation} DB+Sheets success (${target})`);
     return writeOk();
+  }
+
+  /**
+   * #293: 이번 쓰기가 남긴 대기 표시만 지운다 — 실패는 로그만 남긴다(표시가 남으면 재조정이 DB 값을 시트에 다시 쓸 뿐 · 안전)
+   */
+  private async clearPendingMark(operation: string, rowNumbers: number[], token: string): Promise<void> {
+    if (rowNumbers.length === 0) return;
+    try {
+      await this.databaseService.clearSheetWritePending(rowNumbers, token);
+    } catch (clearError) {
+      this.logger?.error(
+        `[hybrid] ${operation} could not clear the sheet write pending mark (rows ${rowNumbers.join(', ')}) — left for reconcile: ${describeError(clearError)}`
+      );
+    }
   }
 
   /**
@@ -524,12 +555,18 @@ export class HybridDataService {
   }
 
   /**
-   * 시트 반영 실패를 주문에 남긴다 — 기록 실패는 로그만 남긴다(사용자 응답은 이미 partial 이다)
+   * 시트 반영 실패를 주문에 남긴다 — 기록 실패는 로그만 남긴다(사용자 응답은 이미 partial 이다).
+   * #293: 실패해도 먼저 남긴 대기 표시가 그대로라 주문은 보호된다(사유만 대기 표시로 남는다)
    */
   private async recordSheetSyncFailure(rowNumbers: number[] | undefined, reason: string): Promise<void> {
     if (!rowNumbers || rowNumbers.length === 0) return;
     try {
-      await this.databaseService.markSheetSyncFailed(rowNumbers, reason);
+      const marked = await this.databaseService.markSheetSyncFailed(rowNumbers, reason);
+      if (marked < rowNumbers.length) {
+        this.logger?.error(
+          `[hybrid-partial] sheet sync failure marked ${marked} of ${rowNumbers.length} rows (rows ${rowNumbers.join(', ')})`
+        );
+      }
     } catch (recordError) {
       this.logger?.error(
         `[hybrid-partial] failed to record sheet sync failure (rows ${rowNumbers.join(', ')}): ${describeError(recordError)}`

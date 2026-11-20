@@ -28,6 +28,7 @@ export {
   type HybridDataServiceOptions,
 } from './services/hybrid-data-service.js';
 export {
+  HybridReadError,
   HybridWriteError,
   SheetRowMismatchError,
   SHEET_SYNC_WARNING,

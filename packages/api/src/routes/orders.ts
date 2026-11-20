@@ -5,6 +5,9 @@
 import { FastifyPluginAsync } from 'fastify';
 import { sheetRowToOrder, mapOrdersToPdfRows, mapOrdersToExcelRows, normalizeOrderStatus, parseOrderType, ChangeLogService, EDITABLE_PRODUCT_TYPES, MAX_EDIT_QUANTITY, type WriteOutcome } from '@mytangerine/core';
 import { resolveProductPatch, type EditableProductType } from './product-patch.js';
+
+/** #229: 주문 ID(행 번호 · DB id) 상한 — Prisma Int(PostgreSQL integer) 최댓값. 넘으면 DB 오류(503) 대신 400 */
+const MAX_ORDER_ID = 2_147_483_647;
 import {
   calculateStats,
   calculateOrderAmount,
@@ -1130,7 +1133,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       // 엄격한 숫자 검증: "2foo" 같은 값을 거부
       const orderId = Number(request.params.rowNumber);
 
-      if (!Number.isInteger(orderId) || orderId < 1) {
+      if (!Number.isInteger(orderId) || orderId < 1 || orderId > MAX_ORDER_ID) {
         return reply.code(400).send({
           success: false,
           error: 'Invalid order ID. Must be a positive integer.',
@@ -1722,7 +1725,7 @@ const ordersRoutes: FastifyPluginAsync = async (fastify) => {
       const { trackingNumber } = request.body || {};
       const idType = request.query.idType || 'rowNumber';
 
-      if (isNaN(orderId) || orderId < 1) {
+      if (isNaN(orderId) || orderId < 1 || orderId > MAX_ORDER_ID) {
         return reply.code(400).send({
           success: false,
           error: 'Invalid order ID. Must be a positive integer.',

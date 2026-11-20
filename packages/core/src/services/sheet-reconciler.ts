@@ -144,7 +144,7 @@ export class SheetReconciler {
 
   constructor(
     private readonly sheetService: Pick<SheetService, 'getRowsWithHeaders' | 'getTimestampsByRows' | 'updateRowsCells'>,
-    private readonly databaseService: Pick<DatabaseService, 'getSheetSyncFailedOrders' | 'clearSheetSyncFailureIfUnchanged'>,
+    private readonly databaseService: Pick<DatabaseService, 'getSheetSyncFailedOrders' | 'clearSheetSyncFailureIfUnchanged' | 'markSheetSyncFailedById'>,
     private readonly logger?: Logger,
     options: SheetReconcilerOptions = {}
   ) {
@@ -191,6 +191,7 @@ export class SheetReconciler {
         await this.sheetService.updateRowsCells(toWrite.map((p) => ({ row: p.order.sheetRowNumber, updates: p.updates })));
       } catch (error) {
         this.failAll(result, plans.map((p) => p.order), `sheet write failed: ${errorMessage(error)}`);
+        await this.remarkWritten(toWrite, 'reconcile sheet write failed — cells may be partly written (#293)');
         return;
       }
     }
@@ -202,6 +203,7 @@ export class SheetReconciler {
         after = await this.sheetService.getTimestampsByRows(toWrite.map((p) => p.order.sheetRowNumber));
       } catch (error) {
         this.failAll(result, plans.map((p) => p.order), `post-write row check failed: ${errorMessage(error)}`);
+        await this.remarkWritten(toWrite, 'reconcile wrote cells but could not re-check the rows (#293)');
         return;
       }
     }
@@ -230,9 +232,17 @@ export class SheetReconciler {
           this.backoff.delete(order.id);
         } else {
           result.stale.push(order.sheetRowNumber);
+          // 회귀: PR #301 Codex P2 — 읽은 뒤 주문이 바뀌었다. 칸을 썼다면 그 값이 낡았을 수 있고, 그 사이 웹 쓰기가
+          // 표시를 지웠을 수 있다(#293 대기 표시). 표시를 다시 남겨 다음 회차가 최신 DB 값으로 맞추게 한다
+          if (cells > 0) {
+            await this.databaseService.markSheetSyncFailedById(
+              order.id,
+              'reconcile wrote values read before a newer DB change — re-reconcile (#293)'
+            );
+          }
         }
       } catch (error) {
-        result.failed.push({ rowNumber: order.sheetRowNumber, error: `clear failed: ${errorMessage(error)}` });
+        result.failed.push({ rowNumber: order.sheetRowNumber, error: `clear or re-mark failed: ${errorMessage(error)}` });
         this.deferOrder(order.id);
       }
     }
@@ -268,6 +278,24 @@ export class SheetReconciler {
     }
     result.missingColumns = [...missing];
     return plans;
+  }
+
+  /**
+   * #293: 칸을 썼(거나 쓰려 했)는데 해제까지 가지 못한 주문에 실패 표시를 다시 남긴다 — 그 사이 웹 쓰기가 자기 대기 표시를
+   * 지워 `success` 가 됐으면, 낡았을 수 있는 칸이 표시 없이 남는다(PR #301 Codex P2 와 같은 틈). 실패는 로그만
+   * (그 주문은 이미 result.failed 에 있다)
+   */
+  private async remarkWritten(toWrite: readonly PlannedWrite[], reason: string): Promise<void> {
+    for (const { order } of toWrite) {
+      try {
+        await this.databaseService.markSheetSyncFailedById(order.id, reason);
+      } catch (error) {
+        this.logger?.error(
+          { rowNumber: order.sheetRowNumber, error: errorMessage(error) },
+          'Sheet reconcile: could not re-mark a written row as failed (#293)'
+        );
+      }
+    }
   }
 
   private failAll(result: ReconcileResult, orders: Target[], error: string): void {

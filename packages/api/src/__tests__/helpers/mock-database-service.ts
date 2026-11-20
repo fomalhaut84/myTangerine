@@ -121,25 +121,6 @@ export class MockDatabaseService {
   }
 
   /**
-   * 특정 셀 업데이트 (mock)
-   * @param rowNumber - 행 번호
-   * @param columnName - 컬럼명
-   * @param value - 업데이트할 값
-   */
-  async updateCell(rowNumber: number, columnName: string, value: string): Promise<void> {
-    const allOrders = [...this.mockNewOrders, ...this.mockCompletedOrders];
-    const order = allOrders.find((o) => o._rowNumber === rowNumber);
-
-    if (order) {
-      // 컬럼명 매핑
-      if (columnName === '비고') {
-        order['비고'] = value;
-      }
-      // 추가 매핑 필요 시 여기에 추가
-    }
-  }
-
-  /**
    * 주문 생성 또는 업데이트 (mock)
    * 실제 DatabaseService의 upsertOrder와 동일한 시그니처
    */
