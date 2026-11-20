@@ -94,7 +94,8 @@ function resolveSelectionText(current: ProductEditCurrent, input: ProductEditInp
   if (isFormSelectionOf(current.productSelection, productType)) return current.productSelection;
   if (isFormSelectionOf(input.seasonSelection, productType)) return input.seasonSelection;
   throw new ProductEditError(
-    `이번 시즌 ${productType} 주문의 폼 단가를 찾지 못했습니다 — 같은 시즌에 ${productType} 주문이 있어야 바꿀 수 있습니다.`
+    `이번 시즌 ${productType} 주문의 폼 단가를 찾지 못했습니다 — 같은 시즌에 ${productType} 주문이 있어야 바꿀 수 있습니다. ` +
+      '지금 바꿔야 하면 이 주문을 삭제하고 폼으로 다시 주문해 주세요.'
   );
 }
 
