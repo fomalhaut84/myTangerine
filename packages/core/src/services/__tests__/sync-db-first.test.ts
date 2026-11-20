@@ -13,7 +13,7 @@
 
 import { describe, it, expect, vi, afterEach } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { SyncEngine } from '../sync-engine.js';
+import { SyncEngine, SHEET_FIRST_RECENT_EDIT_MARGIN_MS } from '../sync-engine.js';
 import { DatabaseService } from '../database-service.js';
 import { parseKoreanTimestamp, type SheetRow } from '../../types/order.js';
 import type { SheetService } from '../sheet-service.js';
@@ -162,6 +162,40 @@ describe('SyncEngine — 전체 동기화 = 시트 우선 가져오기(운영자
     expect(result).toMatchObject({ success: 1, pendingReconcileRows: [] });
     expect(result).not.toHaveProperty('conflicts');
     expect(result).not.toHaveProperty('conflictDetails');
+  });
+
+  it('#228: 가져오기가 시트를 읽은 뒤 웹에서 고친 주문은 낡은 스냅샷으로 덮지 않고 실패로 알린다 — 시트 상태 칸도 쓰지 않는다', async () => {
+    const afterSnapshot = new Date(Date.now() + 60 * 60 * 1000);
+    const { e, databaseService, writes } = engine({ ...EXISTING, lastModifiedAt: afterSnapshot });
+    const result = await run(e, 'full');
+    expect(databaseService.overwriteOrderFromSheet).not.toHaveBeenCalled();
+    expect(writes).toEqual([]);
+    expect(result).toMatchObject({ success: 0, failed: 1, pendingReconcileRows: [] });
+    expect(result.errors[0].error).toContain('the sheet snapshot was read');
+  });
+
+  it('#228: 스냅샷 직전(여유 안)에 고친 주문도 덮지 않는다 — 웹의 시트 쓰기가 스냅샷보다 늦었을 수 있다', async () => {
+    const justBefore = new Date(Date.now() - SHEET_FIRST_RECENT_EDIT_MARGIN_MS / 2);
+    const { e, databaseService } = engine({ ...EXISTING, lastModifiedAt: justBefore });
+    const result = await run(e, 'full');
+    expect(databaseService.overwriteOrderFromSheet).not.toHaveBeenCalled();
+    expect(result.failed).toBe(1);
+  });
+
+  it('#228: 여유보다 오래전에 고친 주문은 덮어쓴다', async () => {
+    const longAgo = new Date(Date.now() - SHEET_FIRST_RECENT_EDIT_MARGIN_MS * 2);
+    const { e, databaseService } = engine({ ...EXISTING, lastModifiedAt: longAgo });
+    const result = await run(e, 'full');
+    expect(databaseService.overwriteOrderFromSheet).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(1);
+  });
+
+  it('#228: 스냅샷 뒤 시각이라도 동기화 자신(sync)이 남긴 수정이면 덮어쓴다', async () => {
+    const afterSnapshot = new Date(Date.now() + 60 * 60 * 1000);
+    const { e, databaseService } = engine({ ...EXISTING, lastModifiedBy: 'sync', lastModifiedAt: afterSnapshot });
+    const result = await run(e, 'full');
+    expect(databaseService.overwriteOrderFromSheet).toHaveBeenCalledTimes(1);
+    expect(result.success).toBe(1);
   });
 
   it('#228: 시트 DB_SYNC_AT 이 비었거나 깨진 웹 수정 주문도 같은 규칙으로 덮어쓴다', async () => {

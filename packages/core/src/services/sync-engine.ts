@@ -105,6 +105,11 @@ interface SyncRunContext {
    * full = 시트 우선 가져오기(운영자 복구) — 기존 주문도 시트 값으로 덮어쓰고 변경 이력을 남긴다
    */
   mode: 'incremental' | 'full';
+  /**
+   * #228: 시트 스냅샷을 읽기 시작한 시각 — 시트 우선 가져오기는 이보다 나중에 sync 가 아닌 쪽(웹 · api)이 고친 주문을
+   * 낡은 스냅샷 값으로 덮지 않는다(운영자가 "시트가 정답" 이라고 확인한 것은 실행 시작 시점의 시트다)
+   */
+  snapshotReadAt: Date;
   /** 이번 시트 스냅샷의 물리 행 전체(삭제됨 · 필수 정보 빠진 행 포함) 정체성 색인 (#264) */
   sheetIndex: SheetIdentityIndex;
   /** 이번 실행의 교체 수 */
@@ -114,6 +119,12 @@ interface SyncRunContext {
   /** 이번 실행에서 상한 때문에 교체하지 못한 행이 있었다 */
   replacementLimitHit: boolean;
 }
+
+/**
+ * #228: 시트 우선 가져오기가 "방금 고친" 주문으로 보고 덮지 않는 여유 — 스냅샷을 읽기 이 시간 전부터의 웹 · api 수정.
+ * 웹 쓰기는 DB 커밋 뒤 시트에 쓰므로(재시도 포함) 스냅샷이 그 시트 쓰기보다 먼저 읽혔을 수 있다
+ */
+export const SHEET_FIRST_RECENT_EDIT_MARGIN_MS = 10 * 60 * 1000;
 
 /** #257 · #260: 시트 행과 DB 주문의 정체성이 맞지 않아 그 행을 쓰지 않았다(행 밀림 · 중복 방지) */
 export class RowIdentityConflictError extends Error {
@@ -191,6 +202,24 @@ export class SyncEngine {
           'DB has changes not yet written to the sheet (syncStatus=failed) — not overwritten by sheet-first import; left for reconcile (#281 · #231)'
         );
         return { success: true, orderId: existingOrder.id, pendingReconcile: true };
+      }
+
+      // #228: 스냅샷을 읽은 뒤(또는 직전 여유 안에) 웹 · api 가 고친 주문은 낡은 시트 값으로 덮지 않는다 — 시트 상태 칸도
+      // 쓰지 않는다. (version 확인은 이 행의 DB 를 읽은 뒤의 수정만 막는다.) 다시 실행하면 그때의 시트로 판단한다
+      if (
+        existingOrder?.lastModifiedAt &&
+        existingOrder.lastModifiedBy !== 'sync' &&
+        existingOrder.lastModifiedAt.getTime() > ctx.snapshotReadAt.getTime() - SHEET_FIRST_RECENT_EDIT_MARGIN_MS
+      ) {
+        this.logger?.warn(
+          { rowNumber, orderId: existingOrder.id },
+          'Order changed after (or just before) the sheet snapshot was read — not overwritten by sheet-first import (#228)'
+        );
+        return {
+          success: false,
+          orderId: existingOrder.id,
+          error: 'Order changed after (or just before) the sheet snapshot was read — not overwritten (#228)',
+        };
       }
 
       const attemptCount = existingOrder ? (existingOrder.syncAttemptCount || 0) + 1 : 1;
@@ -492,9 +521,11 @@ export class SyncEngine {
     try {
       // 모든 행 가져오기
       // #264: 처리 대상과 행 밀림 판정 색인(거르지 않은 물리 행 전체)을 같은 응답 하나에서
+      const snapshotReadAt = new Date();
       const { rows: allRows, physical } = await this.sheetService.getAllRowsSnapshot();
       // #257: 이번 시트 스냅샷의 정체성 색인 · 교체 건수(차단기)
       const ctx: SyncRunContext = {
+        snapshotReadAt,
         mode: skipSynced ? 'incremental' : 'full',
         sheetIndex: buildSheetIdentityIndex(physical),
         replacements: 0,

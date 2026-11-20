@@ -21,7 +21,6 @@ import { WARNINGS_SCHEMA, warningsField } from '../utils/write-outcome.js';
 import { resolveOrderIdType } from '../utils/order-id-type.js';
 import { generatePdfBuffer } from '../utils/pdf-generator.js';
 import { generateExcelBuffer } from '../utils/excel-generator.js';
-import { DatabaseNotConfiguredError } from '../plugins/prisma.js';
 
 /**
  * 통계 데이터를 CSV 형식으로 변환
