@@ -386,7 +386,7 @@ export function validateProductSelection(productSelection: string): {
   }
 
   // 카탈로그로 해석 — 비상품(글자 포함)을 먼저, 다음은 원문에서 먼저 나온 무게(단어 경계) (#313)
-  const productType = resolveProductSelection(productSelection) as ProductType | null;
+  const productType = resolveProductSelection(productSelection);
 
   if (!productType) {
     return {

@@ -135,3 +135,18 @@ describe('LabelFormatter 와 카탈로그', () => {
     expect(findProduct('3kg', WITH_3KG)?.quantityColumn).toBe('3kg 수량');
   });
 });
+
+describe('카탈로그 단언 · 가격표 동결 (#313 리뷰)', () => {
+  it('수량 칸 없는 상품을 웹 선택으로 두면 멈춘다', () => {
+    const broken: ProductCatalog = [
+      { id: '선물세트', selection: { kind: 'includes', text: '선물세트' }, quantityColumn: null, editable: true, alwaysInSummary: false },
+    ];
+    expect(() => editableProductsOf(broken)).toThrow('수량 칸이 없습니다 — 선물세트');
+  });
+
+  it('가격표는 바꿀 수 없다', async () => {
+    const { PRODUCT_PRICES_BY_YEAR } = await import('../prices.js');
+    expect(Object.isFrozen(PRODUCT_PRICES_BY_YEAR)).toBe(true);
+    expect(Object.isFrozen(PRODUCT_PRICES_BY_YEAR['2025'])).toBe(true);
+  });
+});

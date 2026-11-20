@@ -6,19 +6,25 @@
  */
 import type { ProductType } from './products.js';
 
+/** 모든 Config 인스턴스가 같은 표를 쓴다 — 실수로 바꾸지 못하게 얼린다 */
+function deepFreeze<T extends Record<string, object>>(table: T): T {
+  Object.values(table).forEach((prices) => Object.freeze(prices));
+  return Object.freeze(table);
+}
+
 /** 한 해의 상품 가격 — 그 해에 팔지 않은 상품은 없다 */
 export type ProductPrices = Readonly<Partial<Record<ProductType, number>>>;
 
 export type YearlyProductPrices = Readonly<Record<string, ProductPrices>>;
 
-export const PRODUCT_PRICES_BY_YEAR: YearlyProductPrices = {
+export const PRODUCT_PRICES_BY_YEAR: YearlyProductPrices = deepFreeze({
   '2020': { '10kg': 26000 },
   '2021': { '비상품': 17000, '10kg': 26000 },
   '2022': { '비상품': 18000, '10kg': 28000 },
   '2023': { '10kg': 30000 },
   '2024': { '5kg': 20000, '10kg': 35000 },
   '2025': { '5kg': 23000, '10kg': 38000 },
-};
+});
 
 /** 표가 비었을 때의 마지막 대체값 */
 const FALLBACK_PRICES: ProductPrices = { '5kg': 20000, '10kg': 35000 };

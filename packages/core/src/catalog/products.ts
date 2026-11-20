@@ -41,7 +41,8 @@ type CatalogEntry = (typeof PRODUCT_CATALOG)[number];
 /** 상품 종류 */
 export type ProductType = CatalogEntry['id'];
 /** 웹에서 고를 수 있는 상품 */
-export type EditableProductType = Extract<CatalogEntry, { editable: true }>['id'];
+/** 웹에서 고를 수 있는 상품 — 수량 칸이 있는 상품만 (수량 칸 없는 editable 상품은 타입에서 빠지고 아래 단언이 막는다) */
+export type EditableProductType = Extract<CatalogEntry, { editable: true; quantityColumn: string }>['id'];
 /** 수량 시트 칸 */
 export type QuantityColumn = NonNullable<CatalogEntry['quantityColumn']>;
 
@@ -71,6 +72,8 @@ function wordIndex(selection: string, word: string): number {
  * `상품 선택` 원문 → 상품 id. 알아볼 수 없으면 null.
  * `includes` 규칙(카탈로그 순서)을 먼저 보고, 다음으로 `word` 규칙 중 원문에서 가장 먼저 나온 상품.
  */
+export function resolveProductSelection(selection: string): ProductType | null;
+export function resolveProductSelection(selection: string, catalog: ProductCatalog): string | null;
 export function resolveProductSelection(selection: string, catalog: ProductCatalog = PRODUCT_CATALOG): string | null {
   const byText = catalog.find((p) => p.selection.kind === 'includes' && selection.includes(p.selection.text));
   if (byText) return byText.id;
@@ -91,9 +94,17 @@ export function quantityColumnsOf(catalog: ProductCatalog = PRODUCT_CATALOG): re
   return catalog.flatMap((p) => (p.quantityColumn ? [p.quantityColumn] : []));
 }
 
-/** 웹에서 고를 수 있는 상품 id — 카탈로그 순서 */
+/**
+ * 웹에서 고를 수 있는 상품 id — 카탈로그 순서
+ * @throws 수량 칸이 없는 상품을 editable 로 두면 — 웹 수정이 수량을 쓸 칸이 없다
+ */
 export function editableProductsOf(catalog: ProductCatalog = PRODUCT_CATALOG): readonly string[] {
-  return catalog.filter((p) => p.editable).map((p) => p.id);
+  const editable = catalog.filter((p) => p.editable);
+  const withoutColumn = editable.filter((p) => !p.quantityColumn).map((p) => p.id);
+  if (withoutColumn.length > 0) {
+    throw new Error(`상품 카탈로그 오류: 웹에서 고를 수 있는 상품에 수량 칸이 없습니다 — ${withoutColumn.join(', ')}`);
+  }
+  return editable.map((p) => p.id);
 }
 
 export function findProduct(id: string | null | undefined, catalog: ProductCatalog = PRODUCT_CATALOG): ProductDefinition | undefined {
