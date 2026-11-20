@@ -2,7 +2,8 @@ import { google, sheets_v4 } from 'googleapis';
 import { JWT } from 'google-auth-library';
 import { Config } from '../config/config.js';
 import type { SheetRow, OrderStatus } from '../types/order.js';
-import { validateProductSelection, normalizeOrderStatus } from '../types/order.js';
+import { validateProductSelection, normalizeOrderStatus, extractQuantity } from '../types/order.js';
+import { resolveProductEdit, type EditableProductType, type ProductEditCells } from '../types/product-edit.js';
 import fs from 'fs';
 
 /**
@@ -936,7 +937,7 @@ export class SheetService {
     updates: {
       sender?: { name?: string; phone?: string; address?: string };
       recipient?: { name?: string; phone?: string; address?: string };
-      productType?: '5kg' | '10kg' | '비상품';
+      productType?: EditableProductType;
       quantity?: number;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;
@@ -972,25 +973,9 @@ export class SheetService {
         }
       }
 
-      // 상품 정보
-      if (updates.productType !== undefined) {
-        columnUpdates['상품 선택'] = updates.productType;
-      }
-
-      // 수량 (5kg 또는 10kg 수량 컬럼에 저장)
-      if (updates.quantity !== undefined) {
-        // 현재 주문 조회하여 상품 타입 확인
-        const currentOrder = await this.getOrderByRowNumber(rowNumber);
-        if (currentOrder) {
-          const productType = updates.productType || currentOrder['상품 선택'];
-          if (productType?.includes('5kg')) {
-            columnUpdates['5kg 수량'] = String(updates.quantity);
-            columnUpdates['10kg 수량'] = '';
-          } else if (productType?.includes('10kg')) {
-            columnUpdates['10kg 수량'] = String(updates.quantity);
-            columnUpdates['5kg 수량'] = '';
-          }
-        }
+      // #282 상품 · 수량 — DB 와 같은 함수로 세 칸(상품 선택 · 5kg 수량 · 10kg 수량)을 함께 쓴다
+      if (updates.productType !== undefined || updates.quantity !== undefined) {
+        Object.assign(columnUpdates, await this.resolveProductEditCells(rowNumber, updates));
       }
 
       // 주문 유형 (Issue #152: claim 추가)
@@ -1018,5 +1003,23 @@ export class SheetService {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to update order (row: ${rowNumber}): ${message}`);
     }
+  }
+
+  /** #282: 상품 · 수량 수정 값 → 시트 칸. 상품을 주지 않으면 시트의 지금 상품(폼 원문)을 해석해 쓴다 */
+  private async resolveProductEditCells(
+    rowNumber: number,
+    updates: { productType?: EditableProductType; quantity?: number }
+  ): Promise<ProductEditCells> {
+    const needsCurrent = updates.productType === undefined || updates.quantity === undefined;
+    const currentRow = needsCurrent ? await this.getOrderByRowNumber(rowNumber) : null;
+    if (needsCurrent && !currentRow) {
+      throw new Error(`Order not found at row ${rowNumber}`);
+    }
+    const current = currentRow
+      ? { productType: validateProductSelection(String(currentRow['상품 선택'] ?? '')).productType, quantity: extractQuantity(currentRow) }
+      : { productType: null, quantity: 1 };
+    const edit = resolveProductEdit(current, updates);
+    if (!edit) throw new Error('No product edit');
+    return edit.cells;
   }
 }

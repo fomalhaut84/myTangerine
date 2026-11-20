@@ -44,6 +44,10 @@ const fieldLabels: Record<string, string> = {
   quantity5kg: '5kg 수량',
   quantity10kg: '10kg 수량',
   productType: '상품 타입',
+  // #282 상품 · 수량 수정
+  productSelection: '상품 선택',
+  quantity: '수량',
+  validationError: '상품 선택 오류',
   price: '가격',
   status: '상태',
   deletedAt: '삭제 일시',

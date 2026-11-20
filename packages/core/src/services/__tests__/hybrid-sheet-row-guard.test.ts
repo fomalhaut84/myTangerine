@@ -27,6 +27,7 @@ function setup(opts: {
   const sheet = {
     updateOrderStatus: vi.fn().mockResolvedValue(undefined),
     markDelivered: vi.fn().mockResolvedValue(undefined),
+    updateOrder: vi.fn().mockResolvedValue(undefined),
     getTimestampsByRows: opts.sheetReadFails
       ? vi.fn().mockRejectedValue(new Error('quota'))
       : vi.fn(async (rows: number[]) => new Map(rows.map((n) => [n, opts.sheet[n] ?? '']))),
@@ -34,6 +35,7 @@ function setup(opts: {
   const db = {
     updateOrderStatus: vi.fn().mockResolvedValue(undefined),
     markDelivered: vi.fn().mockResolvedValue(undefined),
+    updateOrder: vi.fn().mockResolvedValue(undefined),
     markSheetSyncFailed: vi.fn(),
     getOrderTimestampsByRows: vi.fn(
       async (rows: number[]) =>
@@ -78,6 +80,21 @@ describe('hybrid 쓰기 전 시트 행 확인 (#258)', () => {
     expect(sheet.updateOrderStatus).not.toHaveBeenCalled();
     expect(db.markSheetSyncFailed).not.toHaveBeenCalled();
     expect(logger.error).toHaveBeenCalledWith(expect.stringContaining('[hybrid-guard]'));
+  });
+
+  it('#282: 상품 · 수량 수정도 행을 확인한다 — 다른 주문이면 DB · 시트 모두 쓰지 않고 409', async () => {
+    const { service, sheet, db } = setup({ sheet: { 391: B }, db: { 391: A } });
+    await expect(service.updateOrder(391, { productType: '10kg', quantity: 2 })).rejects.toBeInstanceOf(SheetRowMismatchError);
+    expect(db.updateOrder).not.toHaveBeenCalled();
+    expect(sheet.updateOrder).not.toHaveBeenCalled();
+  });
+
+  it('#282: 같은 주문이면 상품 · 수량을 DB(web) → 시트 순서로 쓴다', async () => {
+    const { service, sheet, db } = setup({ sheet: { 391: A }, db: { 391: A } });
+    await service.updateOrder(391, { productType: '10kg', quantity: 2 });
+    expect(db.updateOrder).toHaveBeenCalledWith(391, { productType: '10kg', quantity: 2 }, 'web');
+    expect(sheet.updateOrder).toHaveBeenCalledWith(391, { productType: '10kg', quantity: 2 });
+    expect(db.updateOrder.mock.invocationCallOrder[0]).toBeLessThan(sheet.updateOrder.mock.invocationCallOrder[0]);
   });
 
   it('여러 행 중 하나라도 다르면 요청 전체를 거절한다 · 시트는 한 번에 읽는다', async () => {
