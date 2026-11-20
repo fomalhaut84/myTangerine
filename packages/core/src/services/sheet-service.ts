@@ -779,20 +779,19 @@ export class SheetService {
   async markDelivered(rowNumbers: number[], trackingNumber?: string): Promise<void> {
     try {
       const headers = await this.getHeaders();
+      // #293: 송장번호를 저장해야 하는데 칸이 없으면 아무것도 쓰지 않고 던진다 — 조용히 성공하면 hybrid 가
+      // 시트 반영 실패 표시를 남기지 않아 DB 에만 있는 송장이 표시 없이 남는다
+      const 송장번호ColIndex = headers.findIndex(h => h === '송장번호');
+      if (trackingNumber && 송장번호ColIndex === -1) {
+        throw new Error("'송장번호' column not found — nothing written");
+      }
 
       for (const rowNum of rowNumbers) {
         await this.updateOrderStatus(rowNum, '배송완료');
 
         // 송장번호가 제공된 경우 저장
         if (trackingNumber) {
-          const 송장번호ColIndex = headers.findIndex(h => h === '송장번호');
-
-          if (송장번호ColIndex !== -1) {
-            const 송장번호Col = 송장번호ColIndex + 1; // 1-based
-            await this.updateCell(rowNum, 송장번호Col, trackingNumber);
-          } else {
-            console.warn("[SheetService] '송장번호' column not found. Tracking number not saved.");
-          }
+          await this.updateCell(rowNum, 송장번호ColIndex + 1, trackingNumber); // 1-based
         }
       }
     } catch (error) {
@@ -810,12 +809,11 @@ export class SheetService {
     try {
       const headers = await this.getHeaders();
 
-      let 삭제됨ColIndex = headers.findIndex(h => h === '삭제됨');
+      const 삭제됨ColIndex = headers.findIndex(h => h === '삭제됨');
 
-      // '삭제됨' 컬럼이 없으면 경고 (컬럼 추가는 별도 작업 필요)
+      // #293: '삭제됨' 칸이 없으면 던진다 — 조용히 성공하면 hybrid 가 시트 반영 실패 표시를 남기지 않는다
       if (삭제됨ColIndex === -1) {
-        console.warn("[SheetService] '삭제됨' column not found. Soft delete may not work properly.");
-        return;
+        throw new Error("'삭제됨' column not found — nothing written");
       }
 
       const 삭제됨Col = 삭제됨ColIndex + 1; // 1-based
@@ -839,11 +837,11 @@ export class SheetService {
     try {
       const headers = await this.getHeaders();
 
-      let 삭제됨ColIndex = headers.findIndex(h => h === '삭제됨');
+      const 삭제됨ColIndex = headers.findIndex(h => h === '삭제됨');
 
+      // #293: '삭제됨' 칸이 없으면 던진다(softDelete 와 같은 이유)
       if (삭제됨ColIndex === -1) {
-        console.warn("[SheetService] '삭제됨' column not found.");
-        return;
+        throw new Error("'삭제됨' column not found — nothing written");
       }
 
       const 삭제됨Col = 삭제됨ColIndex + 1; // 1-based

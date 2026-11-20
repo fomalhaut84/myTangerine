@@ -300,7 +300,8 @@ describe('DatabaseService 재조정 쿼리', () => {
     const svc = new DatabaseService({} as never, { order: { findMany } } as never);
     await svc.getSheetSyncFailedOrders(10);
     expect(findMany).toHaveBeenCalledWith({
-      where: { syncStatus: 'failed', sheetRowNumber: { not: null } },
+      // #293: 진행 중인 대기 표시 제외 조건(OR)은 database-service-transaction.test.ts 에서 본다
+      where: expect.objectContaining({ syncStatus: 'failed', sheetRowNumber: { not: null }, OR: expect.any(Array) }),
       orderBy: { updatedAt: 'asc' },
       take: 10,
     });

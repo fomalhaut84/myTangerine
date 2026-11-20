@@ -32,6 +32,14 @@ const FIND_OTHER_ROW_WINDOW_MS = 27 * 60 * 60 * 1000;
  */
 const WRITE_TX_OPTIONS = { maxWait: 5_000, timeout: 20_000 } as const;
 
+/**
+ * #293: hybrid 쓰기가 DB 를 쓰기 전에 남기는 "시트 반영 대기" 표시의 사유 칸 접두어 — 뒤에 이번 쓰기 고유값이 붙는다
+ */
+export const SHEET_WRITE_PENDING_PREFIX = 'sheet-write-pending:';
+
+/** #293: 이보다 오래된 대기 표시는 쓰기 도중 끝난 것으로 보고 재조정한다(쓰기 한 번은 보통 수 초) */
+export const SHEET_WRITE_PENDING_GRACE_MS = 5 * 60 * 1000;
+
 /** syncErrorMessage 최대 길이 */
 const MAX_SYNC_ERROR_LENGTH = 1000;
 
@@ -394,13 +402,43 @@ export class DatabaseService {
   /**
    * 시트 반영 실패 기록 (#197) — hybrid 쓰기에서 DB 는 성공했는데 시트가 실패한 행.
    * 주문 데이터·version·변경 이력은 건드리지 않는다.
+   * @returns 표시한 행 수(#293 — 대상보다 적으면 호출자가 로그로 알린다)
    */
-  async markSheetSyncFailed(rowNumbers: number[], reason: string): Promise<void> {
-    if (rowNumbers.length === 0) return;
-    await this._prisma.order.updateMany({
+  async markSheetSyncFailed(rowNumbers: number[], reason: string): Promise<number> {
+    if (rowNumbers.length === 0) return 0;
+    const { count } = await this._prisma.order.updateMany({
       where: { sheetRowNumber: { in: rowNumbers } },
       data: { syncStatus: 'failed', syncErrorMessage: reason.slice(0, MAX_SYNC_ERROR_LENGTH) },
     });
+    return count;
+  }
+
+  /**
+   * #293: hybrid 쓰기 전에 "시트 반영 대기" 표시를 먼저 남긴다 — 이번 쓰기의 고유값(token)을 사유 칸에 둔다.
+   * DB 를 쓴 뒤 시트까지 성공하면 `clearSheetWritePending` 이 같은 고유값일 때만 지운다. 표시 기록 실패 · 중간 종료에도
+   * DB 전용 변경이 표시 없이 남지 않게 한다(시트 우선 가져오기 · 재조정이 이 표시를 본다).
+   * 이미 실패 표시가 있는 행은 건드리지 않는다 — 그 사유와 재조정 대상 자격을 지킨다(일부 필드 쓰기의 성공으로 지우지 않는다 · PR #230)
+   */
+  async markSheetWritePending(rowNumbers: number[], token: string): Promise<void> {
+    if (rowNumbers.length === 0) return;
+    await this._prisma.order.updateMany({
+      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: { not: 'failed' } },
+      data: { syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}${token}` },
+    });
+  }
+
+  /**
+   * #293: 이번 쓰기가 남긴 대기 표시만 지운다 — 그 사이 시트 실패 사유로 바뀌었거나 다른 쓰기가 다시 표시한 행은 남긴다.
+   * `syncedAt`(DB_SYNC_AT · 시트 → DB 반영 시각)은 바꾸지 않는다.
+   * @returns 지운 행 수
+   */
+  async clearSheetWritePending(rowNumbers: number[], token: string): Promise<number> {
+    if (rowNumbers.length === 0) return 0;
+    const { count } = await this._prisma.order.updateMany({
+      where: { sheetRowNumber: { in: rowNumbers }, syncStatus: 'failed', syncErrorMessage: `${SHEET_WRITE_PENDING_PREFIX}${token}` },
+      data: { syncStatus: 'success', syncErrorMessage: null },
+    });
+    return count;
   }
 
   /**
@@ -412,6 +450,13 @@ export class DatabaseService {
       where: {
         syncStatus: 'failed',
         sheetRowNumber: { not: null },
+        // #293: 진행 중인 hybrid 쓰기의 대기 표시는 뺀다 — DB 를 쓰기 전 값을 시트에 쓰지 않게.
+        // 여유 시간이 지난 대기 표시(쓰기 도중 프로세스가 끝남)는 넣어 DB 값으로 맞춘다
+        OR: [
+          { syncErrorMessage: null },
+          { NOT: { syncErrorMessage: { startsWith: SHEET_WRITE_PENDING_PREFIX } } },
+          { updatedAt: { lte: new Date(Date.now() - SHEET_WRITE_PENDING_GRACE_MS) } },
+        ],
         // 재조정기가 미뤄 둔(백오프) 주문은 빼고 읽는다 — 막힌 주문이 앞자리를 차지해 뒤 주문을 가리지 않게
         ...(excludeIds.length > 0 ? { id: { notIn: [...excludeIds] } } : {}),
       },
@@ -780,42 +825,6 @@ export class DatabaseService {
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       throw new Error(`Failed to get deleted orders: ${message}`);
-    }
-  }
-
-  /**
-   * 특정 셀 업데이트 (SheetService 호환)
-   * @param rowNumber - 행 번호
-   * @param columnName - 컬럼명 (한글 또는 영문 매핑)
-   * @param value - 업데이트할 값
-   */
-  async updateCell(rowNumber: number, columnName: string, value: string): Promise<void> {
-    try {
-      return await this._prisma.$transaction(async (db: Prisma.TransactionClient) => {
-        // 컬럼명 매핑 (한글 → DB 필드)
-        const columnMap: Record<string, string> = {
-          '비고': 'status',
-          'DB_SYNC_STATUS': 'syncStatus',
-          'DB_SYNC_AT': 'syncedAt',
-          'DB_SYNC_ID': 'id',
-        };
-
-        const dbField = columnMap[columnName] || columnName;
-
-        // 동적 업데이트 (타입 안전성 제한적)
-        await db.order.updateMany({
-          where: { sheetRowNumber: rowNumber },
-          data: {
-            [dbField]: value,
-            updatedAt: new Date(),
-          } as any,
-        });
-      }, WRITE_TX_OPTIONS);
-    } catch (error) {
-      const message = error instanceof Error ? error.message : String(error);
-      throw new Error(
-        `Failed to update cell (row: ${rowNumber}, column: ${columnName}): ${message}`
-      );
     }
   }
 
