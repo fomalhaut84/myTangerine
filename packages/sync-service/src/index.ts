@@ -10,7 +10,6 @@ import {
   Config,
   SheetService,
   DatabaseService,
-  ChangeLogService,
   isWithinNoticeWindow,
   NEW_ORDER_NOTICE_WINDOW_MS,
   type SyncEngineOptions,
@@ -80,10 +79,6 @@ async function main() {
     const databaseService = new DatabaseService(config);
     logger.info('DatabaseService initialized');
 
-    // ChangeLogService 초기화 (Phase 2: 충돌 감지용)
-    const changeLogService = new ChangeLogService(databaseService.prisma);
-    logger.info('ChangeLogService initialized');
-
     // #251 신규 주문 알림(hermes) — 루트 .env 를 읽은 Config 다음에 읽는다. 키가 없으면 표시도 발송도 하지 않는다
     const notifications = createNotifications(databaseService);
     const notifier = notifications?.notifier;
@@ -96,8 +91,7 @@ async function main() {
         }
       : {};
 
-    // SyncEngine 초기화 (logger + changeLogService 전달)
-    const syncEngine = new SyncEngine(sheetService, databaseService, logger, changeLogService, syncEngineOptions);
+    const syncEngine = new SyncEngine(sheetService, databaseService, logger, syncEngineOptions);
     logger.info('SyncEngine initialized');
 
     // PollingScheduler 초기화 및 시작

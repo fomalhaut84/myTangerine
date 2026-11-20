@@ -2,7 +2,7 @@
  * 시트 우선 가져오기(#281) 변경 이력 비교
  *
  * upsert update 가 덮어쓰는 필드 전체를 비교한다 — 상태 되돌림 · 송장 삭제 · 삭제 복원까지 이력에 남겨야
- * "DB 가 정본" 에서 복구를 추적할 수 있다. (`SyncEngine.calculateSheetDbDifferences` 는 충돌 로그용 8개 필드만 본다)
+ * "DB 가 정본" 에서 복구를 추적할 수 있다.
  */
 
 import type { FieldChange } from './change-log-service.js';

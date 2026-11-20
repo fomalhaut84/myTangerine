@@ -185,7 +185,6 @@ describe('SyncEngine — 정책은 새로 만드는 행에만 넘긴다', () => 
       sheetService as unknown as SheetService,
       databaseService as unknown as DatabaseService,
       undefined,
-      undefined,
       options
     );
     return { e, databaseService };
