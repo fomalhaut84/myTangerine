@@ -12,6 +12,7 @@
 import type { SheetService } from './sheet-service.js';
 import type { DatabaseService } from './database-service.js';
 import type { SheetRow, OrderStatus } from '../types/order.js';
+import type { EditableProductType } from '../types/product-edit.js';
 import {
   HybridWriteError,
   SheetRowMismatchError,
@@ -378,7 +379,7 @@ export class HybridDataService {
     updates: {
       sender?: { name?: string; phone?: string; address?: string };
       recipient?: { name?: string; phone?: string; address?: string };
-      productType?: '5kg' | '10kg' | '비상품';
+      productType?: EditableProductType;
       quantity?: number;
       orderType?: 'customer' | 'gift' | 'claim';
       trackingNumber?: string;

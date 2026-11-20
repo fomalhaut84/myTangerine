@@ -53,7 +53,7 @@ const WRITES: Array<[string, (s: DatabaseService) => Promise<unknown>]> = [
   ['markDeliveredById', (s) => s.markDeliveredById(1, 'T-1', 'web')],
   ['softDelete', (s) => s.softDelete([2], 'web')],
   ['restore', (s) => s.restore([2], 'web')],
-  ['updateOrder', (s) => s.updateOrder(2, { quantity: 2, recipient: { name: '새이름' } }, 'web')],
+  ['updateOrder', (s) => s.updateOrder(2, { productType: '5kg', quantity: 2, recipient: { name: '새이름' } }, 'web')],
   ['updateCell', (s) => s.updateCell(2, '비고', '입금확인')],
 ];
 

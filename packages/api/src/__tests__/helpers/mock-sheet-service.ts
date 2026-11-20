@@ -13,6 +13,7 @@ export class MockSheetService {
   private mockAllOrders: SheetRow[] = [];
   private confirmedCount = 0;
   private deliveredCalls: ReadonlyArray<{ rowNumbers: number[]; trackingNumber?: string }> = [];
+  private updateOrderCalls: ReadonlyArray<{ rowNumber: number; updates: MockOrderUpdates }> = [];
 
   /**
    * Mock 데이터 설정 (신규 주문)
@@ -135,6 +136,32 @@ export class MockSheetService {
   }
 
   /**
+   * 주문 수정 (mock) — 호출을 기록하고 상품 · 수량은 행에 반영한다(#282 — 응답이 수정 뒤 행을 다시 읽는다)
+   */
+  async updateOrder(rowNumber: number, updates: MockOrderUpdates): Promise<void> {
+    this.updateOrderCalls = [...this.updateOrderCalls, { rowNumber, updates }];
+    if (updates.productType === undefined || updates.quantity === undefined) return;
+    const qty = String(updates.quantity);
+    const apply = (row: SheetRow): SheetRow =>
+      row._rowNumber !== rowNumber
+        ? row
+        : {
+            ...row,
+            '상품 선택': updates.productType!,
+            '5kg 수량': updates.productType === '5kg' ? qty : '',
+            '10kg 수량': updates.productType === '10kg' ? qty : '',
+            _validationError: undefined,
+          };
+    this.mockNewOrders = this.mockNewOrders.map(apply);
+    this.mockCompletedOrders = this.mockCompletedOrders.map(apply);
+    this.mockAllOrders = this.mockAllOrders.map(apply);
+  }
+
+  getUpdateOrderCalls(): ReadonlyArray<{ rowNumber: number; updates: MockOrderUpdates }> {
+    return this.updateOrderCalls;
+  }
+
+  /**
    * 확인된 개수 조회 (테스트용)
    */
   getConfirmedCount(): number {
@@ -150,7 +177,18 @@ export class MockSheetService {
     this.mockAllOrders = [];
     this.confirmedCount = 0;
     this.deliveredCalls = [];
+    this.updateOrderCalls = [];
   }
+}
+
+/** PATCH 가 넘기는 수정 값 (mock 기록용) */
+export interface MockOrderUpdates {
+  sender?: { name?: string; phone?: string; address?: string };
+  recipient?: { name?: string; phone?: string; address?: string };
+  productType?: string;
+  quantity?: number;
+  orderType?: string;
+  trackingNumber?: string;
 }
 
 /**
